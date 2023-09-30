@@ -21,7 +21,16 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-ssh-key = "0.6.1"
-ssh-packet = "0.1.3"
-
+tracing = "0.1.37"
 thiserror = "1.0.49"
+futures = "0.3.28"
+futures-time = "3.0.0"
+
+ssh-key = "0.6.1"
+ssh-packet = { version = "0.1.8", features = ["futures"] }
+rand = { version = "0.8.5", default-features = false, features = [
+    "std",
+    "std_rng",
+] }
+replace_with = "0.1.7"
+strum = { version = "0.25.0", features = ["derive"] }
