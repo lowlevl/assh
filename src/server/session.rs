@@ -82,7 +82,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                     // initiate rekeying in this case,
                     // or if we sent a certain amount of packets.
                     if stream.needs_rekey() {
-                        let kexinit = self.config.kexinit();
+                        let kexinit = self.config.kexinit()?;
                         stream.send(&kexinit).await?;
 
                         replace_with::replace_with(

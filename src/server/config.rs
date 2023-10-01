@@ -1,10 +1,13 @@
 use futures_time::time::Duration;
-use rand::RngCore;
+use ring::rand::SecureRandom;
 use ssh_key::PrivateKey;
 use ssh_packet::{arch::NameList, trans::KexInit, Id};
 use strum::VariantNames;
 
-use crate::transport::{CompressAlg, EncryptAlg, HmacAlg, KexAlg};
+use crate::{
+    transport::{CompressAlg, EncryptAlg, HmacAlg, KexAlg},
+    Result,
+};
 
 #[derive(Debug)]
 pub struct Config {
@@ -27,11 +30,11 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn kexinit(&self) -> KexInit {
+    pub fn kexinit(&self) -> Result<KexInit> {
         let mut cookie = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut cookie);
+        ring::rand::SystemRandom::new().fill(&mut cookie)?;
 
-        KexInit {
+        Ok(KexInit {
             cookie,
             kex_algorithms: NameList::new(KexAlg::VARIANTS),
             server_host_key_algorithms: NameList::new(
@@ -50,6 +53,6 @@ impl Config {
             languages_client_to_server: NameList::default(),
             languages_server_to_client: NameList::default(),
             first_kex_packet_follows: false.into(),
-        }
+        })
     }
 }

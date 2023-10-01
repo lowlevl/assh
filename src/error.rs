@@ -1,20 +1,24 @@
-use std::convert::Infallible;
-
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
-    Packet(#[from] ssh_packet::Error<Infallible>),
+    Packet(#[from] ssh_packet::Error),
 
     #[error(transparent)]
-    PacketCipher(#[from] ssh_packet::Error<ssh_key::Error>),
+    Binary(#[from] ssh_packet::binrw::Error),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
     #[error(transparent)]
     Key(#[from] ssh_key::Error),
+
+    #[error(transparent)]
+    Cipher(#[from] ssh_cipher::Error),
+
+    #[error(transparent)]
+    Crypto(#[from] ring::error::Unspecified),
 
     #[error("The session has been disconnected")]
     Disconnected,
