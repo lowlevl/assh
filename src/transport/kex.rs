@@ -1,4 +1,7 @@
+use std::vec;
+
 use futures::{AsyncRead, AsyncWrite};
+use ssh_key::PrivateKey;
 use ssh_packet::trans::{KexEcdhInit, KexEcdhReply};
 use strum::{EnumString, EnumVariantNames};
 
@@ -23,12 +26,12 @@ impl KexAlg {
     pub async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
+        key: &PrivateKey,
     ) -> Result<[u8; 32]> {
         match self {
             KexAlg::Curve25519Sha256 | KexAlg::Curve25519Sha256Ext => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
 
-                tracing::info!("KexDH init: {ecdh:?}");
                 let q_c: [u8; 32] = ecdh
                     .q_c
                     .into_vec()
@@ -41,7 +44,12 @@ impl KexAlg {
 
                 let secret = e_s.diffie_hellman(&q_c);
 
-                // let reply = KexEcdhReply { q_s };
+                let reply = KexEcdhReply {
+                    k_s: key.public_key().to_bytes()?.into(),
+                    q_s: q_s.as_bytes().to_vec().into(),
+                    signature: vec![].into(),
+                };
+                stream.send(&reply).await?;
 
                 Ok(secret.to_bytes())
             }

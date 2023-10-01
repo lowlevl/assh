@@ -13,11 +13,17 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
+    #[error(transparent)]
+    Key(#[from] ssh_key::Error),
+
     #[error("The session has been disconnected")]
     Disconnected,
 
     #[error("Unable to negociate a common kex algorithm")]
     NoCommonKex,
+
+    #[error("Unable to negociate a common key algorithm")]
+    NoCommonKey,
 
     #[error("Unable to negociate a common encryption algorithm")]
     NoCommonEncryption,

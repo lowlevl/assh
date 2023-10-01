@@ -28,6 +28,10 @@ async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Binding server on port {port}");
 
     let mut client = Command::new("ssh")
+        .arg("-o")
+        .arg("StrictHostKeyChecking=no")
+        .arg("-o")
+        .arg("UserKnownHostsFile=/dev/null")
         .arg(format!("-p {port}"))
         .arg("user@127.0.0.1")
         .spawn()?;

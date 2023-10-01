@@ -1,5 +1,5 @@
 use rand::RngCore;
-use ssh_key::Cipher;
+use ssh_key::{Algorithm, Cipher};
 use ssh_packet::{trans::KexInit, OpeningCipher, Packet, SealingCipher};
 
 mod compress;
@@ -65,7 +65,10 @@ impl Transport {
         }
     }
 
-    pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(KexAlg, Self, Self)> {
+    pub fn negociate(
+        clientkex: &KexInit,
+        serverkex: &KexInit,
+    ) -> Result<(KexAlg, Algorithm, Self, Self)> {
         let client_to_server = Self {
             encrypt: clientkex
                 .encryption_algorithms_client_to_server
@@ -108,14 +111,20 @@ impl Transport {
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
             seq: 0,
         };
-        let alg: KexAlg = clientkex
+        let kexalg: KexAlg = clientkex
             .kex_algorithms
             .preferred(&serverkex.kex_algorithms)
             .ok_or(Error::NoCommonKex)?
             .parse()
             .map_err(|_| Error::UnsupportedAlgorithm)?;
+        let keyalg: Algorithm = clientkex
+            .server_host_key_algorithms
+            .preferred(&serverkex.server_host_key_algorithms)
+            .ok_or(Error::NoCommonKey)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)?;
 
-        Ok((alg, client_to_server, server_to_client))
+        Ok((kexalg, keyalg, client_to_server, server_to_client))
     }
 }
 

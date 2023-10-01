@@ -42,7 +42,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
 
         let message = packet.decrypt(&mut self.transport)?;
 
-        tracing::trace!("recv {message:?}");
+        tracing::trace!("<- {message:?}");
 
         Ok(message)
     }
@@ -58,7 +58,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             .timeout(self.timeout)
             .await??;
 
-        tracing::trace!("sent {message:?}",);
+        tracing::trace!("-> {message:?}",);
 
         Ok(())
     }
