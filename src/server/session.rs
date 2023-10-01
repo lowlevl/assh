@@ -11,7 +11,7 @@ use strum::VariantNames;
 
 use super::Config;
 use crate::{
-    transport::{CompressAlg, EncryptAlg, HmacAlg, KexAlg, TransportPair},
+    transport::{CompressAlg, EncryptAlg, HmacAlg, KexAlg, Transport, TransportPair},
     Error, Result,
 };
 
@@ -68,69 +68,27 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                     transport,
                     kexinit,
                 } => {
-                    let packet = Packet::from_async_reader(stream, transport)
+                    let peerkexinit: KexInit = Packet::from_async_reader(stream, transport)
                         .timeout(self.config.timeout)
-                        .await??;
+                        .await??
+                        .decrypt(transport)?;
 
-                    let peerkexinit = packet.decrypt::<KexInit, _>(transport)?;
-
-                    let kex: KexAlg = peerkexinit
-                        .kex_algorithms
-                        .preferred(&kexinit.kex_algorithms)
-                        .ok_or(Error::NoCommonKex)?
-                        .parse()
-                        .map_err(|_| Error::UnsupportedAlgorithm)?;
-
-                    let mut transport = TransportPair::default();
-
-                    transport.encrypt.rx = peerkexinit
-                        .encryption_algorithms_client_to_server
-                        .preferred(&kexinit.encryption_algorithms_client_to_server)
-                        .ok_or(Error::NoCommonEncryption)?
-                        .parse()
-                        .map_err(|_| Error::UnsupportedAlgorithm)?;
-                    transport.encrypt.tx = peerkexinit
-                        .encryption_algorithms_server_to_client
-                        .preferred(&kexinit.encryption_algorithms_server_to_client)
-                        .ok_or(Error::NoCommonEncryption)?
-                        .parse()
-                        .map_err(|_| Error::UnsupportedAlgorithm)?;
-
-                    transport.hmac.rx = peerkexinit
-                        .mac_algorithms_client_to_server
-                        .preferred(&kexinit.mac_algorithms_client_to_server)
-                        .ok_or(Error::NoCommonHmac)?
-                        .parse()
-                        .map_err(|_| Error::UnsupportedAlgorithm)?;
-                    transport.hmac.tx = peerkexinit
-                        .mac_algorithms_server_to_client
-                        .preferred(&kexinit.mac_algorithms_server_to_client)
-                        .ok_or(Error::NoCommonHmac)?
-                        .parse()
-                        .map_err(|_| Error::UnsupportedAlgorithm)?;
-
-                    transport.compress.rx = peerkexinit
-                        .compression_algorithms_client_to_server
-                        .preferred(&kexinit.compression_algorithms_client_to_server)
-                        .ok_or(Error::NoCommonCompression)?
-                        .parse()
-                        .map_err(|_| Error::UnsupportedAlgorithm)?;
-                    transport.compress.tx = peerkexinit
-                        .compression_algorithms_server_to_client
-                        .preferred(&kexinit.compression_algorithms_server_to_client)
-                        .ok_or(Error::NoCommonCompression)?
-                        .parse()
-                        .map_err(|_| Error::UnsupportedAlgorithm)?;
+                    let (kexalg, client_to_server, server_to_client) =
+                        Transport::negociate(&peerkexinit, kexinit)?;
+                    let newtransport = TransportPair {
+                        rx: client_to_server,
+                        tx: server_to_client,
+                    };
 
                     tracing::debug!("Negociated the following algorithms {transport:?}");
 
-                    unimplemented!()
+                    let secret = kexalg.reply(stream, transport, self.config.timeout).await?;
                 }
                 SessionState::Running { stream, transport } => {
                     // On first call to recv, the cipher will be `none`,
                     // initiate rekeying in this case,
                     // or if we sent a certain amount of packets.
-                    if transport.encrypt.rx.is_none() || transport.hmac.seq > REKEY_AFTER {
+                    if transport.tx.encrypt.is_none() || transport.tx.seq > REKEY_AFTER {
                         let kexinit = self.kexinit();
                         self.send(&kexinit).await?;
 
@@ -153,11 +111,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         continue;
                     }
 
-                    let packet = Packet::from_async_reader(stream, transport)
+                    let message: Message = Packet::from_async_reader(stream, transport)
                         .timeout(self.config.timeout)
-                        .await??;
+                        .await??
+                        .decrypt(transport)?;
 
-                    match packet.decrypt::<Message, _>(transport)? {
+                    match message {
                         Message::Disconnect(_) => {
                             self.state = SessionState::Disconnected;
                         }

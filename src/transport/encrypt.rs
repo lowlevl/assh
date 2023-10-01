@@ -1,21 +1,6 @@
 use ssh_key::Cipher;
 use strum::{EnumString, EnumVariantNames};
 
-#[derive(Debug)]
-pub struct EncryptPair {
-    pub rx: Cipher,
-    pub tx: Cipher,
-}
-
-impl Default for EncryptPair {
-    fn default() -> Self {
-        Self {
-            rx: Cipher::None,
-            tx: Cipher::None,
-        }
-    }
-}
-
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum EncryptAlg {

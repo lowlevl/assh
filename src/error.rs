@@ -30,6 +30,9 @@ pub enum Error {
 
     #[error("Received algorithm is unsupported")]
     UnsupportedAlgorithm,
+
+    #[error("Error in the kex-exchange algorithm")]
+    KexError,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

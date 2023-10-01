@@ -1,14 +1,6 @@
 use ssh_packet::Packet;
 use strum::{EnumString, EnumVariantNames};
 
-#[derive(Debug, Default)]
-pub struct HmacPair {
-    pub rx: HmacAlg,
-    pub tx: HmacAlg,
-
-    pub seq: u32,
-}
-
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum HmacAlg {
