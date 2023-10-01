@@ -121,6 +121,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         .ok_or(Error::NoCommonCompression)?
                         .parse()
                         .map_err(|_| Error::UnsupportedAlgorithm)?;
+
+                    tracing::debug!("Negociated the following algorithms {transport:?}");
+
+                    unimplemented!()
                 }
                 SessionState::Running { stream, transport } => {
                     // On first call to recv, the cipher will be `none`,
@@ -176,7 +180,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         }
     }
 
-    pub async fn send<T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian>(
+    pub async fn send<T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug>(
         &mut self,
         message: &T,
     ) -> Result<()> {
@@ -189,6 +193,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                 stream, transport, ..
             } => {
                 let packet = Packet::encrypt(message, transport)?;
+                tracing::trace!(
+                    "Sending (payload: {}, padding: {}, size: {}) {message:?}",
+                    packet.payload.len(),
+                    packet.padding.len(),
+                    packet.size()
+                );
 
                 Ok(packet.to_async_writer(stream).await?)
             }

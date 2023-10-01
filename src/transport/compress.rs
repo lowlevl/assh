@@ -20,3 +20,21 @@ pub enum CompressAlg {
     #[default]
     None,
 }
+
+impl CompressAlg {
+    pub fn decompress(&self, buf: Vec<u8>) -> Vec<u8> {
+        match self {
+            Self::None => buf,
+
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn compress(&self, buf: Vec<u8>) -> Vec<u8> {
+        match self {
+            Self::None => buf,
+
+            _ => unimplemented!(),
+        }
+    }
+}
