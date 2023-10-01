@@ -1,4 +1,3 @@
-use ssh_key::Cipher;
 use strum::{EnumString, EnumVariantNames};
 
 #[derive(Debug, Default, EnumString, EnumVariantNames)]

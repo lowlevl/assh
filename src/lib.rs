@@ -4,6 +4,7 @@
 mod error;
 pub use error::{Error, Result};
 
+mod stream;
 mod transport;
 
 pub mod server;

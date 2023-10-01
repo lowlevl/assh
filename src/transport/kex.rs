@@ -1,13 +1,8 @@
-use futures::{io::BufReader, AsyncRead, AsyncWrite};
-use futures_time::{future::FutureExt, time::Duration};
-use ssh_packet::{
-    trans::{KexEcdhInit, KexEcdhReply},
-    Packet,
-};
+use futures::{AsyncRead, AsyncWrite};
+use ssh_packet::trans::{KexEcdhInit, KexEcdhReply};
 use strum::{EnumString, EnumVariantNames};
 
-use super::TransportPair;
-use crate::{Error, Result};
+use crate::{stream::Stream, Error, Result};
 
 #[derive(Debug, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
@@ -27,16 +22,11 @@ pub enum KexAlg {
 impl KexAlg {
     pub async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
-        stream: &mut BufReader<S>,
-        transport: &mut TransportPair,
-        timeout: Duration,
+        stream: &mut Stream<S>,
     ) -> Result<[u8; 32]> {
         match self {
             KexAlg::Curve25519Sha256 | KexAlg::Curve25519Sha256Ext => {
-                let ecdh: KexEcdhInit = Packet::from_async_reader(stream, transport)
-                    .timeout(timeout)
-                    .await??
-                    .decrypt(transport)?;
+                let ecdh: KexEcdhInit = stream.recv().await?;
 
                 tracing::info!("KexDH init: {ecdh:?}");
                 let q_c: [u8; 32] = ecdh
