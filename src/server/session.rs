@@ -23,7 +23,7 @@ pub struct Session<S> {
 enum SessionState<S> {
     Kex {
         stream: Stream<S>,
-        kexinit: Box<KexInit>,
+        peerkexinit: Option<Box<KexInit>>,
     },
     Running {
         stream: Stream<S>,
@@ -57,11 +57,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         loop {
             match &mut self.state {
                 SessionState::Disconnected => break Err(Error::Disconnected),
-                SessionState::Kex { stream, kexinit } => {
-                    let peerkexinit: KexInit = stream.recv().await?;
+                SessionState::Kex {
+                    stream,
+                    peerkexinit,
+                } => {
+                    let kexinit = self.config.kexinit()?;
+                    stream.send(&kexinit).await?;
+
+                    let peerkexinit = match peerkexinit.take() {
+                        Some(peerkexinit) => *peerkexinit,
+                        None => stream.recv().await?,
+                    };
 
                     let (kexalg, keyalg, client_to_server, server_to_client) =
-                        Transport::negociate(&peerkexinit, kexinit)?;
+                        Transport::negociate(&peerkexinit, &kexinit)?;
                     let transport = TransportPair {
                         rx: client_to_server,
                         tx: server_to_client,
@@ -81,7 +90,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                             &self.peer_id,
                             &self.config.id,
                             peerkexinit,
-                            *kexinit.clone(),
+                            kexinit,
                             key,
                         )
                         .await?;
@@ -96,16 +105,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                     // initiate rekeying in this case,
                     // or if we sent a certain amount of packets.
                     if stream.should_rekey() {
-                        let kexinit = self.config.kexinit()?;
-                        stream.send(&kexinit).await?;
-
                         replace_with::replace_with(
                             &mut self.state,
                             || SessionState::Disconnected,
                             |state| match state {
                                 SessionState::Running { stream } => SessionState::Kex {
                                     stream,
-                                    kexinit: kexinit.into(),
+                                    peerkexinit: None,
                                 },
                                 _ => state,
                             },
@@ -128,6 +134,19 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                             tracing::debug!(
                                 "Received a 'unimplemented' message about packet #{}",
                                 message.seq
+                            );
+                        }
+                        Message::KexInit(kexinit) => {
+                            replace_with::replace_with(
+                                &mut self.state,
+                                || SessionState::Disconnected,
+                                |state| match state {
+                                    SessionState::Running { stream } => SessionState::Kex {
+                                        stream,
+                                        peerkexinit: Some(kexinit.into()),
+                                    },
+                                    _ => state,
+                                },
                             );
                         }
                         message => break Ok(message),
