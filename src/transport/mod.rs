@@ -20,6 +20,7 @@ use crate::{Error, Result};
 pub struct TransportPair {
     pub rx: Transport,
     pub tx: Transport,
+    pub secret: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -72,19 +73,19 @@ impl Transport {
         let client_to_server = Self {
             encrypt: clientkex
                 .encryption_algorithms_client_to_server
-                .preferred(&serverkex.encryption_algorithms_client_to_server)
+                .preferred_in(&serverkex.encryption_algorithms_client_to_server)
                 .ok_or(Error::NoCommonEncryption)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
             hmac: clientkex
                 .mac_algorithms_client_to_server
-                .preferred(&serverkex.mac_algorithms_client_to_server)
+                .preferred_in(&serverkex.mac_algorithms_client_to_server)
                 .ok_or(Error::NoCommonHmac)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
             compress: clientkex
                 .compression_algorithms_client_to_server
-                .preferred(&serverkex.compression_algorithms_client_to_server)
+                .preferred_in(&serverkex.compression_algorithms_client_to_server)
                 .ok_or(Error::NoCommonCompression)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
@@ -93,19 +94,19 @@ impl Transport {
         let server_to_client = Self {
             encrypt: clientkex
                 .encryption_algorithms_server_to_client
-                .preferred(&serverkex.encryption_algorithms_server_to_client)
+                .preferred_in(&serverkex.encryption_algorithms_server_to_client)
                 .ok_or(Error::NoCommonEncryption)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
             hmac: clientkex
                 .mac_algorithms_server_to_client
-                .preferred(&serverkex.mac_algorithms_server_to_client)
+                .preferred_in(&serverkex.mac_algorithms_server_to_client)
                 .ok_or(Error::NoCommonHmac)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
             compress: clientkex
                 .compression_algorithms_server_to_client
-                .preferred(&serverkex.compression_algorithms_server_to_client)
+                .preferred_in(&serverkex.compression_algorithms_server_to_client)
                 .ok_or(Error::NoCommonCompression)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
@@ -113,13 +114,13 @@ impl Transport {
         };
         let kexalg: KexAlg = clientkex
             .kex_algorithms
-            .preferred(&serverkex.kex_algorithms)
+            .preferred_in(&serverkex.kex_algorithms)
             .ok_or(Error::NoCommonKex)?
             .parse()
             .map_err(|_| Error::UnsupportedAlgorithm)?;
         let keyalg: Algorithm = clientkex
             .server_host_key_algorithms
-            .preferred(&serverkex.server_host_key_algorithms)
+            .preferred_in(&serverkex.server_host_key_algorithms)
             .ok_or(Error::NoCommonKey)?
             .parse()
             .map_err(|_| Error::UnsupportedAlgorithm)?;

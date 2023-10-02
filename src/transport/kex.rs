@@ -61,7 +61,10 @@ impl KexAlg {
                     k_s: key.public_key().to_bytes()?.into(),
                     q_c: q_c.bytes().to_vec().into(),
                     q_s: q_s.as_ref().to_vec().into(),
-                    k: secret.clone().into(),
+                    k: ssh_key::Mpint::from_positive_bytes(&secret)?
+                        .as_bytes()
+                        .to_vec()
+                        .into(),
                 };
 
                 let mut buffer = Vec::new();

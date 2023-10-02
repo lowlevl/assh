@@ -71,18 +71,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
 
                     let (kexalg, keyalg, client_to_server, server_to_client) =
                         Transport::negociate(&peerkexinit, &kexinit)?;
-                    let transport = TransportPair {
-                        rx: client_to_server,
-                        tx: server_to_client,
-                    };
+
+                    tracing::debug!("Negociated the following algorithms:\nctos :: {client_to_server:?}\nstoc :: {server_to_client:?}");
+
                     let key = self
                         .config
                         .keys
                         .iter()
                         .find(|key| key.algorithm() == keyalg)
                         .ok_or(Error::NoCommonKey)?;
-
-                    tracing::debug!("Negociated the following algorithms {transport:?}");
 
                     let secret = kexalg
                         .reply(
@@ -98,7 +95,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                     stream.send(&NewKeys).await?;
                     stream.recv::<NewKeys>().await?;
 
-                    panic!("Kex finished 🎉 ({secret:?})");
+                    stream.with_transport(TransportPair {
+                        rx: client_to_server,
+                        tx: server_to_client,
+                        secret,
+                    });
+
+                    panic!("Kex finished 🎉");
                 }
                 SessionState::Running { stream } => {
                     // On first call to recv, the cipher will be `none`,

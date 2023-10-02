@@ -32,6 +32,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         }
     }
 
+    pub fn with_transport(&mut self, transport: TransportPair) {
+        self.transport = transport;
+    }
+
     pub async fn recv<T>(&mut self) -> Result<T>
     where
         for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
