@@ -2,7 +2,7 @@ use futures::{io::BufReader, AsyncRead, AsyncWrite};
 use futures_time::future::FutureExt;
 use ssh_packet::{
     binrw::{meta::WriteEndian, BinWrite},
-    trans::KexInit,
+    trans::{KexInit, NewKeys},
     Id, Message,
 };
 
@@ -75,13 +75,27 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
 
                     tracing::debug!("Negociated the following algorithms {transport:?}");
 
-                    let secret = kexalg.reply(stream, key).await?;
+                    let secret = kexalg
+                        .reply(
+                            stream,
+                            &self.peer_id,
+                            &self.config.id,
+                            peerkexinit,
+                            *kexinit.clone(),
+                            key,
+                        )
+                        .await?;
+
+                    stream.send(&NewKeys).await?;
+                    stream.recv::<NewKeys>().await?;
+
+                    panic!("Kex finished 🎉 ({secret:?})");
                 }
                 SessionState::Running { stream } => {
                     // On first call to recv, the cipher will be `none`,
                     // initiate rekeying in this case,
                     // or if we sent a certain amount of packets.
-                    if stream.needs_rekey() {
+                    if stream.should_rekey() {
                         let kexinit = self.config.kexinit()?;
                         stream.send(&kexinit).await?;
 

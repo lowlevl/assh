@@ -63,7 +63,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         Ok(())
     }
 
-    pub fn needs_rekey(&self) -> bool {
+    pub fn should_rekey(&self) -> bool {
         self.transport.tx.encrypt.is_none() || self.transport.tx.seq > REKEY_THRESHOLD
     }
 }
