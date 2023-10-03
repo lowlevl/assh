@@ -81,7 +81,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         .find(|key| key.algorithm() == keyalg)
                         .ok_or(Error::NoCommonKey)?;
 
-                    let secret = kexalg
+                    let (secret, _hash) = kexalg
                         .reply(
                             stream,
                             &self.peer_id,

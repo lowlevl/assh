@@ -19,16 +19,14 @@ impl CompressAlg {
     pub fn decompress(&self, buf: Vec<u8>) -> Vec<u8> {
         match self {
             Self::None => buf,
-
-            _ => unimplemented!(),
+            Self::Zlib | Self::ZlibExt => unimplemented!(),
         }
     }
 
     pub fn compress(&self, buf: Vec<u8>) -> Vec<u8> {
         match self {
             Self::None => buf,
-
-            _ => unimplemented!(),
+            Self::Zlib | Self::ZlibExt => unimplemented!(),
         }
     }
 }

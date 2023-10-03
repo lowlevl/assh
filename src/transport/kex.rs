@@ -37,7 +37,7 @@ impl KexAlg {
         i_c: KexInit,
         i_s: KexInit,
         key: &PrivateKey,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<(Vec<u8>, Vec<u8>)> {
         match self {
             KexAlg::Curve25519Sha256 | KexAlg::Curve25519Sha256Ext => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
@@ -54,8 +54,8 @@ impl KexAlg {
                     agreement::agree_ephemeral(e_s, &q_c, Error::KexError, |key| Ok(key.to_vec()))?;
 
                 let exchange = EcdhExchange {
-                    v_c: v_c.to_string().as_bytes().to_vec().into(),
-                    v_s: v_s.to_string().as_bytes().to_vec().into(),
+                    v_c: v_c.to_string().into_bytes().into(),
+                    v_s: v_s.to_string().into_bytes().into(),
                     i_c,
                     i_s,
                     k_s: key.public_key().to_bytes()?.into(),
@@ -69,8 +69,9 @@ impl KexAlg {
 
                 let mut buffer = Vec::new();
                 exchange.write(&mut std::io::Cursor::new(&mut buffer))?;
+                let hash = Sha256::digest(&buffer);
 
-                let signature = <dyn Signer<_>>::sign(key, &Sha256::digest(&buffer));
+                let signature = <dyn Signer<_>>::sign(key, &hash);
 
                 stream
                     .send(&KexEcdhReply {
@@ -80,11 +81,9 @@ impl KexAlg {
                     })
                     .await?;
 
-                Ok(secret)
+                Ok((secret, hash.to_vec()))
             }
             _ => unimplemented!(),
         }
     }
-
-    pub fn init() {}
 }
