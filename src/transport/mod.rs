@@ -14,13 +14,17 @@ pub use hmac::HmacAlg;
 mod kex;
 pub use kex::KexAlg;
 
+mod keychain;
+pub use keychain::KeyChain;
+
 use crate::{Error, Result};
 
 #[derive(Debug, Default)]
 pub struct TransportPair {
-    pub rx: Transport,
-    pub tx: Transport,
-    pub secret: Vec<u8>,
+    pub rchain: KeyChain,
+    pub ralg: Transport,
+    pub tchain: KeyChain,
+    pub talg: Transport,
 }
 
 #[derive(Debug)]
@@ -133,20 +137,35 @@ impl OpeningCipher for TransportPair {
     type Err = Error;
 
     fn size(&self) -> usize {
-        self.rx.hmac.size()
+        if self.ralg.encrypt.has_tag() {
+            // std::mem::size_of::<ssh_cipher::Tag>()
+            0
+        } else {
+            self.ralg.hmac.size()
+        }
     }
 
     fn open(&mut self, packet: ssh_packet::Packet) -> Result<Vec<u8>, Self::Err> {
-        if !self.rx.hmac.verify(&packet) {
-            return Err(ssh_key::Error::Crypto.into());
-        }
-
         // TODO: Verify padding
 
-        let mut payload = self.rx.compress.decompress(packet.payload);
+        let mut payload = self.ralg.compress.decompress(packet.payload);
 
-        if self.rx.encrypt.is_some() {
-            self.rx.encrypt.decrypt(&[], &[], &mut payload, None)?;
+        if self.ralg.encrypt.is_some() {
+            // let tag = self
+            //     .ralg
+            //     .encrypt
+            //     .has_tag()
+            //     .then(|| packet.mac.try_into())
+            //     .transpose()
+            //     .map_err(|_| ssh_key::Error::Crypto)?;
+
+            self.ralg
+                .encrypt
+                .decrypt(&self.rchain.key, &self.rchain.iv, &mut payload, None)?;
+
+            // if tag.is_none() && !self.ralg.hmac.verify(&packet) {
+            //     return Err(ssh_key::Error::Crypto.into());
+            // }
         }
 
         Ok(payload)
@@ -157,15 +176,21 @@ impl SealingCipher for TransportPair {
     type Err = Error;
 
     fn seal(&mut self, mut payload: Vec<u8>) -> Result<Packet, Self::Err> {
-        if self.tx.encrypt.is_some() {
-            self.tx.encrypt.encrypt(&[], &[], &mut payload)?;
+        let mut tag = None;
+        if self.talg.encrypt.is_some() {
+            tag = self
+                .talg
+                .encrypt
+                .encrypt(&self.rchain.key, &self.tchain.iv, &mut payload)?;
         }
 
-        let payload = self.tx.compress.compress(payload);
-        let mut padding = vec![0u8; self.tx.padding(payload.len())];
+        let payload = self.talg.compress.compress(payload);
+        let mut padding = vec![0u8; self.talg.padding(payload.len())];
         ring::rand::SystemRandom::new().fill(&mut padding[..])?;
 
-        let mac = self.tx.hmac.sign(&payload);
+        let mac = tag
+            .map(Into::into)
+            .unwrap_or_else(|| self.talg.hmac.sign(&payload));
 
         Ok(Packet {
             payload,

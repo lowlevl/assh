@@ -1,6 +1,7 @@
+use digest::Digest;
 use futures::{AsyncRead, AsyncWrite};
 use ring::agreement;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use signature::{SignatureEncoding, Signer};
 use ssh_key::PrivateKey;
 use ssh_packet::{
@@ -11,6 +12,7 @@ use ssh_packet::{
 };
 use strum::{EnumString, EnumVariantNames};
 
+use super::{KeyChain, Transport, TransportPair};
 use crate::{stream::Stream, Error, Result};
 
 #[derive(Debug, EnumString, EnumVariantNames)]
@@ -37,7 +39,9 @@ impl KexAlg {
         i_c: KexInit,
         i_s: KexInit,
         key: &PrivateKey,
-    ) -> Result<(Vec<u8>, Vec<u8>)> {
+        ctos_alg: Transport,
+        stoc_alg: Transport,
+    ) -> Result<TransportPair> {
         match self {
             KexAlg::Curve25519Sha256 | KexAlg::Curve25519Sha256Ext => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
@@ -86,7 +90,28 @@ impl KexAlg {
                     })
                     .await?;
 
-                Ok((secret, hash.to_vec()))
+                let session_id = stream.with_session(&hash);
+
+                let pair = TransportPair {
+                    rchain: KeyChain::as_client::<Sha256>(
+                        &secret,
+                        &hash,
+                        session_id,
+                        &ctos_alg.encrypt,
+                        &ctos_alg.hmac,
+                    ),
+                    ralg: ctos_alg,
+                    tchain: KeyChain::as_server::<Sha256>(
+                        &secret,
+                        &hash,
+                        session_id,
+                        &stoc_alg.encrypt,
+                        &stoc_alg.hmac,
+                    ),
+                    talg: stoc_alg,
+                };
+
+                Ok(pair)
             }
             _ => unimplemented!(),
         }

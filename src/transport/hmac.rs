@@ -1,3 +1,6 @@
+use digest::OutputSizeUser;
+use sha1::Sha1;
+use sha2::{Sha256, Sha512};
 use ssh_packet::Packet;
 use strum::{EnumString, EnumVariantNames};
 
@@ -24,9 +27,13 @@ pub enum HmacAlg {
 impl HmacAlg {
     pub fn size(&self) -> usize {
         match self {
+            Self::HmacSha512ETM => Sha512::output_size(),
+            Self::HmacSha256ETM => Sha256::output_size(),
+            Self::HmacSha512 => Sha512::output_size(),
+            Self::HmacSha256 => Sha256::output_size(),
+            Self::HmacSha1ETM => Sha1::output_size(),
+            Self::HmacSha1 => Sha1::output_size(),
             Self::None => 0,
-
-            _ => unimplemented!(),
         }
     }
 

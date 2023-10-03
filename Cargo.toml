@@ -40,7 +40,10 @@ ssh-cipher = { version = "0.2.0", features = [
 ] }
 ssh-packet = { version = "0.1.12", features = ["futures"] }
 
+digest = "0.10.7"
 signature = "2.1.0"
+
+sha1 = "0.10.6"
 sha2 = "0.10.8"
 
 [dev-dependencies]

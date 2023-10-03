@@ -2,6 +2,7 @@
 
 use async_std::{net::TcpListener, process::Command, stream::StreamExt};
 use rstest::rstest;
+use ssh_packet::trans::Ignore;
 use test_log::test;
 
 use super::*;
@@ -36,6 +37,7 @@ async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
         .arg("UserKnownHostsFile=/dev/null")
         .arg(format!("-p {port}"))
         .arg("user@127.0.0.1")
+        .arg("/bin/bash")
         .spawn()?;
 
     let message = handle.await?;

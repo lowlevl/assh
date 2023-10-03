@@ -69,10 +69,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         None => stream.recv().await?,
                     };
 
-                    let (kexalg, keyalg, client_to_server, server_to_client) =
+                    let (kexalg, keyalg, ctos_alg, stoc_alg) =
                         Transport::negociate(&peerkexinit, &kexinit)?;
 
-                    tracing::debug!("Negociated the following algorithms:\nctos :: {client_to_server:?}\nstoc :: {server_to_client:?}");
+                    tracing::debug!("Negociated the following algorithms:\nctos :: {ctos_alg:?}\nstoc :: {stoc_alg:?}");
 
                     let key = self
                         .config
@@ -81,7 +81,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         .find(|key| key.algorithm() == keyalg)
                         .ok_or(Error::NoCommonKey)?;
 
-                    let (secret, _hash) = kexalg
+                    let negociated = kexalg
                         .reply(
                             stream,
                             &self.peer_id,
@@ -89,19 +89,24 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                             peerkexinit,
                             kexinit,
                             key,
+                            ctos_alg,
+                            stoc_alg,
                         )
                         .await?;
 
                     stream.send(&NewKeys).await?;
                     stream.recv::<NewKeys>().await?;
 
-                    stream.with_transport(TransportPair {
-                        rx: client_to_server,
-                        tx: server_to_client,
-                        secret,
-                    });
+                    stream.with_transport(negociated);
 
-                    panic!("Kex finished 🎉");
+                    replace_with::replace_with(
+                        &mut self.state,
+                        || SessionState::Disconnected,
+                        |state| match state {
+                            SessionState::Kex { stream, .. } => SessionState::Running { stream },
+                            _ => state,
+                        },
+                    );
                 }
                 SessionState::Running { stream } => {
                     // On first call to recv, the cipher will be `none`,

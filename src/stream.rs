@@ -19,17 +19,23 @@ pub const REKEY_THRESHOLD: u32 = 0x10000000;
 
 pub struct Stream<S> {
     inner: BufReader<S>,
-    transport: TransportPair,
     timeout: Duration,
+    session: Option<Vec<u8>>,
+    transport: TransportPair,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
     pub fn new(stream: BufReader<S>, transport: TransportPair, timeout: Duration) -> Self {
         Self {
             inner: stream,
-            transport,
             timeout,
+            session: None,
+            transport,
         }
+    }
+
+    pub fn with_session(&mut self, session: &[u8]) -> &mut Vec<u8> {
+        self.session.get_or_insert_with(|| session.to_vec())
     }
 
     pub fn with_transport(&mut self, transport: TransportPair) {
@@ -68,6 +74,6 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
     }
 
     pub fn should_rekey(&self) -> bool {
-        self.transport.secret.is_empty() || self.transport.tx.seq > REKEY_THRESHOLD
+        self.session.is_none() || self.transport.talg.seq > REKEY_THRESHOLD
     }
 }
