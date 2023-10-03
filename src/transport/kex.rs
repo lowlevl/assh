@@ -56,15 +56,20 @@ impl KexAlg {
                 let exchange = EcdhExchange {
                     v_c: v_c.to_string().into_bytes().into(),
                     v_s: v_s.to_string().into_bytes().into(),
-                    i_c,
-                    i_s,
+                    i_c: {
+                        let mut buffer = Vec::new();
+                        i_c.write(&mut std::io::Cursor::new(&mut buffer))?;
+                        buffer.into()
+                    },
+                    i_s: {
+                        let mut buffer = Vec::new();
+                        i_s.write(&mut std::io::Cursor::new(&mut buffer))?;
+                        buffer.into()
+                    },
                     k_s: key.public_key().to_bytes()?.into(),
                     q_c: q_c.bytes().to_vec().into(),
                     q_s: q_s.as_ref().to_vec().into(),
-                    k: ssh_key::Mpint::from_positive_bytes(&secret)?
-                        .as_bytes()
-                        .to_vec()
-                        .into(),
+                    k: secret.clone().into(),
                 };
 
                 let mut buffer = Vec::new();
