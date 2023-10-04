@@ -46,7 +46,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
     where
         for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
     {
-        let packet = Packet::from_async_reader(&mut self.inner, &self.transport)
+        let packet = Packet::from_async_reader(&mut self.inner, &mut self.transport)
             .timeout(self.timeout)
             .await??;
 
@@ -64,7 +64,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         let packet = Packet::encrypt(message, &mut self.transport)?;
 
         packet
-            .to_async_writer(&mut self.inner)
+            .to_async_writer(&mut self.inner, &mut self.transport)
             .timeout(self.timeout)
             .await??;
 

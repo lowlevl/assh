@@ -9,19 +9,16 @@ pub enum Error {
     Binary(#[from] ssh_packet::binrw::Error),
 
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Crypto(#[from] ring::error::Unspecified),
 
     #[error(transparent)]
-    Key(#[from] ssh_key::Error),
+    Io(#[from] std::io::Error),
 
     #[error(transparent)]
     Cipher(#[from] ssh_cipher::Error),
 
     #[error(transparent)]
-    Crypto(#[from] ring::error::Unspecified),
-
-    #[error("The session has been disconnected")]
-    Disconnected,
+    Key(#[from] ssh_key::Error),
 
     #[error("Unable to negociate a common kex algorithm")]
     NoCommonKex,
@@ -43,6 +40,9 @@ pub enum Error {
 
     #[error("Error in the kex-exchange algorithm")]
     KexError,
+
+    #[error("The session has been disconnected")]
+    Disconnected,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

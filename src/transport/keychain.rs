@@ -1,5 +1,6 @@
 use digest::{Digest, FixedOutputReset};
 use ssh_cipher::Cipher;
+use ssh_packet::arch::MpInt;
 
 use super::HmacAlg;
 
@@ -12,7 +13,7 @@ pub struct KeyChain {
 
 impl KeyChain {
     pub fn as_client<D: Digest + FixedOutputReset>(
-        secret: &[u8],
+        secret: &MpInt,
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
@@ -29,7 +30,7 @@ impl KeyChain {
     }
 
     pub fn as_server<D: Digest + FixedOutputReset>(
-        secret: &[u8],
+        secret: &MpInt,
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
@@ -46,7 +47,7 @@ impl KeyChain {
     }
 
     fn derive<D: Digest + FixedOutputReset>(
-        secret: &[u8],
+        secret: &MpInt,
         hash: &[u8],
         kind: u8,
         session_id: &[u8],

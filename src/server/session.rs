@@ -79,7 +79,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         .keys
                         .iter()
                         .find(|key| key.algorithm() == keyalg)
-                        .ok_or(Error::NoCommonKey)?;
+                        .expect("Did our KexInit lie to the client ?");
 
                     let negociated = kexalg
                         .reply(
@@ -168,6 +168,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         &mut self,
         message: &T,
     ) -> Result<()> {
+        // TODO: Handle KEX also there
         match &mut self.state {
             SessionState::Disconnected => Err(Error::Disconnected),
             SessionState::Running { stream, .. } | SessionState::Kex { stream, .. } => {

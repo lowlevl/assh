@@ -3,18 +3,18 @@ use strum::{EnumString, EnumVariantNames};
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum EncryptAlg {
-    /// ChaCha20-Poly1305.
-    #[strum(serialize = "chacha20-poly1305@openssh.com")]
-    ChaCha20Poly1305,
+    // /// ChaCha20-Poly1305.
+    // #[strum(serialize = "chacha20-poly1305@openssh.com")]
+    // ChaCha20Poly1305,
 
-    /// AES-256 in Galois/Counter Mode (GCM).
-    #[strum(serialize = "aes256-gcm@openssh.com")]
-    Aes256Gcm,
+    // /// AES-256 in Galois/Counter Mode (GCM).
+    // #[strum(serialize = "aes256-gcm@openssh.com")]
+    // Aes256Gcm,
 
-    /// AES-128 in Galois/Counter Mode (GCM).
-    #[strum(serialize = "aes128-gcm@openssh.com")]
-    Aes128Gcm,
-
+    // /// AES-128 in Galois/Counter Mode (GCM).
+    // #[strum(serialize = "aes128-gcm@openssh.com")]
+    // Aes128Gcm,
+    //
     /// AES-256 in counter (CTR) mode.
     Aes256Ctr,
 

@@ -1,5 +1,5 @@
 use futures_time::time::Duration;
-use ring::rand::SecureRandom;
+use rand::RngCore;
 use ssh_key::PrivateKey;
 use ssh_packet::{arch::NameList, trans::KexInit, Id};
 use strum::VariantNames;
@@ -32,7 +32,7 @@ impl Default for Config {
 impl Config {
     pub fn kexinit(&self) -> Result<KexInit> {
         let mut cookie = [0u8; 16];
-        ring::rand::SystemRandom::new().fill(&mut cookie)?;
+        rand::thread_rng().fill_bytes(&mut cookie);
 
         Ok(KexInit {
             cookie,

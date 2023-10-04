@@ -5,6 +5,7 @@ use sha2::Sha256;
 use signature::{SignatureEncoding, Signer};
 use ssh_key::PrivateKey;
 use ssh_packet::{
+    arch::MpInt,
     binrw::BinWrite,
     kex::EcdhExchange,
     trans::{KexEcdhInit, KexEcdhReply, KexInit},
@@ -12,8 +13,8 @@ use ssh_packet::{
 };
 use strum::{EnumString, EnumVariantNames};
 
-use super::{KeyChain, Transport, TransportPair};
-use crate::{stream::Stream, Error, Result};
+use super::{Error, KeyChain, Result, Transport, TransportPair};
+use crate::stream::Stream;
 
 #[derive(Debug, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
@@ -54,8 +55,9 @@ impl KexAlg {
                 let q_c = agreement::UnparsedPublicKey::new(&agreement::X25519, &*ecdh.q_c);
                 let q_s = e_s.compute_public_key()?;
 
-                let secret =
-                    agreement::agree_ephemeral(e_s, &q_c, Error::KexError, |key| Ok(key.to_vec()))?;
+                let secret: MpInt =
+                    agreement::agree_ephemeral(e_s, &q_c, Error::KexError, |key| Ok(key.to_vec()))?
+                        .into();
 
                 let exchange = EcdhExchange {
                     v_c: v_c.to_string().into_bytes().into(),
@@ -73,7 +75,7 @@ impl KexAlg {
                     k_s: key.public_key().to_bytes()?.into(),
                     q_c: q_c.bytes().to_vec().into(),
                     q_s: q_s.as_ref().to_vec().into(),
-                    k: secret.clone().into(),
+                    k: secret.clone(),
                 };
 
                 let mut buffer = Vec::new();
