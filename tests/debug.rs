@@ -1,9 +1,13 @@
 use russh_keys::key;
+use ssh_packet::trans::Debug;
 use test_log::test;
 use tokio::net::TcpListener;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
-use assh::server::{Config, Session};
+use assh::{
+    server::{Config, Session},
+    Message,
+};
 
 #[ignore]
 #[test(tokio::test)]
@@ -23,6 +27,18 @@ async fn with_russh() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
         let mut session = Session::new(stream.compat(), config).await?;
+
+        let Message::ServiceRequest(_request) = session.recv().await? else {
+            panic!("Unexpected message");
+        };
+
+        session
+            .send(&Debug {
+                always_display: true.into(),
+                message: "hello world".to_string().into(),
+                language: Default::default(),
+            })
+            .await?;
 
         session.recv().await
     });
@@ -47,5 +63,6 @@ async fn with_russh() -> Result<(), Box<dyn std::error::Error>> {
 
     let message = handle.await??;
     tracing::info!("message: {message:?}");
+
     Ok(())
 }

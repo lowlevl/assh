@@ -38,8 +38,20 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         self.session.get_or_insert_with(|| session.to_vec())
     }
 
-    pub fn with_transport(&mut self, transport: TransportPair) {
-        self.transport = transport;
+    pub fn with_transport(
+        &mut self,
+        TransportPair {
+            rchain,
+            ralg,
+            tchain,
+            talg,
+            ..
+        }: TransportPair,
+    ) {
+        self.transport.rchain = rchain;
+        self.transport.ralg = ralg;
+        self.transport.tchain = tchain;
+        self.transport.talg = talg;
     }
 
     pub async fn recv<T>(&mut self) -> Result<T>
@@ -50,9 +62,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             .timeout(self.timeout)
             .await??;
 
+        self.transport.rseq = self.transport.rseq.wrapping_add(1);
+
         let message = packet.read()?;
 
-        tracing::trace!("<- {message:?}");
+        tracing::trace!("<-({}) {message:?}", self.transport.rseq - 1);
 
         Ok(message)
     }
@@ -68,12 +82,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             .timeout(self.timeout)
             .await??;
 
-        tracing::trace!("-> {message:?}",);
+        self.transport.tseq = self.transport.tseq.wrapping_add(1);
+
+        tracing::trace!("({})-> {message:?}", self.transport.tseq - 1);
 
         Ok(())
     }
 
     pub fn should_rekey(&self) -> bool {
-        self.session.is_none() || self.transport.talg.seq > REKEY_THRESHOLD
+        self.session.is_none() || self.transport.tseq > REKEY_THRESHOLD
     }
 }

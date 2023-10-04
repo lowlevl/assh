@@ -23,8 +23,11 @@ use crate::{Error, Result};
 pub struct TransportPair {
     pub rchain: KeyChain,
     pub ralg: Transport,
+    pub rseq: u32,
+
     pub tchain: KeyChain,
     pub talg: Transport,
+    pub tseq: u32,
 }
 
 #[derive(Debug)]
@@ -32,7 +35,6 @@ pub struct Transport {
     pub encrypt: Cipher,
     pub hmac: hmac::HmacAlg,
     pub compress: compress::CompressAlg,
-    pub seq: u32,
 }
 
 impl Default for Transport {
@@ -41,7 +43,6 @@ impl Default for Transport {
             encrypt: Cipher::None,
             hmac: Default::default(),
             compress: Default::default(),
-            seq: 0,
         }
     }
 }
@@ -97,7 +98,6 @@ impl Transport {
                 .ok_or(Error::NoCommonCompression)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
-            seq: 0,
         };
         let server_to_client = Self {
             encrypt: clientkex
@@ -118,7 +118,6 @@ impl Transport {
                 .ok_or(Error::NoCommonCompression)?
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
-            seq: 0,
         };
         let kexalg: KexAlg = clientkex
             .kex_algorithms
@@ -150,7 +149,7 @@ impl OpeningCipher for TransportPair {
         }
     }
 
-    fn verify<B: AsRef<[u8]>>(&mut self, blob: B, mac: Vec<u8>) -> Result<(), Self::Err> {
+    fn verify<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>) -> Result<(), Self::Err> {
         Ok(())
     }
 
@@ -164,8 +163,8 @@ impl OpeningCipher for TransportPair {
         Ok(buf)
     }
 
-    fn decompress<B: AsRef<[u8]>>(&mut self, blob: B) -> Result<Vec<u8>, Self::Err> {
-        Ok(blob.as_ref().to_vec())
+    fn decompress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
+        Ok(buf.as_ref().to_vec())
     }
 }
 
@@ -182,17 +181,17 @@ impl SealingCipher for TransportPair {
         }
     }
 
-    fn compress<B: AsRef<[u8]>>(&mut self, blob: B) -> Result<Vec<u8>, Self::Err> {
-        Ok(blob.as_ref().to_vec())
+    fn compress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
+        Ok(buf.as_ref().to_vec())
     }
 
-    fn pad(&mut self, blob: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
-        let padding = self.talg.padding(blob.len());
+    fn pad(&mut self, buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
+        let padding = self.talg.padding(buf.len());
         let mut rng = rand::thread_rng();
 
         // prefix with the size
         let mut new = vec![padding];
-        new.extend_from_slice(&blob);
+        new.extend_from_slice(&buf);
 
         // fill with random
         new.resize_with(new.len() + padding as usize, || rng.gen());
@@ -200,19 +199,35 @@ impl SealingCipher for TransportPair {
         Ok(new)
     }
 
-    fn encrypt<B: AsMut<[u8]>>(&mut self, mut blob: B) -> Result<B, Self::Err> {
+    fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
         if self.talg.encrypt.is_some() {
             self.talg
                 .encrypt
-                .encrypt(&self.tchain.key, &self.tchain.iv, blob.as_mut())?;
+                .encrypt(&self.tchain.key, &self.tchain.iv, buf.as_mut())?;
         }
 
-        Ok(blob)
+        Ok(buf)
     }
 
-    fn sign(&mut self, mut blob: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
-        blob.resize(blob.len() + SealingCipher::mac(self), 0);
+    fn seal(&mut self, mut buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
+        if self.talg.hmac.etm() {
+            self.encrypt(&mut buf[4..])?;
+            buf.append(
+                &mut self
+                    .talg
+                    .hmac
+                    .sign(self.tseq, buf.as_ref(), &self.tchain.hmac),
+            );
+        } else {
+            let mut mac = self
+                .talg
+                .hmac
+                .sign(self.tseq, buf.as_ref(), &self.tchain.hmac);
 
-        Ok(blob)
+            self.encrypt(&mut buf[4..])?;
+            buf.append(&mut mac);
+        }
+
+        Ok(buf)
     }
 }

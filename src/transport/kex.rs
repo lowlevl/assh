@@ -111,6 +111,7 @@ impl KexAlg {
                         &stoc_alg.hmac,
                     ),
                     talg: stoc_alg,
+                    ..Default::default() // TODO: Find a better place for rseq and tseq
                 };
 
                 Ok(pair)

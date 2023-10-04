@@ -45,6 +45,7 @@ ssh-packet = { version = "0.1.12", features = [
 rand = "0.8.5"
 digest = "0.10.7"
 signature = "2.1.0"
+hmac = "0.12.1"
 
 sha1 = "0.10.6"
 sha2 = "0.10.8"
