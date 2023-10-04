@@ -190,9 +190,11 @@ impl SealingCipher for TransportPair {
         let padding = self.talg.padding(blob.len());
         let mut rng = rand::thread_rng();
 
+        // prefix with the size
         let mut new = vec![padding];
         new.extend_from_slice(&blob);
 
+        // fill with random
         new.resize_with(new.len() + padding as usize, || rng.gen());
 
         Ok(new)
@@ -208,7 +210,9 @@ impl SealingCipher for TransportPair {
         Ok(blob)
     }
 
-    fn sign<B: AsMut<[u8]>>(&mut self, blob: B) -> Result<B, Self::Err> {
+    fn sign(&mut self, mut blob: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
+        blob.resize(blob.len() + SealingCipher::mac(self), 0);
+
         Ok(blob)
     }
 }

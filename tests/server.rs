@@ -2,9 +2,13 @@
 
 use async_std::{net::TcpListener, process::Command, stream::StreamExt};
 use rstest::rstest;
+use ssh_packet::trans::{Debug, ServiceAccept};
 use test_log::test;
 
-use assh::server::{Config, Session};
+use assh::{
+    server::{Config, Session},
+    Message,
+};
 
 #[test(rstest)]
 async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,6 +27,18 @@ async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         };
         let mut session = Session::new(stream, config).await?;
+
+        let Message::ServiceRequest(request) = session.recv().await? else {
+            panic!("Unexpected message");
+        };
+
+        session
+            .send(&Debug {
+                always_display: true.into(),
+                message: "hello world".to_string().into(),
+                language: Default::default(),
+            })
+            .await?;
 
         session.recv().await
     });
