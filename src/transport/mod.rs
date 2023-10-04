@@ -149,7 +149,6 @@ impl OpeningCipher for TransportPair {
     fn decrypt<'b, B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
         // TODO: Decompression
         if self.ralg.encrypt.is_some() {
-            tracing::trace!("decrypting: {:?}", buf.as_mut());
             self.ralg
                 .encrypt
                 .decrypt(&self.rchain.key, &self.rchain.iv, buf.as_mut(), None)?;
