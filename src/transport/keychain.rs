@@ -54,6 +54,7 @@ impl KeyChain {
         size: usize,
     ) -> Vec<u8> {
         let mut hasher = D::new()
+            .chain_update((secret.len() as u32).to_be_bytes())
             .chain_update(secret)
             .chain_update(hash)
             .chain_update([kind])
@@ -63,6 +64,7 @@ impl KeyChain {
 
         while key.len() < size {
             hasher = hasher
+                .chain_update((secret.len() as u32).to_be_bytes())
                 .chain_update(secret)
                 .chain_update(hash)
                 .chain_update(&key);
