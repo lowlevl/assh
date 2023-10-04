@@ -41,6 +41,9 @@ pub enum Error {
     #[error("Error in the kex-exchange algorithm")]
     KexError,
 
+    #[error("Received packet padding is mismatched, expected {0} got {1}")]
+    Padding(usize, usize),
+
     #[error("The session has been disconnected")]
     Disconnected,
 }

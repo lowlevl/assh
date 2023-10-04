@@ -43,7 +43,9 @@ async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
     let message = handle.await?;
     let status = client.status().await?;
 
-    tracing::info!("message: {message:?}, status: {status}");
+    tracing::info!("message: {message:?}, {status}");
+
+    assert!(status.success());
 
     Ok(())
 }

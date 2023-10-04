@@ -1,6 +1,6 @@
-use rand::RngCore;
+use rand::Rng;
 use ssh_key::{Algorithm, Cipher};
-use ssh_packet::{trans::KexInit, OpeningCipher, Packet, SealingCipher};
+use ssh_packet::{trans::KexInit, OpeningCipher, SealingCipher};
 
 mod compress;
 pub use compress::CompressAlg;
@@ -51,10 +51,14 @@ impl Transport {
     pub const MIN_PAD_SIZE: usize = 4;
     pub const MIN_ALIGN: usize = 8;
 
-    pub fn padding(&self, payload: usize) -> usize {
+    pub fn padding(&self, payload: usize) -> u8 {
         let align = self.encrypt.block_size().max(Self::MIN_ALIGN);
 
-        let size = std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + payload;
+        let size = if self.encrypt.is_some() && !self.encrypt.has_tag() {
+            std::mem::size_of::<u8>() + payload
+        } else {
+            std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + payload
+        };
         let padding = align - size % align;
 
         let padding = if padding < Self::MIN_PAD_SIZE {
@@ -64,9 +68,9 @@ impl Transport {
         };
 
         if size + padding < self.encrypt.block_size().max(Self::MIN_PACKET_SIZE) {
-            padding + align
+            (padding + align) as u8
         } else {
-            padding
+            padding as u8
         }
     }
 
@@ -136,7 +140,7 @@ impl Transport {
 impl OpeningCipher for TransportPair {
     type Err = Error;
 
-    fn mac_len(&self) -> usize {
+    fn mac(&self) -> usize {
         if self.ralg.encrypt.has_tag() {
             // If the encryption algorithm has a Tag,
             // the MAC is included in the payload.
@@ -146,8 +150,11 @@ impl OpeningCipher for TransportPair {
         }
     }
 
-    fn decrypt<'b, B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
-        // TODO: Decompression
+    fn verify<B: AsRef<[u8]>>(&mut self, blob: B, mac: Vec<u8>) -> Result<(), Self::Err> {
+        Ok(())
+    }
+
+    fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
         if self.ralg.encrypt.is_some() {
             self.ralg
                 .encrypt
@@ -157,18 +164,15 @@ impl OpeningCipher for TransportPair {
         Ok(buf)
     }
 
-    fn open(&mut self, packet: ssh_packet::Packet) -> Result<Vec<u8>, Self::Err> {
-        // TODO: Verify padding
-        // TODO: Verify MAC
-
-        Ok(packet.payload)
+    fn decompress<B: AsRef<[u8]>>(&mut self, blob: B) -> Result<Vec<u8>, Self::Err> {
+        Ok(blob.as_ref().to_vec())
     }
 }
 
 impl SealingCipher for TransportPair {
     type Err = Error;
 
-    fn mac_len(&self) -> usize {
+    fn mac(&self) -> usize {
         if self.talg.encrypt.has_tag() {
             // If the encryption algorithm has a Tag,
             // the MAC is included in the payload.
@@ -178,27 +182,33 @@ impl SealingCipher for TransportPair {
         }
     }
 
-    fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
-        // TODO: Compression
+    fn compress<B: AsRef<[u8]>>(&mut self, blob: B) -> Result<Vec<u8>, Self::Err> {
+        Ok(blob.as_ref().to_vec())
+    }
+
+    fn pad(&mut self, blob: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
+        let padding = self.talg.padding(blob.len());
+        let mut rng = rand::thread_rng();
+
+        let mut new = vec![padding];
+        new.extend_from_slice(&blob);
+
+        new.resize_with(new.len() + padding as usize, || rng.gen());
+
+        Ok(new)
+    }
+
+    fn encrypt<B: AsMut<[u8]>>(&mut self, mut blob: B) -> Result<B, Self::Err> {
         if self.talg.encrypt.is_some() {
             self.talg
                 .encrypt
-                .encrypt(&self.tchain.key, &self.tchain.iv, buf.as_mut())?;
+                .encrypt(&self.tchain.key, &self.tchain.iv, blob.as_mut())?;
         }
 
-        Ok(buf)
+        Ok(blob)
     }
 
-    fn seal(&mut self, payload: Vec<u8>) -> Result<Packet, Self::Err> {
-        let mut padding = vec![0u8; self.talg.padding(payload.len())];
-        rand::thread_rng().fill_bytes(&mut padding);
-
-        let mac = Default::default();
-
-        Ok(Packet {
-            payload,
-            padding,
-            mac,
-        })
+    fn sign<B: AsMut<[u8]>>(&mut self, blob: B) -> Result<B, Self::Err> {
+        Ok(blob)
     }
 }

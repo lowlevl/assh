@@ -50,7 +50,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             .timeout(self.timeout)
             .await??;
 
-        let message = packet.decrypt(&mut self.transport)?;
+        let message = packet.read()?;
 
         tracing::trace!("<- {message:?}");
 
@@ -61,7 +61,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
     where
         for<'w> T: BinWrite<Args<'w> = ()> + WriteEndian + Debug,
     {
-        let packet = Packet::encrypt(message, &mut self.transport)?;
+        let packet = Packet::write(message)?;
 
         packet
             .to_async_writer(&mut self.inner, &mut self.transport)
