@@ -4,7 +4,7 @@ use async_std::{net::TcpListener, process::Command, stream::StreamExt};
 use rstest::rstest;
 use test_log::test;
 
-use super::*;
+use assh::server::{Config, Session};
 
 #[test(rstest)]
 async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
