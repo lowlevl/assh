@@ -33,12 +33,9 @@ pub enum HmacAlg {
 impl HmacAlg {
     pub fn size(&self) -> usize {
         match self {
-            Self::HmacSha512ETM => Sha512::output_size(),
-            Self::HmacSha256ETM => Sha256::output_size(),
-            Self::HmacSha512 => Sha512::output_size(),
-            Self::HmacSha256 => Sha256::output_size(),
-            Self::HmacSha1ETM => Sha1::output_size(),
-            Self::HmacSha1 => Sha1::output_size(),
+            Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
+            Self::HmacSha256ETM | Self::HmacSha256 => Sha256::output_size(),
+            Self::HmacSha1ETM | Self::HmacSha1 => Sha1::output_size(),
             Self::None => 0,
         }
     }
@@ -59,28 +56,20 @@ impl HmacAlg {
     }
 
     pub fn sign(&self, seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
+        fn sign<D: digest::Mac + digest::KeyInit>(seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
+            <D as digest::Mac>::new_from_slice(key)
+                .expect("Key derivation failed horribly")
+                .chain_update(seq.to_be_bytes())
+                .chain_update(buf)
+                .finalize()
+                .into_bytes()
+                .to_vec()
+        }
+
         match self {
-            Self::HmacSha512ETM | Self::HmacSha512 => Hmac::<Sha512>::new_from_slice(key)
-                .expect("Key derivation failed horribly")
-                .chain_update(seq.to_be_bytes())
-                .chain_update(buf)
-                .finalize()
-                .into_bytes()
-                .to_vec(),
-            Self::HmacSha256ETM | Self::HmacSha256 => Hmac::<Sha256>::new_from_slice(key)
-                .expect("Key derivation failed horribly")
-                .chain_update(seq.to_be_bytes())
-                .chain_update(buf)
-                .finalize()
-                .into_bytes()
-                .to_vec(),
-            Self::HmacSha1ETM | Self::HmacSha1 => Hmac::<Sha1>::new_from_slice(key)
-                .expect("Key derivation failed horribly")
-                .chain_update(seq.to_be_bytes())
-                .chain_update(buf)
-                .finalize()
-                .into_bytes()
-                .to_vec(),
+            Self::HmacSha512ETM | Self::HmacSha512 => sign::<Hmac<Sha512>>(seq, buf, key),
+            Self::HmacSha256ETM | Self::HmacSha256 => sign::<Hmac<Sha256>>(seq, buf, key),
+            Self::HmacSha1ETM | Self::HmacSha1 => sign::<Hmac<Sha1>>(seq, buf, key),
             Self::None => Default::default(),
         }
     }
