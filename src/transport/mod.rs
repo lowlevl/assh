@@ -92,13 +92,11 @@ impl OpeningCipher for TransportPair {
                 .verify(self.rseq, &buf, &self.rchain.hmac, &mac)?;
         }
 
-        buf.drain(0..4);
-
         Ok(buf)
     }
 
-    fn decompress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
-        Ok(buf.as_ref().to_vec())
+    fn decompress(&mut self, buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
+        self.ralg.compress.decompress(buf)
     }
 }
 
@@ -116,7 +114,7 @@ impl SealingCipher for TransportPair {
     }
 
     fn compress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
-        Ok(buf.as_ref().to_vec())
+        self.talg.compress.compress(buf.as_ref())
     }
 
     fn pad(&mut self, buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {

@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+
 use ssh_packet::trans::KexInit;
 use strum::{EnumString, EnumVariantNames};
 
@@ -36,17 +38,32 @@ impl Compress {
         ))
     }
 
-    pub fn decompress(&self, buf: Vec<u8>) -> Vec<u8> {
+    pub fn decompress(&self, buf: Vec<u8>) -> Result<Vec<u8>> {
         match self {
-            Self::None => buf,
-            Self::Zlib | Self::ZlibExt => unimplemented!(),
+            Self::Zlib | Self::ZlibExt => {
+                let mut buffer = Vec::with_capacity(buf.len());
+                let decoder = libflate::zlib::Decoder::new(std::io::Cursor::new(buf))?;
+
+                decoder
+                    .take(ssh_packet::PACKET_MAX_SIZE as u64)
+                    .read_to_end(&mut buffer)?;
+
+                Ok(buffer)
+            }
+            Self::None => Ok(buf),
         }
     }
 
-    pub fn compress(&self, buf: Vec<u8>) -> Vec<u8> {
+    pub fn compress(&self, buf: &[u8]) -> Result<Vec<u8>> {
         match self {
-            Self::None => buf,
-            Self::Zlib | Self::ZlibExt => unimplemented!(),
+            Self::Zlib | Self::ZlibExt => {
+                let mut encoder = libflate::zlib::Encoder::new(Vec::with_capacity(buf.len()))?;
+
+                encoder.write_all(buf)?;
+
+                Ok(encoder.finish().into_result()?)
+            }
+            Self::None => Ok(buf.into()),
         }
     }
 }

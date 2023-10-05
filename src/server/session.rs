@@ -95,9 +95,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                     stream.recv::<NewKeys>().await?;
 
                     tracing::debug!(
-                        "Negociated the following algorithms:\nrx: {:?}\ntx: {:?}",
+                        "Key exchange success, negociated the following algorithms:\nrx: {:?}\ntx: {:?}",
+                        negociated.ralg,
                         negociated.talg,
-                        negociated.ralg
                     );
 
                     stream.with_transport(negociated);
