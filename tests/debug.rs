@@ -1,6 +1,5 @@
 use russh_keys::key;
 use ssh_packet::trans::Debug;
-use test_log::test;
 use tokio::net::TcpListener;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
@@ -10,7 +9,7 @@ use assh::{
 };
 
 #[ignore]
-#[test(tokio::test)]
+#[tokio::test]
 async fn with_russh() -> Result<(), Box<dyn std::error::Error>> {
     let socket = TcpListener::bind(("127.0.0.1", 0)).await?;
     let port = socket.local_addr()?.port();

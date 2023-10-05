@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 use async_std::{net::TcpListener, process::Command, stream::StreamExt, task::JoinHandle};
 use rstest::rstest;
 use ssh_packet::trans::{Debug, ServiceAccept};
-use test_log::test;
 
 use assh::{
     server::{Config, Session},
@@ -54,19 +53,30 @@ async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
     Ok((addr, handle))
 }
 
-#[test(rstest)]
-async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
+#[rstest]
+#[case("3des-cbc", "hmac-sha1", "curve25519-sha256")]
+#[case("aes128-cbc", "hmac-sha1-etm@openssh.com", "curve25519-sha256")]
+#[case("aes192-cbc", "hmac-sha2-256", "curve25519-sha256")]
+#[case("aes256-cbc", "hmac-sha2-512", "curve25519-sha256")]
+#[case("aes128-ctr", "hmac-sha2-256-etm@openssh.com", "curve25519-sha256")]
+#[case("aes192-ctr", "hmac-sha2-512-etm@openssh.com", "curve25519-sha256")]
+#[case("aes256-ctr", "hmac-sha2-512-etm@openssh.com", "curve25519-sha256")]
+async fn end_to_end(
+    #[case] cipher: &str,
+    #[case] mac: &str,
+    #[case] kex: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt().try_init().ok();
+
     let (addr, handle) = server().await?;
 
     let mut client = Command::new("ssh")
-        .arg("-o")
-        .arg("StrictHostKeyChecking=no")
-        .arg("-o")
-        .arg("UserKnownHostsFile=/dev/null")
-        .arg("-o")
-        .arg("Ciphers=3des-cbc")
-        .arg("-Cv")
-        .arg(format!("-p {}", addr.port()))
+        .arg("-oStrictHostKeyChecking=no")
+        .arg("-oUserKnownHostsFile=/dev/null")
+        .arg(format!("-oKexAlgorithms={kex}"))
+        .arg(format!("-c{cipher}"))
+        .arg(format!("-m{mac}"))
+        .arg(format!("-p{}", addr.port()))
         .arg("-vvv")
         .arg("user@127.0.0.1")
         .arg("/bin/bash")
@@ -77,7 +87,7 @@ async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("message: {message:?}, {status}");
 
-    assert!(status.success());
+    assert!(matches!(message, Message::AuthRequest { .. }));
 
     Ok(())
 }
