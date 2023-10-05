@@ -2,22 +2,10 @@ use rand::Rng;
 use ssh_key::{Algorithm, Cipher};
 use ssh_packet::{trans::KexInit, OpeningCipher, SealingCipher};
 
-mod compress;
-pub use compress::CompressAlg;
-
-mod encrypt;
-pub use encrypt::EncryptAlg;
-
-mod hmac;
-pub use hmac::HmacAlg;
-
-mod kex;
-pub use kex::KexAlg;
-
 mod keychain;
 pub use keychain::KeyChain;
 
-use crate::{Error, Result};
+use crate::{algorithm, Error, Result};
 
 #[derive(Debug, Default)]
 pub struct TransportPair {
@@ -33,8 +21,8 @@ pub struct TransportPair {
 #[derive(Debug)]
 pub struct Transport {
     pub encrypt: Cipher,
-    pub hmac: hmac::HmacAlg,
-    pub compress: compress::CompressAlg,
+    pub hmac: algorithm::Hmac,
+    pub compress: algorithm::Compress,
 }
 
 impl Default for Transport {
@@ -78,7 +66,7 @@ impl Transport {
     pub fn negociate(
         clientkex: &KexInit,
         serverkex: &KexInit,
-    ) -> Result<(KexAlg, Algorithm, Self, Self)> {
+    ) -> Result<(algorithm::Kex, Algorithm, Self, Self)> {
         let client_to_server = Self {
             encrypt: clientkex
                 .encryption_algorithms_client_to_server
@@ -119,7 +107,7 @@ impl Transport {
                 .parse()
                 .map_err(|_| Error::UnsupportedAlgorithm)?,
         };
-        let kexalg: KexAlg = clientkex
+        let kexalg: algorithm::Kex = clientkex
             .kex_algorithms
             .preferred_in(&serverkex.kex_algorithms)
             .ok_or(Error::NoCommonKex)?
@@ -149,16 +137,18 @@ impl OpeningCipher for TransportPair {
         }
     }
 
-    fn verify<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>) -> Result<(), Self::Err> {
-        Ok(())
-    }
-
     fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
         if self.ralg.encrypt.is_some() {
             self.ralg
                 .encrypt
                 .decrypt(&self.rchain.key, &self.rchain.iv, buf.as_mut(), None)?;
         }
+
+        Ok(buf)
+    }
+
+    fn open<B: AsMut<[u8]>>(&mut self, mut buf: B, mac: Vec<u8>) -> Result<B, Self::Err> {
+        self.decrypt(buf.as_mut())?;
 
         Ok(buf)
     }

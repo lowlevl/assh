@@ -7,6 +7,7 @@ pub use error::{Error, Result};
 
 pub use ssh_packet::Message;
 
+mod algorithm;
 mod stream;
 mod transport;
 

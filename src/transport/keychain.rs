@@ -2,7 +2,7 @@ use digest::{Digest, FixedOutputReset};
 use ssh_cipher::Cipher;
 use ssh_packet::arch::MpInt;
 
-use super::HmacAlg;
+use crate::algorithm::Hmac;
 
 #[derive(Debug, Default)]
 pub struct KeyChain {
@@ -17,7 +17,7 @@ impl KeyChain {
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
-        hmac: &HmacAlg,
+        hmac: &Hmac,
     ) -> Self {
         let (keysize, ivsize) = cipher.key_and_iv_size().unwrap_or((0, 0));
         let hmacsize = hmac.size();
@@ -34,7 +34,7 @@ impl KeyChain {
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
-        hmac: &HmacAlg,
+        hmac: &Hmac,
     ) -> Self {
         let (keysize, ivsize) = cipher.key_and_iv_size().unwrap_or((0, 0));
         let hmacsize = hmac.size();

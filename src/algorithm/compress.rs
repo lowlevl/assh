@@ -2,7 +2,7 @@ use strum::{EnumString, EnumVariantNames};
 
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
-pub enum CompressAlg {
+pub enum Compress {
     /// Zlib compression.
     Zlib,
 
@@ -15,7 +15,7 @@ pub enum CompressAlg {
     None,
 }
 
-impl CompressAlg {
+impl Compress {
     pub fn decompress(&self, buf: Vec<u8>) -> Vec<u8> {
         match self {
             Self::None => buf,

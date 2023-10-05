@@ -2,7 +2,7 @@ use strum::{EnumString, EnumVariantNames};
 
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
-pub enum EncryptAlg {
+pub enum Cipher {
     // /// ChaCha20-Poly1305.
     // #[strum(serialize = "chacha20-poly1305@openssh.com")]
     // ChaCha20Poly1305,

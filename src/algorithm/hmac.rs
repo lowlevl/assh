@@ -1,5 +1,5 @@
 use digest::OutputSizeUser;
-use hmac::{Hmac, Mac};
+use hmac::Mac;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use ssh_packet::Packet;
@@ -7,7 +7,7 @@ use strum::{EnumString, EnumVariantNames};
 
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
-pub enum HmacAlg {
+pub enum Hmac {
     #[strum(serialize = "hmac-sha2-512-etm@openssh.com")]
     HmacSha512ETM,
 
@@ -30,7 +30,7 @@ pub enum HmacAlg {
     None,
 }
 
-impl HmacAlg {
+impl Hmac {
     pub fn size(&self) -> usize {
         match self {
             Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
@@ -67,9 +67,9 @@ impl HmacAlg {
         }
 
         match self {
-            Self::HmacSha512ETM | Self::HmacSha512 => sign::<Hmac<Sha512>>(seq, buf, key),
-            Self::HmacSha256ETM | Self::HmacSha256 => sign::<Hmac<Sha256>>(seq, buf, key),
-            Self::HmacSha1ETM | Self::HmacSha1 => sign::<Hmac<Sha1>>(seq, buf, key),
+            Self::HmacSha512ETM | Self::HmacSha512 => sign::<hmac::Hmac<Sha512>>(seq, buf, key),
+            Self::HmacSha256ETM | Self::HmacSha256 => sign::<hmac::Hmac<Sha256>>(seq, buf, key),
+            Self::HmacSha1ETM | Self::HmacSha1 => sign::<hmac::Hmac<Sha1>>(seq, buf, key),
             Self::None => Default::default(),
         }
     }

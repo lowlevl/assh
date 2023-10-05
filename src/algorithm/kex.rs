@@ -13,12 +13,15 @@ use ssh_packet::{
 };
 use strum::{EnumString, EnumVariantNames};
 
-use super::{Error, KeyChain, Result, Transport, TransportPair};
-use crate::stream::Stream;
+use crate::{
+    stream::Stream,
+    transport::{KeyChain, Transport, TransportPair},
+    Error, Result,
+};
 
 #[derive(Debug, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
-pub enum KexAlg {
+pub enum Kex {
     Curve25519Sha256,
 
     #[strum(serialize = "curve25519-sha256@libssh.org")]
@@ -31,7 +34,7 @@ pub enum KexAlg {
     DiffieHellmanGroup1Sha1,
 }
 
-impl KexAlg {
+impl Kex {
     pub async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
@@ -44,7 +47,7 @@ impl KexAlg {
         stoc_alg: Transport,
     ) -> Result<TransportPair> {
         match self {
-            KexAlg::Curve25519Sha256 | KexAlg::Curve25519Sha256Ext => {
+            Kex::Curve25519Sha256 | Kex::Curve25519Sha256Ext => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
 
                 let e_s = agreement::EphemeralPrivateKey::generate(

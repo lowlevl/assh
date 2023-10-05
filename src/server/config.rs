@@ -5,7 +5,7 @@ use ssh_packet::{arch::NameList, trans::KexInit, Id};
 use strum::VariantNames;
 
 use crate::{
-    transport::{CompressAlg, EncryptAlg, HmacAlg, KexAlg},
+    algorithm::{Cipher, Compress, Hmac, Kex},
     Result,
 };
 
@@ -36,7 +36,7 @@ impl Config {
 
         Ok(KexInit {
             cookie,
-            kex_algorithms: NameList::new(KexAlg::VARIANTS),
+            kex_algorithms: NameList::new(Kex::VARIANTS),
             server_host_key_algorithms: NameList::new(
                 &self
                     .keys
@@ -44,12 +44,12 @@ impl Config {
                     .map(|key| key.algorithm().to_string())
                     .collect::<Vec<_>>(),
             ),
-            encryption_algorithms_client_to_server: NameList::new(EncryptAlg::VARIANTS),
-            encryption_algorithms_server_to_client: NameList::new(EncryptAlg::VARIANTS),
-            mac_algorithms_client_to_server: NameList::new(HmacAlg::VARIANTS),
-            mac_algorithms_server_to_client: NameList::new(HmacAlg::VARIANTS),
-            compression_algorithms_client_to_server: NameList::new(CompressAlg::VARIANTS),
-            compression_algorithms_server_to_client: NameList::new(CompressAlg::VARIANTS),
+            encryption_algorithms_client_to_server: NameList::new(Cipher::VARIANTS),
+            encryption_algorithms_server_to_client: NameList::new(Cipher::VARIANTS),
+            mac_algorithms_client_to_server: NameList::new(Hmac::VARIANTS),
+            mac_algorithms_server_to_client: NameList::new(Hmac::VARIANTS),
+            compression_algorithms_client_to_server: NameList::new(Compress::VARIANTS),
+            compression_algorithms_server_to_client: NameList::new(Compress::VARIANTS),
             languages_client_to_server: NameList::default(),
             languages_server_to_client: NameList::default(),
             first_kex_packet_follows: false.into(),
