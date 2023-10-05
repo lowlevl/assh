@@ -8,12 +8,12 @@ use crate::{Error, Result};
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Compress {
+    /// Zlib compression (OpenSSH name).
+    #[strum(serialize = "zlib@openssh.com")]
+    ZlibOpenSsh,
+
     /// Zlib compression.
     Zlib,
-
-    /// Zlib compression (extension name).
-    #[strum(serialize = "zlib@openssh.com")]
-    ZlibExt,
 
     /// No compression.
     #[default]
@@ -40,7 +40,7 @@ impl Compress {
 
     pub fn decompress(&self, buf: Vec<u8>) -> Result<Vec<u8>> {
         match self {
-            Self::Zlib | Self::ZlibExt => {
+            Self::ZlibOpenSsh | Self::Zlib => {
                 let mut buffer = Vec::with_capacity(buf.len());
                 let decoder = libflate::zlib::Decoder::new(std::io::Cursor::new(buf))?;
 
@@ -56,7 +56,7 @@ impl Compress {
 
     pub fn compress(&self, buf: &[u8]) -> Result<Vec<u8>> {
         match self {
-            Self::Zlib | Self::ZlibExt => {
+            Self::ZlibOpenSsh | Self::Zlib => {
                 let mut encoder = libflate::zlib::Encoder::new(Vec::with_capacity(buf.len()))?;
 
                 encoder.write_all(buf)?;
