@@ -79,8 +79,20 @@ impl OpeningCipher for TransportPair {
         Ok(buf)
     }
 
-    fn open<B: AsMut<[u8]>>(&mut self, mut buf: B, mac: Vec<u8>) -> Result<B, Self::Err> {
-        self.decrypt(buf.as_mut())?;
+    fn open(&mut self, mut buf: Vec<u8>, mac: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
+        if self.ralg.hmac.etm() {
+            self.ralg
+                .hmac
+                .verify(self.rseq, &buf, &self.rchain.hmac, &mac)?;
+            self.decrypt(&mut buf[4..])?;
+        } else {
+            self.decrypt(&mut buf[4..])?;
+            self.ralg
+                .hmac
+                .verify(self.rseq, &buf, &self.rchain.hmac, &mac)?;
+        }
+
+        buf.drain(0..4);
 
         Ok(buf)
     }

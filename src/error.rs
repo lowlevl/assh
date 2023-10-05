@@ -17,6 +17,9 @@ pub enum Error {
     #[error(transparent)]
     Key(#[from] ssh_key::Error),
 
+    #[error(transparent)]
+    Integrity(#[from] digest::MacError),
+
     #[error("The cipher ended up in an error")]
     Cipher,
 

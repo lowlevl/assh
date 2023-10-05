@@ -65,11 +65,35 @@ impl Hmac {
         )
     }
 
-    pub fn verify(&self, seq: u32, buf: &[u8], key: &[u8]) -> bool {
-        match self {
-            Self::None => true,
+    pub fn verify(
+        &self,
+        seq: u32,
+        buf: &[u8],
+        key: &[u8],
+        mac: &[u8],
+    ) -> Result<(), digest::MacError> {
+        fn verify<D: digest::Mac + digest::KeyInit>(
+            seq: u32,
+            buf: &[u8],
+            key: &[u8],
+            mac: &[u8],
+        ) -> Result<(), digest::MacError> {
+            <D as digest::Mac>::new_from_slice(key)
+                .expect("Key derivation failed horribly")
+                .chain_update(seq.to_be_bytes())
+                .chain_update(buf)
+                .verify(mac.into())
+        }
 
-            _ => unimplemented!(),
+        match self {
+            Self::HmacSha512ETM | Self::HmacSha512 => {
+                verify::<hmac::Hmac<Sha512>>(seq, buf, key, mac)
+            }
+            Self::HmacSha256ETM | Self::HmacSha256 => {
+                verify::<hmac::Hmac<Sha256>>(seq, buf, key, mac)
+            }
+            Self::HmacSha1ETM | Self::HmacSha1 => verify::<hmac::Hmac<Sha1>>(seq, buf, key, mac),
+            Self::None => Ok(()),
         }
     }
 
