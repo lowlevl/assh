@@ -2,7 +2,7 @@ mod compress;
 pub use compress::Compress;
 
 mod cipher;
-pub use cipher::Cipher;
+pub use cipher::{Cipher, DecryptorCipher, EncryptorCipher};
 
 mod hmac;
 pub use hmac::Hmac;

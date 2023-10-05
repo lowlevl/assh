@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use digest::Digest;
 use futures::{AsyncRead, AsyncWrite};
 use ring::agreement;
@@ -19,6 +21,8 @@ use crate::{
     Error, Result,
 };
 
+use super::{Compress, DecryptorCipher, EncryptorCipher, Hmac};
+
 #[derive(Debug, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Kex {
@@ -35,6 +39,15 @@ pub enum Kex {
 }
 
 impl Kex {
+    pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Self> {
+        clientkex
+            .kex_algorithms
+            .preferred_in(&serverkex.kex_algorithms)
+            .ok_or(Error::NoCommonKex)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)
+    }
+
     pub async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
@@ -43,11 +56,9 @@ impl Kex {
         i_c: KexInit,
         i_s: KexInit,
         key: &PrivateKey,
-        ctos_alg: Transport,
-        stoc_alg: Transport,
     ) -> Result<TransportPair> {
         match self {
-            Kex::Curve25519Sha256 | Kex::Curve25519Sha256Ext => {
+            Self::Curve25519Sha256 | Self::Curve25519Sha256Ext => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
 
                 let e_s = agreement::EphemeralPrivateKey::generate(
@@ -85,8 +96,54 @@ impl Kex {
                 exchange.write(&mut std::io::Cursor::new(&mut buffer))?;
                 let hash = Sha256::digest(&buffer);
 
-                let signature = <dyn Signer<_>>::sign(key, &hash);
+                let session_id = stream.with_session(&hash);
 
+                let (client_hmac, server_hmac) = Hmac::negociate(&i_c, &i_s)?;
+                let (client_compress, server_compress) = Compress::negociate(&i_c, &i_s)?;
+                let (client_cipher, server_cipher) = (
+                    DecryptorCipher::from_str(
+                        i_c.encryption_algorithms_client_to_server
+                            .preferred_in(&i_s.encryption_algorithms_client_to_server)
+                            .ok_or(Error::NoCommonCipher)?,
+                    )
+                    .map_err(|_| Error::UnsupportedAlgorithm)?,
+                    EncryptorCipher::from_str(
+                        i_c.encryption_algorithms_server_to_client
+                            .preferred_in(&i_s.encryption_algorithms_server_to_client)
+                            .ok_or(Error::NoCommonCipher)?,
+                    )
+                    .map_err(|_| Error::UnsupportedAlgorithm)?,
+                );
+
+                let pair = TransportPair {
+                    rchain: KeyChain::as_client::<Sha256>(
+                        &secret,
+                        &hash,
+                        session_id,
+                        &client_cipher,
+                        &client_hmac,
+                    ),
+                    ralg: Transport {
+                        cipher: client_cipher,
+                        hmac: client_hmac,
+                        compress: client_compress,
+                    },
+                    tchain: KeyChain::as_server::<Sha256>(
+                        &secret,
+                        &hash,
+                        session_id,
+                        &server_cipher,
+                        &server_hmac,
+                    ),
+                    talg: Transport {
+                        cipher: server_cipher,
+                        hmac: server_hmac,
+                        compress: server_compress,
+                    },
+                    ..Default::default() // TODO: Find a better place for rseq and tseq
+                };
+
+                let signature = <dyn Signer<_>>::sign(key, &hash);
                 stream
                     .send(&KexEcdhReply {
                         k_s: exchange.k_s,
@@ -94,28 +151,6 @@ impl Kex {
                         signature: signature.to_vec().into(),
                     })
                     .await?;
-
-                let session_id = stream.with_session(&hash);
-
-                let pair = TransportPair {
-                    rchain: KeyChain::as_client::<Sha256>(
-                        &secret,
-                        &hash,
-                        session_id,
-                        &ctos_alg.encrypt,
-                        &ctos_alg.hmac,
-                    ),
-                    ralg: ctos_alg,
-                    tchain: KeyChain::as_server::<Sha256>(
-                        &secret,
-                        &hash,
-                        session_id,
-                        &stoc_alg.encrypt,
-                        &stoc_alg.hmac,
-                    ),
-                    talg: stoc_alg,
-                    ..Default::default() // TODO: Find a better place for rseq and tseq
-                };
 
                 Ok(pair)
             }

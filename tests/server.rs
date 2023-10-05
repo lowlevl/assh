@@ -63,6 +63,8 @@ async fn end_to_end() -> Result<(), Box<dyn std::error::Error>> {
         .arg("StrictHostKeyChecking=no")
         .arg("-o")
         .arg("UserKnownHostsFile=/dev/null")
+        .arg("-o")
+        .arg("Ciphers=3des-cbc")
         .arg(format!("-p {}", addr.port()))
         .arg("-vvv")
         .arg("user@127.0.0.1")

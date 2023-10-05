@@ -5,7 +5,7 @@ use ssh_packet::{arch::NameList, trans::KexInit, Id};
 use strum::VariantNames;
 
 use crate::{
-    algorithm::{Cipher, Compress, Hmac, Kex},
+    algorithm::{Compress, DecryptorCipher, EncryptorCipher, Hmac, Kex},
     Result,
 };
 
@@ -44,8 +44,8 @@ impl Config {
                     .map(|key| key.algorithm().to_string())
                     .collect::<Vec<_>>(),
             ),
-            encryption_algorithms_client_to_server: NameList::new(Cipher::VARIANTS),
-            encryption_algorithms_server_to_client: NameList::new(Cipher::VARIANTS),
+            encryption_algorithms_client_to_server: NameList::new(DecryptorCipher::VARIANTS),
+            encryption_algorithms_server_to_client: NameList::new(EncryptorCipher::VARIANTS),
             mac_algorithms_client_to_server: NameList::new(Hmac::VARIANTS),
             mac_algorithms_server_to_client: NameList::new(Hmac::VARIANTS),
             compression_algorithms_client_to_server: NameList::new(Compress::VARIANTS),

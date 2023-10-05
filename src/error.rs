@@ -15,10 +15,10 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     #[error(transparent)]
-    Cipher(#[from] ssh_cipher::Error),
-
-    #[error(transparent)]
     Key(#[from] ssh_key::Error),
+
+    #[error("The cipher ended up in an error")]
+    Cipher,
 
     #[error("Unable to negociate a common kex algorithm")]
     NoCommonKex,
@@ -27,7 +27,7 @@ pub enum Error {
     NoCommonKey,
 
     #[error("Unable to negociate a common encryption algorithm")]
-    NoCommonEncryption,
+    NoCommonCipher,
 
     #[error("Unable to negociate a common HMAC algorithm")]
     NoCommonHmac,
@@ -35,7 +35,7 @@ pub enum Error {
     #[error("Unable to negociate a common compression algorithm")]
     NoCommonCompression,
 
-    #[error("Received algorithm is unsupported")]
+    #[error("Algorithm is unsupported")]
     UnsupportedAlgorithm,
 
     #[error("Error in the kex-exchange algorithm")]

@@ -7,11 +7,7 @@ use ssh_packet::{
 };
 
 use super::Config;
-use crate::{
-    stream::Stream,
-    transport::{Transport, TransportPair},
-    Error, Result,
-};
+use crate::{algorithm::Kex, stream::Stream, transport::TransportPair, Error, Result};
 
 pub struct Session<S> {
     config: Config,
@@ -69,10 +65,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                         None => stream.recv().await?,
                     };
 
-                    let (kexalg, keyalg, ctos_alg, stoc_alg) =
-                        Transport::negociate(&peerkexinit, &kexinit)?;
-
-                    tracing::debug!("Negociated the following algorithms:\nctos :: {ctos_alg:?}\nstoc :: {stoc_alg:?}");
+                    let kexalg = Kex::negociate(&peerkexinit, &kexinit)?;
+                    let keyalg = peerkexinit
+                        .server_host_key_algorithms
+                        .preferred_in(&kexinit.server_host_key_algorithms)
+                        .ok_or(Error::NoCommonKey)?
+                        .parse()
+                        .map_err(|_| Error::UnsupportedAlgorithm)?;
 
                     let key = self
                         .config
@@ -89,13 +88,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                             peerkexinit,
                             kexinit,
                             key,
-                            ctos_alg,
-                            stoc_alg,
                         )
                         .await?;
 
                     stream.send(&NewKeys).await?;
                     stream.recv::<NewKeys>().await?;
+
+                    tracing::debug!("Negociated the following algorithms:\n{negociated:?}");
 
                     stream.with_transport(negociated);
 

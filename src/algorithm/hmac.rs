@@ -1,9 +1,10 @@
 use digest::OutputSizeUser;
-use hmac::Mac;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
-use ssh_packet::Packet;
+use ssh_packet::trans::KexInit;
 use strum::{EnumString, EnumVariantNames};
+
+use crate::{Error, Result};
 
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
@@ -31,6 +32,23 @@ pub enum Hmac {
 }
 
 impl Hmac {
+    pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Self, Self)> {
+        Ok((
+            clientkex
+                .mac_algorithms_client_to_server
+                .preferred_in(&serverkex.mac_algorithms_client_to_server)
+                .ok_or(Error::NoCommonCipher)?
+                .parse()
+                .map_err(|_| Error::UnsupportedAlgorithm)?,
+            clientkex
+                .mac_algorithms_server_to_client
+                .preferred_in(&serverkex.mac_algorithms_server_to_client)
+                .ok_or(Error::NoCommonHmac)?
+                .parse()
+                .map_err(|_| Error::UnsupportedAlgorithm)?,
+        ))
+    }
+
     pub fn size(&self) -> usize {
         match self {
             Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
