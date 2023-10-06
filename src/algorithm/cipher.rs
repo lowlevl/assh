@@ -88,6 +88,8 @@ impl EncryptorCipher {
         cipher: &mut C,
         buffer: &mut [u8],
     ) -> Result<Option<Tag>> {
+        use cbc::cipher::inout;
+
         let data = inout::InOutBufReserved::from_mut_slice(buffer, buffer.len())
             .map_err(|_| Error::Cipher)?;
 
@@ -259,6 +261,8 @@ impl DecryptorCipher {
         cipher: &mut C,
         buffer: &mut [u8],
     ) -> Result<Option<Tag>> {
+        use cbc::cipher::inout;
+
         let data = inout::InOutBufReserved::from_mut_slice(buffer, buffer.len())
             .map_err(|_| Error::Cipher)?;
 

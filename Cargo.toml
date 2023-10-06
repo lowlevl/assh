@@ -38,7 +38,6 @@ digest = "0.10.7"
 hmac = "0.12.1"
 signature = "2.1.0"
 cipher = "0.4.4"
-inout = "0.1.3"
 
 # Key-exchange algorithms
 ring = { version = "0.16.20", features = ["std"] }

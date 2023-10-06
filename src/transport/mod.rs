@@ -35,7 +35,7 @@ impl<T: algorithm::Cipher> Transport<T> {
     pub fn padding(&self, payload: usize) -> u8 {
         let align = self.cipher.block_size().max(Self::MIN_ALIGN);
 
-        let size = if self.cipher.is_some() && !self.cipher.has_tag() {
+        let size = if self.cipher.is_some() && self.hmac.etm() {
             std::mem::size_of::<u8>() + payload
         } else {
             std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + payload
@@ -66,6 +66,14 @@ impl OpeningCipher for TransportPair {
             0
         } else {
             self.ralg.hmac.size()
+        }
+    }
+
+    fn decrypt_len(&mut self, len: [u8; 4]) -> Result<u32, Self::Err> {
+        if self.ralg.hmac.etm() {
+            Ok(u32::from_be_bytes(len))
+        } else {
+            Ok(u32::from_be_bytes(self.decrypt(len)?))
         }
     }
 
@@ -110,6 +118,14 @@ impl SealingCipher for TransportPair {
             0
         } else {
             self.talg.hmac.size()
+        }
+    }
+
+    fn encrypt_len(&mut self, len: u32) -> std::result::Result<[u8; 4], Self::Err> {
+        if self.ralg.hmac.etm() {
+            Ok(len.to_be_bytes())
+        } else {
+            Ok(self.encrypt(len.to_be_bytes())?)
         }
     }
 
