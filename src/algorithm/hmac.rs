@@ -49,22 +49,6 @@ impl Hmac {
         ))
     }
 
-    pub fn size(&self) -> usize {
-        match self {
-            Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
-            Self::HmacSha256ETM | Self::HmacSha256 => Sha256::output_size(),
-            Self::HmacSha1ETM | Self::HmacSha1 => Sha1::output_size(),
-            Self::None => 0,
-        }
-    }
-
-    pub fn etm(&self) -> bool {
-        matches!(
-            self,
-            Self::HmacSha512ETM | Self::HmacSha256ETM | Self::HmacSha1ETM
-        )
-    }
-
     pub fn verify(
         &self,
         seq: u32,
@@ -114,5 +98,23 @@ impl Hmac {
             Self::HmacSha1ETM | Self::HmacSha1 => sign::<hmac::Hmac<Sha1>>(seq, buf, key),
             Self::None => Default::default(),
         }
+    }
+}
+
+impl ssh_packet::Mac for Hmac {
+    fn size(&self) -> usize {
+        match self {
+            Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
+            Self::HmacSha256ETM | Self::HmacSha256 => Sha256::output_size(),
+            Self::HmacSha1ETM | Self::HmacSha1 => Sha1::output_size(),
+            Self::None => 0,
+        }
+    }
+
+    fn etm(&self) -> bool {
+        matches!(
+            self,
+            Self::HmacSha512ETM | Self::HmacSha256ETM | Self::HmacSha1ETM
+        )
     }
 }

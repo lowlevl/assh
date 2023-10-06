@@ -75,6 +75,8 @@ async fn end_to_end(
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().try_init().ok();
 
+    println!("Parameters: cipher::{cipher}, mac::{mac}, kex::{kex}");
+
     let (addr, handle) = server().await?;
 
     let mut client = Command::new("ssh")

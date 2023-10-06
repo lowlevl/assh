@@ -1,5 +1,5 @@
 use rand::Rng;
-use ssh_packet::{OpeningCipher, SealingCipher};
+use ssh_packet::{Mac, OpeningCipher, SealingCipher};
 
 mod keychain;
 pub use keychain::KeyChain;
@@ -58,49 +58,34 @@ impl<T: algorithm::Cipher> Transport<T> {
 
 impl OpeningCipher for TransportPair {
     type Err = Error;
+    type Mac = algorithm::Hmac;
 
-    fn mac(&self) -> usize {
-        if self.ralg.cipher.has_tag() {
-            // If the encryption algorithm has a Tag,
-            // the MAC is included in the payload.
-            0
-        } else {
-            self.ralg.hmac.size()
-        }
+    fn mac(&self) -> &Self::Mac {
+        &self.talg.hmac
     }
 
-    fn decrypt_len(&mut self, len: [u8; 4]) -> Result<u32, Self::Err> {
-        if self.ralg.hmac.etm() {
-            Ok(u32::from_be_bytes(len))
-        } else {
-            Ok(u32::from_be_bytes(self.decrypt(len)?))
-        }
+    fn block_size(&self) -> usize {
+        self.talg.cipher.block_size()
     }
 
-    fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
+    fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
         if self.ralg.cipher.is_some() {
             self.ralg
                 .cipher
                 .decrypt(&self.rchain.key, &self.rchain.iv, buf.as_mut())?;
         }
 
-        Ok(buf)
+        Ok(())
     }
 
-    fn open(&mut self, mut buf: Vec<u8>, mac: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
-        if self.ralg.hmac.etm() {
+    fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>) -> Result<(), Self::Err> {
+        if OpeningCipher::mac(self).size() > 0 {
             self.ralg
                 .hmac
-                .verify(self.rseq, &buf, &self.rchain.hmac, &mac)?;
-            self.decrypt(&mut buf[4..])?;
-        } else {
-            self.decrypt(&mut buf[4..])?;
-            self.ralg
-                .hmac
-                .verify(self.rseq, &buf, &self.rchain.hmac, &mac)?;
+                .verify(self.rseq, buf.as_ref(), &self.rchain.hmac, &mac)?;
         }
 
-        Ok(buf)
+        Ok(())
     }
 
     fn decompress(&mut self, buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
@@ -110,23 +95,10 @@ impl OpeningCipher for TransportPair {
 
 impl SealingCipher for TransportPair {
     type Err = Error;
+    type Mac = algorithm::Hmac;
 
-    fn mac(&self) -> usize {
-        if self.talg.cipher.has_tag() {
-            // If the encryption algorithm has a Tag,
-            // the MAC is included in the payload.
-            0
-        } else {
-            self.talg.hmac.size()
-        }
-    }
-
-    fn encrypt_len(&mut self, len: u32) -> std::result::Result<[u8; 4], Self::Err> {
-        if self.ralg.hmac.etm() {
-            Ok(len.to_be_bytes())
-        } else {
-            Ok(self.encrypt(len.to_be_bytes())?)
-        }
+    fn mac(&self) -> &Self::Mac {
+        &self.talg.hmac
     }
 
     fn compress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
@@ -147,35 +119,20 @@ impl SealingCipher for TransportPair {
         Ok(new)
     }
 
-    fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<B, Self::Err> {
+    fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
         if self.talg.cipher.is_some() {
             self.talg
                 .cipher
                 .encrypt(&self.tchain.key, &self.tchain.iv, buf.as_mut())?;
         }
 
-        Ok(buf)
+        Ok(())
     }
 
-    fn seal(&mut self, mut buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
-        if self.talg.hmac.etm() {
-            self.encrypt(&mut buf[4..])?;
-            buf.append(
-                &mut self
-                    .talg
-                    .hmac
-                    .sign(self.tseq, buf.as_ref(), &self.tchain.hmac),
-            );
-        } else {
-            let mut mac = self
-                .talg
-                .hmac
-                .sign(self.tseq, buf.as_ref(), &self.tchain.hmac);
-
-            self.encrypt(&mut buf[4..])?;
-            buf.append(&mut mac);
-        }
-
-        Ok(buf)
+    fn seal<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
+        Ok(self
+            .talg
+            .hmac
+            .sign(self.tseq, buf.as_ref(), &self.tchain.hmac))
     }
 }
