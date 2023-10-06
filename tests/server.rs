@@ -28,6 +28,13 @@ async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
         };
         let mut session = Session::new(stream, config).await?;
 
+        session
+            .send(&Debug {
+                message: "hello world".to_string().into(),
+                language: Default::default(),
+                always_display: true.into(),
+            })
+            .await?;
         let Message::ServiceRequest(request) = session.recv().await? else {
             panic!("Unexpected message");
         };

@@ -28,7 +28,7 @@ pub struct Stream<S> {
     /// Packets sequence numbers, as `rx` and `tx`.
     seq: (u32, u32),
 
-    peek: Option<Packet>,
+    buffer: Option<Packet>,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
@@ -39,7 +39,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             session: None,
             transport,
             seq: (0, 0),
-            peek: None,
+            buffer: None,
         }
     }
 
@@ -51,7 +51,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         self.transport = transport;
     }
 
-    pub async fn packet(&mut self) -> Result<Packet> {
+    async fn packet(&mut self) -> Result<Packet> {
         let packet = Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.seq.0)
             .timeout(self.timeout)
             .await??;
@@ -61,27 +61,36 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         Ok(packet)
     }
 
-    pub async fn peek<T>(&mut self) -> Result<T>
+    /// Read a packet from the connected peer, process it and
+    /// read the underlying message in a non-blocking way,
+    /// and store the packet if deserialization failed.
+    pub async fn try_recv<T>(&mut self) -> Result<Option<T>>
     where
         for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
     {
-        let packet = match self.peek.take() {
+        let packet = match self.buffer.take() {
             Some(packet) => packet,
-            None => self.packet().await?,
+            None if !self.inner.buffer().is_empty() => self.packet().await?,
+            None => return Ok(None),
         };
-        let message = packet.read()?;
-        self.peek = Some(packet);
+        let message = packet.read().ok();
+
+        if message.is_none() {
+            self.buffer = Some(packet);
+        }
 
         tracing::trace!("<-({})? {message:?}", self.seq.0 - 1);
 
         Ok(message)
     }
 
+    /// Read a packet from the connected peer, process it and
+    /// read the underlying message.
     pub async fn recv<T>(&mut self) -> Result<T>
     where
         for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
     {
-        let packet = match self.peek.take() {
+        let packet = match self.buffer.take() {
             Some(packet) => packet,
             None => self.packet().await?,
         };
