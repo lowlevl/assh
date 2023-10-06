@@ -14,7 +14,7 @@ mod config;
 pub use config::Config;
 
 /// A [`Session`] wrapping an [`AsyncRead`] + [`AsyncWrite`]
-/// stream to handle **key exchange** and **[SSH-TRANS]** messages.
+/// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
 pub struct Session<S> {
     config: Config,
     peer_id: Id,

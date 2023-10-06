@@ -1,5 +1,7 @@
 //! Algorithm implementations for **compression**, **encryption**, **integrity** and **key-exchange**.
 
+pub use ssh_key::Algorithm as Key;
+
 mod compress;
 pub use compress::Compress;
 
