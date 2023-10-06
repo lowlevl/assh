@@ -9,6 +9,10 @@ use crate::{
     Result,
 };
 
+#[cfg(doc)]
+use super::Session;
+
+/// Configuration parameters for the [`Session`].
 #[derive(Debug)]
 pub struct Config {
     pub id: Id,
@@ -30,7 +34,7 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn kexinit(&self) -> Result<KexInit> {
+    pub(crate) fn kexinit(&self) -> Result<KexInit> {
         let mut cookie = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut cookie);
 

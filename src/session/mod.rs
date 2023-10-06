@@ -1,3 +1,5 @@
+//! Session and transport handling mechanics.
+
 use futures::{io::BufReader, AsyncRead, AsyncWrite};
 use futures_time::future::FutureExt;
 use ssh_packet::{
@@ -6,9 +8,13 @@ use ssh_packet::{
     Id, Message,
 };
 
-use super::Config;
 use crate::{algorithm::Kex, stream::Stream, transport::TransportPair, Error, Result};
 
+mod config;
+pub use config::Config;
+
+/// A [`Session`] wrapping an [`AsyncRead`] + [`AsyncWrite`]
+/// stream to handle **key exchange** and **[SSH-TRANS]** messages.
 pub struct Session<S> {
     config: Config,
     peer_id: Id,
@@ -16,7 +22,10 @@ pub struct Session<S> {
     disconnected: bool,
     stream: Stream<S>,
 }
+
 impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
+    /// Create a new [`Session`] from a [`AsyncRead`] + [`AsyncWrite`] stream,
+    /// and some configuration.
     pub async fn new(stream: S, config: Config) -> Result<Self> {
         let mut stream = BufReader::new(stream);
 
@@ -35,8 +44,60 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         })
     }
 
+    /// Get the [`Id`] of the connected peer.
     pub fn peer_id(&self) -> &Id {
         &self.peer_id
+    }
+
+    /// Receive the next [`Message`] in the `stream`, doing key-exchange if necessary.
+    pub async fn recv(&mut self) -> Result<Message> {
+        loop {
+            if self.disconnected {
+                break Err(Error::Disconnected);
+            }
+
+            if self.stream.should_rekey() {
+                self.kex(None).await?;
+            }
+
+            match self.stream.recv().await? {
+                Message::Disconnect(_) => {
+                    self.disconnected = true;
+                }
+                Message::Ignore(_) => {
+                    tracing::debug!("Received an 'ignore' message");
+                }
+                Message::Debug(message) => {
+                    tracing::debug!("Received a 'debug' message: {}", &*message.message);
+                }
+                Message::Unimplemented(message) => {
+                    tracing::debug!(
+                        "Received a 'unimplemented' message about packet #{}",
+                        message.seq
+                    );
+                }
+                Message::KexInit(kexinit) => self.kex(Some(kexinit)).await?,
+                message => break Ok(message),
+            }
+        }
+    }
+
+    /// Send a [`Message`] to the `stream`, doing key-exchange if necessary.
+    pub async fn send<T>(&mut self, message: &T) -> Result<()>
+    where
+        T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug,
+    {
+        if self.disconnected {
+            return Err(Error::Disconnected);
+        }
+
+        if let Ok(kexinit) = self.stream.peek::<KexInit>().await {
+            self.kex(Some(kexinit)).await?
+        } else if self.stream.should_rekey() {
+            self.kex(None).await?
+        }
+
+        self.stream.send(message).await
     }
 
     async fn kex(&mut self, mut peerkexinit: Option<KexInit>) -> Result<()> {
@@ -86,54 +147,5 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         self.stream.with_transport(negociated);
 
         Ok(())
-    }
-
-    pub async fn recv(&mut self) -> Result<Message> {
-        loop {
-            if self.disconnected {
-                break Err(Error::Disconnected);
-            }
-
-            if self.stream.should_rekey() {
-                self.kex(None).await?;
-            }
-
-            match self.stream.recv().await? {
-                Message::Disconnect(_) => {
-                    self.disconnected = true;
-                }
-                Message::Ignore(_) => {
-                    tracing::debug!("Received an 'ignore' message");
-                }
-                Message::Debug(message) => {
-                    tracing::debug!("Received a 'debug' message: {}", &*message.message);
-                }
-                Message::Unimplemented(message) => {
-                    tracing::debug!(
-                        "Received a 'unimplemented' message about packet #{}",
-                        message.seq
-                    );
-                }
-                Message::KexInit(kexinit) => self.kex(Some(kexinit)).await?,
-                message => break Ok(message),
-            }
-        }
-    }
-
-    pub async fn send<T>(&mut self, message: &T) -> Result<()>
-    where
-        T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug,
-    {
-        if self.disconnected {
-            return Err(Error::Disconnected);
-        }
-
-        if let Ok(kexinit) = self.stream.peek::<KexInit>().await {
-            self.kex(Some(kexinit)).await?
-        } else if self.stream.should_rekey() {
-            self.kex(None).await?
-        }
-
-        self.stream.send(message).await
     }
 }

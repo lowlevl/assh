@@ -1,3 +1,5 @@
+//! Algorithm implementations for **compression**, **encryption**, **integrity** and **key-exchange**.
+
 mod compress;
 pub use compress::Compress;
 

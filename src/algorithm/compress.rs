@@ -21,7 +21,7 @@ pub enum Compress {
 }
 
 impl Compress {
-    pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Self, Self)> {
+    pub(crate) fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Self, Self)> {
         Ok((
             clientkex
                 .compression_algorithms_client_to_server
@@ -38,7 +38,7 @@ impl Compress {
         ))
     }
 
-    pub fn decompress(&self, buf: Vec<u8>) -> Result<Vec<u8>> {
+    pub(crate) fn decompress(&self, buf: Vec<u8>) -> Result<Vec<u8>> {
         match self {
             Self::ZlibOpenSsh | Self::Zlib => {
                 let mut buffer = Vec::with_capacity(buf.len());
@@ -54,7 +54,7 @@ impl Compress {
         }
     }
 
-    pub fn compress(&self, buf: &[u8]) -> Result<Vec<u8>> {
+    pub(crate) fn compress(&self, buf: &[u8]) -> Result<Vec<u8>> {
         match self {
             Self::ZlibOpenSsh | Self::Zlib => {
                 let mut encoder = libflate::zlib::Encoder::new(Vec::with_capacity(buf.len()))?;

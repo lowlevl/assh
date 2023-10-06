@@ -105,7 +105,12 @@ impl EncryptorCipher {
         Ok(None)
     }
 
-    pub fn encrypt(&mut self, key: &[u8], iv: &[u8], buffer: &mut [u8]) -> Result<Option<Tag>> {
+    pub(crate) fn encrypt(
+        &mut self,
+        key: &[u8],
+        iv: &[u8],
+        buffer: &mut [u8],
+    ) -> Result<Option<Tag>> {
         match self {
             Self::Aes256Ctr(cipher) => {
                 Self::ctr(cipher.get_or_insert_with(|| init(key, iv)).as_mut(), buffer)
@@ -278,7 +283,12 @@ impl DecryptorCipher {
         Ok(None)
     }
 
-    pub fn decrypt(&mut self, key: &[u8], iv: &[u8], buffer: &mut [u8]) -> Result<Option<Tag>> {
+    pub(crate) fn decrypt(
+        &mut self,
+        key: &[u8],
+        iv: &[u8],
+        buffer: &mut [u8],
+    ) -> Result<Option<Tag>> {
         match self {
             // In CTR mode, encryption and decrytion is the same
             Self::Aes256Ctr(cipher) => {

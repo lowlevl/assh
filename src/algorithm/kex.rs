@@ -29,7 +29,7 @@ pub enum Kex {
     Curve25519Sha256,
 
     #[strum(serialize = "curve25519-sha256@libssh.org")]
-    Curve25519Sha256Ext,
+    Curve25519Sha256LibSsh,
 
     DiffieHellmanGroup14Sha256,
 
@@ -39,7 +39,7 @@ pub enum Kex {
 }
 
 impl Kex {
-    pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Self> {
+    pub(crate) fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Self> {
         clientkex
             .kex_algorithms
             .preferred_in(&serverkex.kex_algorithms)
@@ -48,7 +48,7 @@ impl Kex {
             .map_err(|_| Error::UnsupportedAlgorithm)
     }
 
-    pub async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(crate) async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
         v_c: &Id,
@@ -58,7 +58,7 @@ impl Kex {
         key: &PrivateKey,
     ) -> Result<TransportPair> {
         let (hash, secret) = match self {
-            Self::Curve25519Sha256 | Self::Curve25519Sha256Ext => {
+            Self::Curve25519Sha256 | Self::Curve25519Sha256LibSsh => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
 
                 let e_s = agreement::EphemeralPrivateKey::generate(

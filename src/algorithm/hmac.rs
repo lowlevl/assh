@@ -32,7 +32,7 @@ pub enum Hmac {
 }
 
 impl Hmac {
-    pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Self, Self)> {
+    pub(crate) fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Self, Self)> {
         Ok((
             clientkex
                 .mac_algorithms_client_to_server
@@ -49,7 +49,7 @@ impl Hmac {
         ))
     }
 
-    pub fn verify(
+    pub(crate) fn verify(
         &self,
         seq: u32,
         buf: &[u8],
@@ -81,7 +81,7 @@ impl Hmac {
         }
     }
 
-    pub fn sign(&self, seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
+    pub(crate) fn sign(&self, seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
         fn sign<D: digest::Mac + digest::KeyInit>(seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
             <D as digest::Mac>::new_from_slice(key)
                 .expect("Key derivation failed horribly")

@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+/// The error types that can occur when manipulating this crate.
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
@@ -51,4 +52,5 @@ pub enum Error {
     Disconnected,
 }
 
+/// A handy [`std::result::Result`] type alias bounding the [`enum@Error`] struct as `E`.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
