@@ -167,10 +167,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         }
     }
 
-    pub async fn send<T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug>(
-        &mut self,
-        message: &T,
-    ) -> Result<()> {
+    pub async fn send<T>(&mut self, message: &T) -> Result<()>
+    where
+        T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug,
+    {
         // TODO: Handle KEX also there
         match &mut self.state {
             SessionState::Disconnected => Err(Error::Disconnected),

@@ -5,7 +5,8 @@
 mod error;
 pub use error::{Error, Result};
 
-pub use ssh_packet::Message;
+pub use ssh_key::PrivateKey;
+pub use ssh_packet::{Id, Message};
 
 mod stream;
 mod transport;
