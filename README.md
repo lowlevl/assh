@@ -14,8 +14,30 @@ A low-level SSH library handling the transport and key-exchange, not more, not l
 
 #### Encryption:
 
+- ⏳ `chacha20-poly1305@openssh.com`
+- ⏳ `aes256-gcm@openssh.com`
+- ⏳ `aes128-gcm@openssh.com`
+- ✅ `aes256-ctr`
+- ✅ `aes192-ctr`
+- ✅ `aes128-ctr`
+- ✅ `aes256-cbc`
+- ✅ `aes192-cbc`
+- ✅ `aes128-cbc`
+- ✅ `3des-cbc`
+- ✅ `none`
 
 #### MACs
 
+- ✅ `hmac-sha2-512-etm@openssh.com`
+- ✅ `hmac-sha2-256-etm@openssh.com`
+- ✅ `hmac-sha2-512`
+- ✅ `hmac-sha2-256`
+- ✅ `hmac-sha1-etm@openssh.com`
+- ✅ `hmac-sha1`
+- ✅ `none`
 
 #### Compression:
+
+- ⏳ `zlib@openssh.com`
+- ⏳ `zlib`
+- ✅ `none`
