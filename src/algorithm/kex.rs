@@ -57,7 +57,7 @@ impl Kex {
         i_s: KexInit,
         key: &PrivateKey,
     ) -> Result<TransportPair> {
-        match self {
+        let (hash, secret) = match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Ext => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
 
@@ -96,52 +96,6 @@ impl Kex {
                 exchange.write(&mut std::io::Cursor::new(&mut buffer))?;
                 let hash = Sha256::digest(&buffer);
 
-                let session_id = stream.with_session(&hash);
-
-                let (client_hmac, server_hmac) = Hmac::negociate(&i_c, &i_s)?;
-                let (client_compress, server_compress) = Compress::negociate(&i_c, &i_s)?;
-                let (client_cipher, server_cipher) = (
-                    DecryptorCipher::from_str(
-                        i_c.encryption_algorithms_client_to_server
-                            .preferred_in(&i_s.encryption_algorithms_client_to_server)
-                            .ok_or(Error::NoCommonCipher)?,
-                    )
-                    .map_err(|_| Error::UnsupportedAlgorithm)?,
-                    EncryptorCipher::from_str(
-                        i_c.encryption_algorithms_server_to_client
-                            .preferred_in(&i_s.encryption_algorithms_server_to_client)
-                            .ok_or(Error::NoCommonCipher)?,
-                    )
-                    .map_err(|_| Error::UnsupportedAlgorithm)?,
-                );
-
-                let pair = TransportPair {
-                    rx: Transport {
-                        chain: KeyChain::as_client::<Sha256>(
-                            &secret,
-                            &hash,
-                            session_id,
-                            &client_cipher,
-                            &client_hmac,
-                        ),
-                        cipher: client_cipher,
-                        hmac: client_hmac,
-                        compress: client_compress,
-                    },
-                    tx: Transport {
-                        chain: KeyChain::as_server::<Sha256>(
-                            &secret,
-                            &hash,
-                            session_id,
-                            &server_cipher,
-                            &server_hmac,
-                        ),
-                        cipher: server_cipher,
-                        hmac: server_hmac,
-                        compress: server_compress,
-                    },
-                };
-
                 let signature = <dyn Signer<_>>::sign(key, &hash);
                 stream
                     .send(&KexEcdhReply {
@@ -151,9 +105,57 @@ impl Kex {
                     })
                     .await?;
 
-                Ok(pair)
+                (hash, secret)
             }
             _ => unimplemented!(),
-        }
+        };
+
+        let session_id = stream.with_session(&hash);
+
+        let (client_hmac, server_hmac) = Hmac::negociate(&i_c, &i_s)?;
+        let (client_compress, server_compress) = Compress::negociate(&i_c, &i_s)?;
+        let (client_cipher, server_cipher) = (
+            DecryptorCipher::from_str(
+                i_c.encryption_algorithms_client_to_server
+                    .preferred_in(&i_s.encryption_algorithms_client_to_server)
+                    .ok_or(Error::NoCommonCipher)?,
+            )
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+            EncryptorCipher::from_str(
+                i_c.encryption_algorithms_server_to_client
+                    .preferred_in(&i_s.encryption_algorithms_server_to_client)
+                    .ok_or(Error::NoCommonCipher)?,
+            )
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+        );
+
+        let pair = TransportPair {
+            rx: Transport {
+                chain: KeyChain::as_client::<Sha256>(
+                    &secret,
+                    &hash,
+                    session_id,
+                    &client_cipher,
+                    &client_hmac,
+                ),
+                cipher: client_cipher,
+                hmac: client_hmac,
+                compress: client_compress,
+            },
+            tx: Transport {
+                chain: KeyChain::as_server::<Sha256>(
+                    &secret,
+                    &hash,
+                    session_id,
+                    &server_cipher,
+                    &server_hmac,
+                ),
+                cipher: server_cipher,
+                hmac: server_hmac,
+                compress: server_compress,
+            },
+        };
+
+        Ok(pair)
     }
 }

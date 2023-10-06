@@ -26,10 +26,11 @@ thiserror = "1.0.49"
 futures = "0.3.28"
 futures-time = "3.0.0"
 strum = { version = "0.25.0", features = ["derive"] }
-replace_with = "0.1.7"
 
 ssh-key = { version = "0.6.1", features = ["rsa", "ed25519"] }
-ssh-packet = { version = "0.1.13", features = ["futures"] }
+ssh-packet = { version = "0.1.13", features = [
+    "futures",
+], path = "../ssh-packet" }
 
 rand = "0.8.5"
 digest = "0.10.7"
@@ -49,8 +50,8 @@ cbc = "0.1.2"
 aead = "0.5.2"
 
 des = "0.8.1"
-aes-gcm = "0.10.3"
 aes = "0.8.3"
+aes-gcm = "0.10.3"
 
 # MAC algorithms
 sha1 = "0.10.6"
