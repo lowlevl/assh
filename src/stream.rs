@@ -20,11 +20,15 @@ pub const REKEY_THRESHOLD: u32 = 0x10000000;
 pub struct Stream<S> {
     inner: BufReader<S>,
     timeout: Duration,
-    session: Option<Vec<u8>>,
     transport: TransportPair,
 
-    /// Packets sequence numbers, (`rx`, `tx`).
+    /// The session identifier derived from the first key exchange.
+    session: Option<Vec<u8>>,
+
+    /// Packets sequence numbers, as `rx` and `tx`.
     seq: (u32, u32),
+
+    peek: Option<Packet>,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
@@ -35,6 +39,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             session: None,
             transport,
             seq: (0, 0),
+            peek: None,
         }
     }
 
@@ -46,16 +51,40 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         self.transport = transport;
     }
 
-    pub async fn recv<T>(&mut self) -> Result<T>
-    where
-        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
-    {
+    pub async fn packet(&mut self) -> Result<Packet> {
         let packet = Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.seq.0)
             .timeout(self.timeout)
             .await??;
 
         self.seq.0 = self.seq.0.wrapping_add(1);
 
+        Ok(packet)
+    }
+
+    pub async fn peek<T>(&mut self) -> Result<T>
+    where
+        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
+    {
+        let packet = match self.peek.take() {
+            Some(packet) => packet,
+            None => self.packet().await?,
+        };
+        let message = packet.read()?;
+        self.peek = Some(packet);
+
+        tracing::trace!("<-({})? {message:?}", self.seq.0 - 1);
+
+        Ok(message)
+    }
+
+    pub async fn recv<T>(&mut self) -> Result<T>
+    where
+        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
+    {
+        let packet = match self.peek.take() {
+            Some(packet) => packet,
+            None => self.packet().await?,
+        };
         let message = packet.read()?;
 
         tracing::trace!("<-({}) {message:?}", self.seq.0 - 1);

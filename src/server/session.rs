@@ -128,6 +128,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
             return Err(Error::Disconnected);
         }
 
+        if let Ok(kexinit) = self.stream.peek::<KexInit>().await {
+            self.kex(Some(kexinit)).await?
+        } else if self.stream.should_rekey() {
+            self.kex(None).await?
+        }
+
         self.stream.send(message).await
     }
 }
