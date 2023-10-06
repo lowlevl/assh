@@ -1,5 +1,5 @@
 use rand::Rng;
-use ssh_packet::{Mac, OpeningCipher, SealingCipher};
+use ssh_packet::{CipherCore, Mac, OpeningCipher, SealingCipher};
 
 mod keychain;
 pub use keychain::KeyChain;
@@ -11,102 +11,61 @@ use crate::{
 
 #[derive(Debug, Default)]
 pub struct TransportPair {
-    pub rchain: KeyChain,
-    pub ralg: Transport<algorithm::DecryptorCipher>,
-    pub rseq: u32,
-
-    pub tchain: KeyChain,
-    pub talg: Transport<algorithm::EncryptorCipher>,
-    pub tseq: u32,
+    pub rx: Transport<algorithm::DecryptorCipher>,
+    pub tx: Transport<algorithm::EncryptorCipher>,
 }
 
 #[derive(Debug, Default)]
 pub struct Transport<T> {
+    pub chain: KeyChain,
     pub cipher: T,
     pub hmac: algorithm::Hmac,
     pub compress: algorithm::Compress,
 }
 
-impl<T: algorithm::Cipher> Transport<T> {
-    pub const MIN_PACKET_SIZE: usize = 16;
-    pub const MIN_PAD_SIZE: usize = 4;
-    pub const MIN_ALIGN: usize = 8;
-
-    pub fn padding(&self, payload: usize) -> u8 {
-        let align = self.cipher.block_size().max(Self::MIN_ALIGN);
-
-        let size = if self.cipher.is_some() && self.hmac.etm() {
-            std::mem::size_of::<u8>() + payload
-        } else {
-            std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + payload
-        };
-        let padding = align - size % align;
-
-        let padding = if padding < Self::MIN_PAD_SIZE {
-            padding + align
-        } else {
-            padding
-        };
-
-        if size + padding < self.cipher.block_size().max(Self::MIN_PACKET_SIZE) {
-            (padding + align) as u8
-        } else {
-            padding as u8
-        }
-    }
-}
-
-impl OpeningCipher for TransportPair {
+impl<T: Cipher> CipherCore for Transport<T> {
     type Err = Error;
     type Mac = algorithm::Hmac;
 
     fn mac(&self) -> &Self::Mac {
-        &self.talg.hmac
+        &self.hmac
     }
 
     fn block_size(&self) -> usize {
-        self.talg.cipher.block_size()
+        self.cipher.block_size()
     }
+}
 
+impl OpeningCipher for Transport<algorithm::DecryptorCipher> {
     fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
-        if self.ralg.cipher.is_some() {
-            self.ralg
-                .cipher
-                .decrypt(&self.rchain.key, &self.rchain.iv, buf.as_mut())?;
+        if self.cipher.is_some() {
+            self.cipher
+                .decrypt(&self.chain.key, &self.chain.iv, buf.as_mut())?;
         }
 
         Ok(())
     }
 
-    fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>) -> Result<(), Self::Err> {
-        if OpeningCipher::mac(self).size() > 0 {
-            self.ralg
-                .hmac
-                .verify(self.rseq, buf.as_ref(), &self.rchain.hmac, &mac)?;
+    fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>, seq: u32) -> Result<(), Self::Err> {
+        if self.mac().size() > 0 {
+            self.hmac
+                .verify(seq, buf.as_ref(), &self.chain.hmac, &mac)?;
         }
 
         Ok(())
     }
 
     fn decompress(&mut self, buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
-        self.ralg.compress.decompress(buf)
+        self.compress.decompress(buf)
     }
 }
 
-impl SealingCipher for TransportPair {
-    type Err = Error;
-    type Mac = algorithm::Hmac;
-
-    fn mac(&self) -> &Self::Mac {
-        &self.talg.hmac
-    }
-
+impl SealingCipher for Transport<algorithm::EncryptorCipher> {
     fn compress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
-        self.talg.compress.compress(buf.as_ref())
+        self.compress.compress(buf.as_ref())
     }
 
-    fn pad(&mut self, buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
-        let padding = self.talg.padding(buf.len());
+    fn pad(&mut self, buf: Vec<u8>, padding: u8) -> Result<Vec<u8>, Self::Err> {
         let mut rng = rand::thread_rng();
 
         // prefix with the size
@@ -120,19 +79,15 @@ impl SealingCipher for TransportPair {
     }
 
     fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
-        if self.talg.cipher.is_some() {
-            self.talg
-                .cipher
-                .encrypt(&self.tchain.key, &self.tchain.iv, buf.as_mut())?;
+        if self.cipher.is_some() {
+            self.cipher
+                .encrypt(&self.chain.key, &self.chain.iv, buf.as_mut())?;
         }
 
         Ok(())
     }
 
-    fn seal<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
-        Ok(self
-            .talg
-            .hmac
-            .sign(self.tseq, buf.as_ref(), &self.tchain.hmac))
+    fn seal<B: AsRef<[u8]>>(&mut self, buf: B, seq: u32) -> Result<Vec<u8>, Self::Err> {
+        Ok(self.hmac.sign(seq, buf.as_ref(), &self.chain.hmac))
     }
 }

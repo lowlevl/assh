@@ -116,31 +116,30 @@ impl Kex {
                 );
 
                 let pair = TransportPair {
-                    rchain: KeyChain::as_client::<Sha256>(
-                        &secret,
-                        &hash,
-                        session_id,
-                        &client_cipher,
-                        &client_hmac,
-                    ),
-                    ralg: Transport {
+                    rx: Transport {
+                        chain: KeyChain::as_client::<Sha256>(
+                            &secret,
+                            &hash,
+                            session_id,
+                            &client_cipher,
+                            &client_hmac,
+                        ),
                         cipher: client_cipher,
                         hmac: client_hmac,
                         compress: client_compress,
                     },
-                    tchain: KeyChain::as_server::<Sha256>(
-                        &secret,
-                        &hash,
-                        session_id,
-                        &server_cipher,
-                        &server_hmac,
-                    ),
-                    talg: Transport {
+                    tx: Transport {
+                        chain: KeyChain::as_server::<Sha256>(
+                            &secret,
+                            &hash,
+                            session_id,
+                            &server_cipher,
+                            &server_hmac,
+                        ),
                         cipher: server_cipher,
                         hmac: server_hmac,
                         compress: server_compress,
                     },
-                    ..Default::default() // TODO: Find a better place for rseq and tseq
                 };
 
                 let signature = <dyn Signer<_>>::sign(key, &hash);
