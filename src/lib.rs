@@ -17,7 +17,7 @@
 //! see [`algorithm::Compress`].
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![warn(clippy::unwrap_used, clippy::unimplemented)]
+#![warn(clippy::unwrap_used, clippy::panic, clippy::unimplemented)]
 
 mod stream;
 mod transport;

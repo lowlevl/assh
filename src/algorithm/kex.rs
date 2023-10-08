@@ -21,7 +21,7 @@ use crate::{
     Error, Result,
 };
 
-use super::{Compress, DecryptorCipher, EncryptorCipher, Hmac};
+use super::{Cipher, Compress, Hmac};
 
 #[derive(Debug, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
@@ -96,7 +96,7 @@ impl Kex {
                 exchange.write(&mut std::io::Cursor::new(&mut buffer))?;
                 let hash = Sha256::digest(&buffer);
 
-                let signature = <dyn Signer<_>>::sign(key, &hash);
+                let signature = Signer::sign(key, &hash);
                 stream
                     .send(&KexEcdhReply {
                         k_s: exchange.k_s,
@@ -115,13 +115,13 @@ impl Kex {
         let (client_hmac, server_hmac) = Hmac::negociate(&i_c, &i_s)?;
         let (client_compress, server_compress) = Compress::negociate(&i_c, &i_s)?;
         let (client_cipher, server_cipher) = (
-            DecryptorCipher::from_str(
+            Cipher::from_str(
                 i_c.encryption_algorithms_client_to_server
                     .preferred_in(&i_s.encryption_algorithms_client_to_server)
                     .ok_or(Error::NoCommonCipher)?,
             )
             .map_err(|_| Error::UnsupportedAlgorithm)?,
-            EncryptorCipher::from_str(
+            Cipher::from_str(
                 i_c.encryption_algorithms_server_to_client
                     .preferred_in(&i_s.encryption_algorithms_server_to_client)
                     .ok_or(Error::NoCommonCipher)?,
@@ -138,6 +138,7 @@ impl Kex {
                     &client_cipher,
                     &client_hmac,
                 ),
+                state: None,
                 cipher: client_cipher,
                 hmac: client_hmac,
                 compress: client_compress,
@@ -150,6 +151,7 @@ impl Kex {
                     &server_cipher,
                     &server_hmac,
                 ),
+                state: None,
                 cipher: server_cipher,
                 hmac: server_hmac,
                 compress: server_compress,

@@ -1,7 +1,7 @@
 use digest::{Digest, FixedOutputReset};
 use ssh_packet::{arch::MpInt, Mac};
 
-use crate::algorithm::Cipher;
+use crate::algorithm::CipherLike;
 
 #[derive(Debug, Default)]
 pub struct KeyChain {
@@ -15,7 +15,7 @@ impl KeyChain {
         secret: &MpInt,
         hash: &[u8],
         session_id: &[u8],
-        cipher: &impl Cipher,
+        cipher: &impl CipherLike,
         hmac: &impl Mac,
     ) -> Self {
         let ivsize = cipher.iv_size();
@@ -33,7 +33,7 @@ impl KeyChain {
         secret: &MpInt,
         hash: &[u8],
         session_id: &[u8],
-        cipher: &impl Cipher,
+        cipher: &impl CipherLike,
         hmac: &impl Mac,
     ) -> Self {
         let ivsize = cipher.iv_size();
