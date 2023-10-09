@@ -6,7 +6,8 @@ mod compress;
 pub use compress::Compress;
 
 mod cipher;
-pub use cipher::{Cipher, CipherLike, CipherState};
+pub use cipher::Cipher;
+pub(crate) use cipher::{CipherLike, CipherState};
 
 mod hmac;
 pub use hmac::Hmac;
