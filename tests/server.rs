@@ -7,7 +7,7 @@ use rstest::rstest;
 use ssh_packet::trans::{Debug, ServiceAccept};
 
 use assh::{
-    session::{Config, Session},
+    session::{server::Config, Session},
     Message, Result,
 };
 

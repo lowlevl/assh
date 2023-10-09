@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use assh::{
-    session::{Config, Session},
+    session::{server::Config, Session},
     Message,
 };
 

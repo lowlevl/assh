@@ -29,7 +29,7 @@ pub enum Kex {
     Curve25519Sha256,
 
     #[strum(serialize = "curve25519-sha256@libssh.org")]
-    Curve25519Sha256LibSsh,
+    Curve25519Sha256Libssh,
 
     DiffieHellmanGroup14Sha256,
 
@@ -58,7 +58,7 @@ impl Kex {
         key: &PrivateKey,
     ) -> Result<TransportPair> {
         let (hash, secret) = match self {
-            Self::Curve25519Sha256 | Self::Curve25519Sha256LibSsh => {
+            Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
 
                 let e_s = agreement::EphemeralPrivateKey::generate(
