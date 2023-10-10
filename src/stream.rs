@@ -25,9 +25,12 @@ pub struct Stream<S> {
     /// The session identifier derived from the first key exchange.
     session: Option<Vec<u8>>,
 
-    /// Packets sequence numbers, as `rx` and `tx`.
-    seq: (u32, u32),
+    /// Sequence numbers for the `tx` side.
+    txseq: u32,
+    /// Sequence numbers for the `rx` side.
+    rxseq: u32,
 
+    /// A packet buffer to enable `try_recv` method to function.
     buffer: Option<Packet>,
 }
 
@@ -38,7 +41,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             timeout,
             session: None,
             transport,
-            seq: (0, 0),
+            txseq: 0,
+            rxseq: 0,
             buffer: None,
         }
     }
@@ -52,11 +56,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
     }
 
     async fn packet(&mut self) -> Result<Packet> {
-        let packet = Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.seq.0)
+        let packet = Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.rxseq)
             .timeout(self.timeout)
             .await??;
 
-        self.seq.0 = self.seq.0.wrapping_add(1);
+        self.rxseq = self.rxseq.wrapping_add(1);
 
         Ok(packet)
     }
@@ -79,7 +83,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             self.buffer = Some(packet);
         }
 
-        tracing::trace!("<-({})? {message:?}", self.seq.0 - 1);
+        tracing::trace!("<-({})? {message:?}", self.rxseq - 1);
 
         Ok(message)
     }
@@ -96,7 +100,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         };
         let message = packet.read()?;
 
-        tracing::trace!("<-({}) {message:?}", self.seq.0 - 1);
+        tracing::trace!("<-({}) {message:?}", self.rxseq - 1);
 
         Ok(message)
     }
@@ -108,18 +112,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         let packet = Packet::write(message)?;
 
         packet
-            .to_async_writer(&mut self.inner, &mut self.transport.tx, self.seq.1)
+            .to_async_writer(&mut self.inner, &mut self.transport.tx, self.txseq)
             .timeout(self.timeout)
             .await??;
 
-        self.seq.1 = self.seq.1.wrapping_add(1);
+        self.txseq = self.txseq.wrapping_add(1);
 
-        tracing::trace!("({})-> {message:?}", self.seq.1 - 1);
+        tracing::trace!("({})-> {message:?}", self.txseq - 1);
 
         Ok(())
     }
 
     pub fn should_rekey(&self) -> bool {
-        self.session.is_none() || self.seq.1 > REKEY_THRESHOLD
+        self.session.is_none() || self.txseq > REKEY_THRESHOLD
     }
 }
