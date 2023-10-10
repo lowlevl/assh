@@ -22,7 +22,7 @@ pub struct Session<I, S> {
     disconnected: bool,
 }
 
-impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side + Send + Sync> Session<I, S> {
+impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
     /// Create a new [`Session`] from a [`AsyncRead`] + [`AsyncWrite`] stream,
     /// and some configuration.
     pub async fn new(stream: I, config: S) -> Result<Self> {

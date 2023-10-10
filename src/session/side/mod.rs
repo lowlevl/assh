@@ -21,11 +21,12 @@ mod private {
 
     impl Sealed for super::Client {}
     impl Sealed for super::Server {}
+    impl<T: Sealed> Sealed for std::sync::Arc<T> {}
 }
 
 /// A side of the SSH protocol, either [`Client`] or [`Server`].
 #[async_trait]
-pub trait Side: private::Sealed {
+pub trait Side: private::Sealed + Send + Sync {
     /// Get the [`Id`] for this session.
     fn id(&self) -> &Id;
 
@@ -73,5 +74,32 @@ pub trait Side: private::Sealed {
         stream.with_transport(transport);
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl<T: Side> Side for std::sync::Arc<T> {
+    fn id(&self) -> &Id {
+        (**self).id()
+    }
+
+    fn timeout(&self) -> Duration {
+        (**self).timeout()
+    }
+
+    fn kexinit(&self) -> KexInit {
+        (**self).kexinit()
+    }
+
+    async fn exchange(
+        &self,
+        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        kexinit: KexInit,
+        peerkexinit: KexInit,
+        peer_id: &Id,
+    ) -> Result<TransportPair> {
+        (**self)
+            .exchange(stream, kexinit, peerkexinit, peer_id)
+            .await
     }
 }
