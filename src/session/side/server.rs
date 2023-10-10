@@ -18,7 +18,6 @@ use crate::{
 pub struct Server {
     pub id: Id,
     pub timeout: Duration,
-
     pub keys: Vec<PrivateKey>,
 }
 
@@ -29,8 +28,8 @@ impl Default for Server {
                 concat!(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
                 None::<&str>,
             ),
-            keys: vec![],
             timeout: Duration::from_secs(3),
+            keys: Default::default(),
         }
     }
 }

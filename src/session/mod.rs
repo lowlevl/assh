@@ -57,7 +57,9 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
             }
 
             if self.stream.should_rekey() {
-                self.kex(None).await?;
+                self.config
+                    .kex(&mut self.stream, None, &self.peer_id)
+                    .await?;
             }
 
             match self.stream.recv().await? {
@@ -76,7 +78,11 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
                         message.seq
                     );
                 }
-                Message::KexInit(kexinit) => self.kex(Some(kexinit)).await?,
+                Message::KexInit(kexinit) => {
+                    self.config
+                        .kex(&mut self.stream, Some(kexinit), &self.peer_id)
+                        .await?
+                }
                 message => break Ok(message),
             }
         }
@@ -92,17 +98,15 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
         }
 
         if let Some(kexinit) = self.stream.try_recv::<KexInit>().await? {
-            self.kex(Some(kexinit)).await?
+            self.config
+                .kex(&mut self.stream, Some(kexinit), &self.peer_id)
+                .await?
         } else if self.stream.should_rekey() {
-            self.kex(None).await?
+            self.config
+                .kex(&mut self.stream, None, &self.peer_id)
+                .await?
         }
 
         self.stream.send(message).await
-    }
-
-    async fn kex(&mut self, peerkexinit: Option<KexInit>) -> Result<()> {
-        self.config
-            .kex(&mut self.stream, peerkexinit, &self.peer_id)
-            .await
     }
 }
