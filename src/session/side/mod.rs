@@ -1,24 +1,43 @@
+//! The specializations of the session for the _client_ or _server_ side of the protocol.
+
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite};
+use futures_time::time::Duration;
 use ssh_packet::{
     trans::{KexInit, NewKeys},
     Id,
 };
 
+mod client;
+pub use client::Client;
+
+mod server;
+pub use server::Server;
+
 use crate::{stream::Stream, transport::TransportPair, Result};
 
-/// A side of the SSH protocol.
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for super::Client {}
+    impl Sealed for super::Server {}
+}
+
+/// A side of the SSH protocol, either [`Client`] or [`Server`].
 #[async_trait]
-pub trait Side {
-    /// Configuration for this side of the protocol.
-    type Config: Sync;
+pub trait Side: private::Sealed {
+    /// Get the [`Id`] for this session.
+    fn id(&self) -> &Id;
+
+    /// Get the _timeout_ for this session.
+    fn timeout(&self) -> Duration;
 
     /// Generate a [`KexInit`] message from the config.
-    fn kexinit(config: &Self::Config) -> KexInit;
+    fn kexinit(&self) -> KexInit;
 
-    /// Perform the key exchange from the config.
+    /// Exchange the keys from the config.
     async fn exchange(
-        config: &Self::Config,
+        &self,
         stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
@@ -27,12 +46,12 @@ pub trait Side {
 
     /// Perform the key-exchange from this side.
     async fn kex(
-        config: &Self::Config,
+        &self,
         stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
         mut peerkexinit: Option<KexInit>,
         peer_id: &Id,
     ) -> Result<()> {
-        let kexinit = Self::kexinit(config);
+        let kexinit = self.kexinit();
         stream.send(&kexinit).await?;
 
         let peerkexinit = match peerkexinit.take() {
@@ -40,7 +59,7 @@ pub trait Side {
             None => stream.recv().await?,
         };
 
-        let transport = Self::exchange(config, stream, kexinit, peerkexinit, peer_id).await?;
+        let transport = self.exchange(stream, kexinit, peerkexinit, peer_id).await?;
 
         stream.send(&NewKeys).await?;
         stream.recv::<NewKeys>().await?;

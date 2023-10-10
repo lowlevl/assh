@@ -7,7 +7,7 @@ use rstest::rstest;
 use ssh_packet::trans::{Debug, ServiceAccept};
 
 use assh::{
-    session::{server::Config, Session},
+    session::{side::Server, Session},
     Message, Result,
 };
 
@@ -18,7 +18,7 @@ async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
     let handle = async_std::task::spawn_local(async move {
         let stream = socket.incoming().next().await.unwrap()?;
 
-        let config = Config {
+        let side = Server {
             keys: vec![ssh_key::PrivateKey::random(
                 &mut rand::thread_rng(),
                 ssh_key::Algorithm::Ed25519,
@@ -26,7 +26,7 @@ async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
             .unwrap()],
             ..Default::default()
         };
-        let mut session = Session::new(stream, config).await?;
+        let mut session = Session::new(stream, side).await?;
 
         session
             .send(&Debug {
@@ -55,8 +55,6 @@ async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
         session.recv().await
     });
 
-    tracing::info!("Binding server on port {}", addr.port());
-
     Ok((addr, handle))
 }
 
@@ -82,9 +80,9 @@ async fn end_to_end(
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().try_init().ok();
 
-    println!("Parameters: cipher::{cipher}, mac::{mac}, kex::{kex}");
-
     let (addr, handle) = server().await?;
+
+    tracing::info!("cipher::{cipher}, mac::{mac}, kex::{kex}, bound to {addr}");
 
     let mut client = Command::new("ssh")
         .arg("-oStrictHostKeyChecking=no")
@@ -93,7 +91,6 @@ async fn end_to_end(
         .arg(format!("-c{cipher}"))
         .arg(format!("-m{mac}"))
         .arg(format!("-p{}", addr.port()))
-        .arg("-vvv")
         .arg("user@127.0.0.1")
         .arg("/bin/bash")
         .spawn()?;

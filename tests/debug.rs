@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use assh::{
-    session::{server::Config, Session},
+    session::{side::Server, Session},
     Message,
 };
 
@@ -17,7 +17,7 @@ async fn with_russh() -> Result<(), Box<dyn std::error::Error>> {
     let handle = tokio::spawn(async move {
         let (stream, _) = socket.accept().await?;
 
-        let config = Config {
+        let side = Server {
             keys: vec![ssh_key::PrivateKey::random(
                 &mut rand::thread_rng(),
                 ssh_key::Algorithm::Ed25519,
@@ -25,7 +25,7 @@ async fn with_russh() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap()],
             ..Default::default()
         };
-        let mut session = Session::new(stream.compat(), config).await?;
+        let mut session = Session::new(stream.compat(), side).await?;
 
         let Message::ServiceRequest(_request) = session.recv().await? else {
             panic!("Unexpected message");

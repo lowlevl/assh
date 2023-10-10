@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite};
+use futures_time::time::Duration;
 use rand::RngCore;
+use ssh_key::PrivateKey;
 use ssh_packet::{arch::NameList, trans::KexInit, Id};
 use strum::VariantNames;
 
@@ -11,35 +13,39 @@ use crate::{
     Result,
 };
 
-mod config;
-pub use config::Config;
+/// A session _server_-side configuration.
+#[derive(Debug)]
+pub struct Server {
+    pub id: Id,
+    pub timeout: Duration,
 
-pub enum Server {}
+    pub keys: Vec<PrivateKey>,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self {
+            id: Id::v2(
+                concat!(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION")),
+                None::<&str>,
+            ),
+            keys: vec![],
+            timeout: Duration::from_secs(3),
+        }
+    }
+}
 
 #[async_trait]
 impl super::Side for Server {
-    type Config = Config;
-
-    async fn exchange(
-        config: &Self::Config,
-        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
-        kexinit: KexInit,
-        peerkexinit: KexInit,
-        peer_id: &Id,
-    ) -> Result<TransportPair> {
-        let keyalg = key::negociate(&peerkexinit, &kexinit)?;
-        let key = config
-            .keys
-            .iter()
-            .find(|key| key.algorithm() == keyalg)
-            .expect("Did our KexInit lie to the client ?");
-
-        kex::negociate(&peerkexinit, &kexinit)?
-            .reply(stream, peer_id, &config.id, peerkexinit, kexinit, key)
-            .await
+    fn id(&self) -> &Id {
+        &self.id
     }
 
-    fn kexinit(config: &Self::Config) -> KexInit {
+    fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    fn kexinit(&self) -> KexInit {
         let mut cookie = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut cookie);
 
@@ -47,7 +53,7 @@ impl super::Side for Server {
             cookie,
             kex_algorithms: NameList::new(Kex::VARIANTS),
             server_host_key_algorithms: NameList::new(
-                &config
+                &self
                     .keys
                     .iter()
                     .map(|key| key.algorithm().to_string())
@@ -63,5 +69,24 @@ impl super::Side for Server {
             languages_server_to_client: NameList::default(),
             first_kex_packet_follows: false.into(),
         }
+    }
+
+    async fn exchange(
+        &self,
+        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        kexinit: KexInit,
+        peerkexinit: KexInit,
+        peer_id: &Id,
+    ) -> Result<TransportPair> {
+        let keyalg = key::negociate(&peerkexinit, &kexinit)?;
+        let key = self
+            .keys
+            .iter()
+            .find(|key| key.algorithm() == keyalg)
+            .expect("Did our KexInit lie to the client ?");
+
+        kex::negociate(&peerkexinit, &kexinit)?
+            .reply(stream, peer_id, self.id(), peerkexinit, kexinit, key)
+            .await
     }
 }

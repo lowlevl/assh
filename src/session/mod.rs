@@ -10,39 +10,37 @@ use ssh_packet::{
 
 use crate::{stream::Stream, transport::TransportPair, Error, Result};
 
-mod side;
-pub use side::Side;
+pub mod side;
 
-pub mod client;
-pub mod server;
-
-/// A [`Session`] wrapping an [`AsyncRead`] + [`AsyncWrite`]
+/// A session wrapping an [`AsyncRead`] + [`AsyncWrite`]
 /// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
-pub struct Session<S> {
-    disconnected: bool,
+pub struct Session<I, S> {
+    config: S,
+    stream: Stream<I>,
+
     peer_id: Id,
-    config: server::Config,
-    stream: Stream<S>,
+    disconnected: bool,
 }
 
-impl<S: AsyncRead + AsyncWrite + Unpin + Send> Session<S> {
+impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side + Send + Sync> Session<I, S> {
     /// Create a new [`Session`] from a [`AsyncRead`] + [`AsyncWrite`] stream,
     /// and some configuration.
-    pub async fn new(stream: S, config: server::Config) -> Result<Self> {
+    pub async fn new(stream: I, config: S) -> Result<Self> {
         let mut stream = BufReader::new(stream);
 
-        config.id.to_async_writer(&mut stream).await?;
+        config.id().to_async_writer(&mut stream).await?;
         let peer_id = Id::from_async_reader(&mut stream)
-            .timeout(config.timeout)
+            .timeout(config.timeout())
             .await??;
 
-        let stream = Stream::new(stream, TransportPair::default(), config.timeout);
+        let stream = Stream::new(stream, TransportPair::default(), config.timeout());
 
         Ok(Self {
-            disconnected: false,
-            peer_id,
             config,
             stream,
+
+            peer_id,
+            disconnected: false,
         })
     }
 
@@ -51,7 +49,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Session<S> {
         &self.peer_id
     }
 
-    /// Receive the next [`Message`] in the `stream`, doing key-exchange if necessary.
+    /// Receive a [`Message`] from the `stream`.
     pub async fn recv(&mut self) -> Result<Message> {
         loop {
             if self.disconnected {
@@ -84,7 +82,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Session<S> {
         }
     }
 
-    /// Send a [`Message`] to the `stream`, doing key-exchange if necessary.
+    /// Send a [`Message`] to the `stream`.
     pub async fn send<T>(&mut self, message: &T) -> Result<()>
     where
         T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug,
@@ -103,6 +101,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Session<S> {
     }
 
     async fn kex(&mut self, peerkexinit: Option<KexInit>) -> Result<()> {
-        server::Server::kex(&self.config, &mut self.stream, peerkexinit, &self.peer_id).await
+        self.config
+            .kex(&mut self.stream, peerkexinit, &self.peer_id)
+            .await
     }
 }
