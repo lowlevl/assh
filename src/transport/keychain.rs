@@ -1,7 +1,7 @@
 use digest::{Digest, FixedOutputReset};
 use ssh_packet::{arch::MpInt, Mac};
 
-use crate::algorithm::CipherLike;
+use crate::algorithm::cipher::CipherLike;
 
 #[derive(Debug, Default)]
 pub struct KeyChain {

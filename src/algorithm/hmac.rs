@@ -6,6 +6,23 @@ use strum::{EnumString, EnumVariantNames};
 
 use crate::{Error, Result};
 
+pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Hmac, Hmac)> {
+    Ok((
+        clientkex
+            .mac_algorithms_client_to_server
+            .preferred_in(&serverkex.mac_algorithms_client_to_server)
+            .ok_or(Error::NoCommonCipher)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+        clientkex
+            .mac_algorithms_server_to_client
+            .preferred_in(&serverkex.mac_algorithms_server_to_client)
+            .ok_or(Error::NoCommonHmac)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+    ))
+}
+
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Hmac {
@@ -32,23 +49,6 @@ pub enum Hmac {
 }
 
 impl Hmac {
-    pub(crate) fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Self, Self)> {
-        Ok((
-            clientkex
-                .mac_algorithms_client_to_server
-                .preferred_in(&serverkex.mac_algorithms_client_to_server)
-                .ok_or(Error::NoCommonCipher)?
-                .parse()
-                .map_err(|_| Error::UnsupportedAlgorithm)?,
-            clientkex
-                .mac_algorithms_server_to_client
-                .preferred_in(&serverkex.mac_algorithms_server_to_client)
-                .ok_or(Error::NoCommonHmac)?
-                .parse()
-                .map_err(|_| Error::UnsupportedAlgorithm)?,
-        ))
-    }
-
     pub(crate) fn verify(
         &self,
         seq: u32,

@@ -1,16 +1,16 @@
 //! Algorithm implementations for **compression**, **encryption**, **integrity** and **key-exchange**.
 
-pub use ssh_key::Algorithm as Key;
+pub(crate) mod cipher;
+pub use cipher::Cipher;
 
-mod compress;
+pub(crate) mod compress;
 pub use compress::Compress;
 
-mod cipher;
-pub use cipher::Cipher;
-pub(crate) use cipher::{CipherLike, CipherState};
-
-mod hmac;
+pub(crate) mod hmac;
 pub use hmac::Hmac;
 
-mod kex;
+pub(crate) mod kex;
 pub use kex::Kex;
+
+pub(crate) mod key;
+pub use key::Key;

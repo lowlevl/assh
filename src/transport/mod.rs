@@ -5,7 +5,10 @@ mod keychain;
 pub use keychain::KeyChain;
 
 use crate::{
-    algorithm::{self, CipherLike, CipherState},
+    algorithm::{
+        self,
+        cipher::{CipherLike, CipherState},
+    },
     Error, Result,
 };
 

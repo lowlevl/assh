@@ -1,9 +1,27 @@
 use aes_gcm::Tag;
+use ssh_packet::trans::KexInit;
 use strum::{EnumString, EnumVariantNames};
 
 use crate::{Error, Result};
 
 pub type CipherState = Box<dyn std::any::Any + Send + Sync>;
+
+pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Cipher, Cipher)> {
+    Ok((
+        clientkex
+            .encryption_algorithms_client_to_server
+            .preferred_in(&serverkex.encryption_algorithms_client_to_server)
+            .ok_or(Error::NoCommonCipher)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+        clientkex
+            .encryption_algorithms_server_to_client
+            .preferred_in(&serverkex.encryption_algorithms_server_to_client)
+            .ok_or(Error::NoCommonCipher)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+    ))
+}
 
 pub trait CipherLike {
     fn block_size(&self) -> usize;
@@ -57,6 +75,9 @@ pub enum Cipher {
 }
 
 impl Cipher {
+    /// This method is a hack to solve deduplication of the enum
+    /// variants and to store the cipher states inside a dynamically
+    /// typed `Box<dyn std::any::Any>`.
     fn state<'s, T: cipher::KeyIvInit + Send + Sync + 'static>(
         state: &'s mut Option<CipherState>,
         key: &[u8],

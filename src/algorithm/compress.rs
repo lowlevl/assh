@@ -5,6 +5,23 @@ use strum::{EnumString, EnumVariantNames};
 
 use crate::{Error, Result};
 
+pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Compress, Compress)> {
+    Ok((
+        clientkex
+            .compression_algorithms_client_to_server
+            .preferred_in(&serverkex.compression_algorithms_client_to_server)
+            .ok_or(Error::NoCommonCompression)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+        clientkex
+            .compression_algorithms_server_to_client
+            .preferred_in(&serverkex.compression_algorithms_server_to_client)
+            .ok_or(Error::NoCommonCompression)?
+            .parse()
+            .map_err(|_| Error::UnsupportedAlgorithm)?,
+    ))
+}
+
 #[derive(Debug, Default, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Compress {
@@ -21,23 +38,6 @@ pub enum Compress {
 }
 
 impl Compress {
-    pub(crate) fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Self, Self)> {
-        Ok((
-            clientkex
-                .compression_algorithms_client_to_server
-                .preferred_in(&serverkex.compression_algorithms_client_to_server)
-                .ok_or(Error::NoCommonCompression)?
-                .parse()
-                .map_err(|_| Error::UnsupportedAlgorithm)?,
-            clientkex
-                .compression_algorithms_server_to_client
-                .preferred_in(&serverkex.compression_algorithms_server_to_client)
-                .ok_or(Error::NoCommonCompression)?
-                .parse()
-                .map_err(|_| Error::UnsupportedAlgorithm)?,
-        ))
-    }
-
     pub(crate) fn decompress(&self, buf: Vec<u8>) -> Result<Vec<u8>> {
         match self {
             Self::ZlibOpenssh | Self::Zlib => {

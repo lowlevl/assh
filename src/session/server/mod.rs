@@ -5,10 +5,10 @@ use ssh_packet::{arch::NameList, trans::KexInit, Id};
 use strum::VariantNames;
 
 use crate::{
-    algorithm::{Cipher, Compress, Hmac, Kex},
+    algorithm::{kex, key, Cipher, Compress, Hmac, Kex},
     stream::Stream,
     transport::TransportPair,
-    Error, Result,
+    Result,
 };
 
 mod config;
@@ -27,21 +27,14 @@ impl super::Side for Server {
         peerkexinit: KexInit,
         peer_id: &Id,
     ) -> Result<TransportPair> {
-        let kexalg = Kex::negociate(&peerkexinit, &kexinit)?;
-        let keyalg = peerkexinit
-            .server_host_key_algorithms
-            .preferred_in(&kexinit.server_host_key_algorithms)
-            .ok_or(Error::NoCommonKey)?
-            .parse()
-            .map_err(|_| Error::UnsupportedAlgorithm)?;
-
+        let keyalg = key::negociate(&peerkexinit, &kexinit)?;
         let key = config
             .keys
             .iter()
             .find(|key| key.algorithm() == keyalg)
             .expect("Did our KexInit lie to the client ?");
 
-        kexalg
+        kex::negociate(&peerkexinit, &kexinit)?
             .reply(stream, peer_id, &config.id, peerkexinit, kexinit, key)
             .await
     }

@@ -19,10 +19,9 @@ pub mod server;
 /// A [`Session`] wrapping an [`AsyncRead`] + [`AsyncWrite`]
 /// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
 pub struct Session<S> {
-    config: server::Config,
-    peer_id: Id,
-
     disconnected: bool,
+    peer_id: Id,
+    config: server::Config,
     stream: Stream<S>,
 }
 
@@ -40,10 +39,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Session<S> {
         let stream = Stream::new(stream, TransportPair::default(), config.timeout);
 
         Ok(Self {
-            config,
-            peer_id,
-            stream,
             disconnected: false,
+            peer_id,
+            config,
+            stream,
         })
     }
 

@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use digest::Digest;
 use futures::{AsyncRead, AsyncWrite};
 use ring::agreement;
@@ -21,7 +19,16 @@ use crate::{
     Error, Result,
 };
 
-use super::{Cipher, Compress, Hmac};
+use super::{cipher, compress, hmac};
+
+pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Kex> {
+    clientkex
+        .kex_algorithms
+        .preferred_in(&serverkex.kex_algorithms)
+        .ok_or(Error::NoCommonKex)?
+        .parse()
+        .map_err(|_| Error::UnsupportedAlgorithm)
+}
 
 #[derive(Debug, EnumString, EnumVariantNames)]
 #[strum(serialize_all = "kebab-case")]
@@ -30,24 +37,15 @@ pub enum Kex {
 
     #[strum(serialize = "curve25519-sha256@libssh.org")]
     Curve25519Sha256Libssh,
+    //
+    // DiffieHellmanGroup14Sha256,
 
-    DiffieHellmanGroup14Sha256,
+    // DiffieHellmanGroup14Sha1,
 
-    DiffieHellmanGroup14Sha1,
-
-    DiffieHellmanGroup1Sha1,
+    // DiffieHellmanGroup1Sha1,
 }
 
 impl Kex {
-    pub(crate) fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Self> {
-        clientkex
-            .kex_algorithms
-            .preferred_in(&serverkex.kex_algorithms)
-            .ok_or(Error::NoCommonKex)?
-            .parse()
-            .map_err(|_| Error::UnsupportedAlgorithm)
-    }
-
     pub(crate) async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
@@ -107,27 +105,13 @@ impl Kex {
 
                 (hash, secret)
             }
-            _ => unimplemented!(),
         };
 
         let session_id = stream.with_session(&hash);
 
-        let (client_hmac, server_hmac) = Hmac::negociate(&i_c, &i_s)?;
-        let (client_compress, server_compress) = Compress::negociate(&i_c, &i_s)?;
-        let (client_cipher, server_cipher) = (
-            Cipher::from_str(
-                i_c.encryption_algorithms_client_to_server
-                    .preferred_in(&i_s.encryption_algorithms_client_to_server)
-                    .ok_or(Error::NoCommonCipher)?,
-            )
-            .map_err(|_| Error::UnsupportedAlgorithm)?,
-            Cipher::from_str(
-                i_c.encryption_algorithms_server_to_client
-                    .preferred_in(&i_s.encryption_algorithms_server_to_client)
-                    .ok_or(Error::NoCommonCipher)?,
-            )
-            .map_err(|_| Error::UnsupportedAlgorithm)?,
-        );
+        let (client_hmac, server_hmac) = hmac::negociate(&i_c, &i_s)?;
+        let (client_compress, server_compress) = compress::negociate(&i_c, &i_s)?;
+        let (client_cipher, server_cipher) = cipher::negociate(&i_c, &i_s)?;
 
         let pair = TransportPair {
             rx: Transport {
