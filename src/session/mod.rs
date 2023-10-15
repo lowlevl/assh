@@ -10,7 +10,11 @@ use ssh_packet::{
 
 use crate::{stream::Stream, transport::TransportPair, Error, Result};
 
-pub mod side;
+mod side;
+pub use side::Side;
+
+pub mod client;
+pub mod server;
 
 /// A session wrapping an [`AsyncRead`] + [`AsyncWrite`]
 /// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
@@ -34,6 +38,8 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
             .await??;
 
         let stream = Stream::new(stream, TransportPair::default(), config.timeout());
+
+        tracing::debug!("Session started with peer `{peer_id}`");
 
         Ok(Self {
             config,

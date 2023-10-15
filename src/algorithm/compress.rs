@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
 use ssh_packet::trans::KexInit;
-use strum::{EnumString, EnumVariantNames};
+use strum::{AsRefStr, EnumString};
 
 use crate::{Error, Result};
 
@@ -22,7 +22,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Compress, 
     ))
 }
 
-#[derive(Debug, Default, EnumString, EnumVariantNames)]
+#[derive(Debug, Default, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Compress {
     /// Zlib compression (OpenSSH mode).

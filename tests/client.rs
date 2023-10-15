@@ -1,9 +1,13 @@
 #![allow(clippy::unwrap_used)]
 
-use async_std::process::Command;
+use async_std::net::TcpStream;
 use rstest::rstest;
 
-use assh::{Message, Result};
+use assh::{
+    session::{client::Client, Session},
+    Message, Result,
+};
+use ssh_packet::{trans::ServiceRequest, userauth::AuthRequest};
 
 mod common;
 
@@ -22,7 +26,7 @@ mod common;
 #[case("aes128-ctr", "hmac-sha1-etm@openssh.com", "curve25519-sha256")]
 #[case("aes192-ctr", "hmac-sha2-256-etm@openssh.com", "curve25519-sha256")]
 #[case("aes256-ctr", "hmac-sha2-512-etm@openssh.com", "curve25519-sha256")]
-async fn against_openssh_client(
+async fn end_to_end(
     #[case] cipher: &str,
     #[case] mac: &str,
     #[case] kex: &str,
@@ -36,21 +40,28 @@ async fn against_openssh_client(
 
     tracing::info!("cipher::{cipher}, mac::{mac}, kex::{kex}, bound to {addr}");
 
-    let mut client = Command::new("ssh")
-        .arg("-oStrictHostKeyChecking=no")
-        .arg("-oUserKnownHostsFile=/dev/null")
-        .arg(format!("-oKexAlgorithms={kex}"))
-        .arg(format!("-c{cipher}"))
-        .arg(format!("-m{mac}"))
-        .arg(format!("-p{}", addr.port()))
-        .arg("user@127.0.0.1")
-        .arg("/bin/bash")
-        .spawn()?;
+    let stream = TcpStream::connect(addr).await?;
+    let mut client = Session::new(stream, Client::default()).await?;
+
+    client
+        .send(&ServiceRequest {
+            service_name: "ssh-userauth".into(),
+        })
+        .await?;
+    let Message::ServiceAccept(_) = client.recv().await? else {
+        panic!("Service refused")
+    };
+    client
+        .send(&AuthRequest {
+            username: "user".into(),
+            service_name: "?".into(),
+            method: ssh_packet::userauth::AuthMethod::None,
+        })
+        .await?;
 
     let message = handle.await?;
-    let status = client.status().await?;
 
-    tracing::info!("message: {message:?}, {status}");
+    tracing::info!("message: {message:?}");
 
     assert!(matches!(message, Message::AuthRequest { .. }));
 

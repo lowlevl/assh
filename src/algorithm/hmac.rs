@@ -2,7 +2,7 @@ use digest::OutputSizeUser;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use ssh_packet::trans::KexInit;
-use strum::{EnumString, EnumVariantNames};
+use strum::{AsRefStr, EnumString};
 
 use crate::{Error, Result};
 
@@ -23,7 +23,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Hmac, Hmac
     ))
 }
 
-#[derive(Debug, Default, EnumString, EnumVariantNames)]
+#[derive(Debug, Default, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Hmac {
     #[strum(serialize = "hmac-sha2-512-etm@openssh.com")]

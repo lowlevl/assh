@@ -1,6 +1,6 @@
 use aes_gcm::Tag;
 use ssh_packet::trans::KexInit;
-use strum::{EnumString, EnumVariantNames};
+use strum::{AsRefStr, EnumString};
 
 use crate::{Error, Result};
 
@@ -32,7 +32,7 @@ pub trait CipherLike {
     fn is_some(&self) -> bool;
 }
 
-#[derive(Default, Debug, EnumString, EnumVariantNames)]
+#[derive(Default, Debug, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Cipher {
     // /// ChaCha20-Poly1305.

@@ -1,5 +1,3 @@
-//! The specializations of the session for the _client_ or _server_ side of the protocol.
-
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite};
 use futures_time::time::Duration;
@@ -8,12 +6,7 @@ use ssh_packet::{
     Id,
 };
 
-mod client;
-pub use client::Client;
-
-mod server;
-pub use server::Server;
-
+use super::{client::Client, server::Server};
 use crate::{stream::Stream, transport::TransportPair, Result};
 
 mod private {
@@ -52,6 +45,8 @@ pub trait Side: private::Sealed + Send + Sync {
         mut peerkexinit: Option<KexInit>,
         peer_id: &Id,
     ) -> Result<()> {
+        tracing::debug!("Starting key-exchange procedure");
+
         let kexinit = self.kexinit();
         stream.send(&kexinit).await?;
 

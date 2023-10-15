@@ -67,8 +67,3 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "fmt",
     "tracing-log",
 ] }
-
-tokio = { version = "*", features = ["full"] }
-tokio-util = { version = "0.7.9", features = ["compat"] }
-russh = { path = "../russh/russh" }
-russh-keys = { path = "../russh/russh-keys" }
