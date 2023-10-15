@@ -110,3 +110,26 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
         self.stream.send(message).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use async_std::net::TcpStream;
+
+    use super::*;
+
+    #[test]
+    fn assert_session_is_send() {
+        fn is_send<T: Send>() {}
+
+        is_send::<Session<TcpStream, client::Client>>();
+        is_send::<Session<TcpStream, server::Server>>();
+    }
+
+    #[test]
+    fn assert_session_is_sync() {
+        fn is_sync<T: Sync>() {}
+
+        is_sync::<Session<TcpStream, client::Client>>();
+        is_sync::<Session<TcpStream, server::Server>>();
+    }
+}
