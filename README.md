@@ -6,6 +6,7 @@ A low-level SSH library handling the transport and key-exchange, not more, not l
 ### Possible improvements
 - Client-side cryptographic verification of Diffie-Hellmann exchange (!!).
 - 100% crate documentation.
+- Take care of `KexInit::first_kex_packet_follows` being true.
 - Implement compression & decompression algorithms (now broken).
 - Implement legacy key exchange methods (`diffie-hellman-group14-sha256`, `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`).
 - Implement latest ciphers (`chacha20-poly1305@openssh.com`, `aes256-gcm@openssh.com`, `aes128-gcm@openssh.com`).
