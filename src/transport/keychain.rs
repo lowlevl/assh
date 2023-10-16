@@ -1,12 +1,16 @@
 use digest::{Digest, FixedOutputReset};
+use securefmt::Debug;
 use ssh_packet::{arch::MpInt, Mac};
 
 use crate::algorithm::cipher::CipherLike;
 
 #[derive(Debug, Default)]
 pub struct KeyChain {
+    #[sensitive]
     pub iv: Vec<u8>,
+    #[sensitive]
     pub key: Vec<u8>,
+    #[sensitive]
     pub hmac: Vec<u8>,
 }
 
