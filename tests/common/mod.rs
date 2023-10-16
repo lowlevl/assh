@@ -15,7 +15,7 @@ pub async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
     let handle = async_std::task::spawn_local(async move {
         let stream = socket.incoming().next().await.unwrap()?;
 
-        let side = Server {
+        let server = Server {
             keys: vec![ssh_key::PrivateKey::random(
                 &mut rand::thread_rng(),
                 ssh_key::Algorithm::Ed25519,
@@ -23,7 +23,7 @@ pub async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
             .unwrap()],
             ..Default::default()
         };
-        let mut session = Session::new(stream, side).await?;
+        let mut session = Session::new(stream, server).await?;
 
         let request = match session.recv().await? {
             Message::ServiceRequest(request) => request,
