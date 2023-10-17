@@ -2,8 +2,8 @@ use digest::Digest;
 use futures::{AsyncRead, AsyncWrite};
 use ring::agreement;
 use sha2::Sha256;
-use signature::{SignatureEncoding, Signer};
-use ssh_key::PrivateKey;
+use signature::{SignatureEncoding, Signer, Verifier};
+use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
     arch::MpInt,
     binrw::BinWrite,
@@ -79,6 +79,7 @@ impl Kex {
                     agreement::agree_ephemeral(e_c, &q_s, Error::KexError, |key| Ok(key.to_vec()))?
                         .into();
 
+                let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
                 let exchange = EcdhExchange {
                     v_c: v_c.to_string().into_bytes().into(),
                     v_s: v_s.to_string().into_bytes().into(),
@@ -102,7 +103,7 @@ impl Kex {
                 exchange.write(&mut std::io::Cursor::new(&mut buffer))?;
                 let hash = Sha256::digest(&buffer);
 
-                // TODO: Verify signature
+                Verifier::verify(&k_s, &hash, &Signature::try_from(&*ecdh.signature)?)?;
 
                 let session_id = stream.with_session(&hash);
 

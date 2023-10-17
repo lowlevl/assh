@@ -21,6 +21,9 @@ pub enum Error {
     #[error(transparent)]
     Integrity(#[from] digest::MacError),
 
+    #[error(transparent)]
+    Signature(#[from] signature::Error),
+
     #[error("The cipher ended up in an error")]
     Cipher,
 
