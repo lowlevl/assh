@@ -29,7 +29,13 @@ futures-time = "3.0.0"
 strum = { version = "0.25.0", features = ["derive"] }
 securefmt = "0.1.4"
 
-ssh-key = { version = "0.6.1", features = ["rsa", "ed25519"] }
+ssh-key = { version = "0.6.1", features = [
+    "dsa",
+    "rsa",
+    "p256",
+    "p384",
+    "ed25519",
+] }
 ssh-packet = { version = "0.1.17", features = ["futures"] }
 
 rand = "0.8.5"
