@@ -8,10 +8,7 @@ use ssh_packet::{
     Id, Message,
 };
 
-use crate::{
-    stream::{Stream, TransportPair},
-    Error, Result,
-};
+use crate::{stream::Stream, Error, Result};
 
 mod side;
 pub use side::Side;
@@ -40,7 +37,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
             .timeout(config.timeout())
             .await??;
 
-        let stream = Stream::new(stream, TransportPair::default(), config.timeout());
+        let stream = Stream::new(stream, config.timeout());
 
         tracing::debug!("Session started with peer `{peer_id}`");
 
@@ -65,7 +62,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
                 break Err(Error::Disconnected);
             }
 
-            if self.stream.should_rekey() {
+            if self.stream.rekeyable() {
                 self.config
                     .kex(&mut self.stream, None, &self.peer_id)
                     .await?;
@@ -110,7 +107,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
             self.config
                 .kex(&mut self.stream, Some(kexinit), &self.peer_id)
                 .await?
-        } else if self.stream.should_rekey() {
+        } else if self.stream.rekeyable() {
             self.config
                 .kex(&mut self.stream, None, &self.peer_id)
                 .await?

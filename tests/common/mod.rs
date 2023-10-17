@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use async_std::{net::TcpListener, stream::StreamExt, task::JoinHandle};
+use async_std::{net::TcpListener, stream::StreamExt};
 use ssh_packet::trans::ServiceAccept;
 
 use assh::{
@@ -8,7 +8,7 @@ use assh::{
     Message, Result,
 };
 
-pub async fn server() -> Result<(SocketAddr, JoinHandle<Result<Message>>)> {
+pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Result<Message>>)> {
     let socket = TcpListener::bind(("127.0.0.1", 0)).await?;
     let addr = socket.local_addr()?;
 

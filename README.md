@@ -7,7 +7,7 @@ A low-level SSH library handling the transport and key-exchange, not more, not l
 - [x] Client-side cryptographic verification of Diffie-Hellmann exchange (!!).
 - [ ] Client-side authorized keys database.
 - [ ] 100% crate documentation.
-- [ ] Improve rekeying threshold calculation.
+- [x] Improve rekeying threshold calculation.
 - [ ] Test rekeying implementation.
 - [ ] Take care of `KexInit::first_kex_packet_follows` being true.
 - [ ] Implement compression & decompression algorithms (now broken).
