@@ -30,9 +30,7 @@ strum = { version = "0.25.0", features = ["derive"] }
 securefmt = "0.1.4"
 
 ssh-key = { version = "0.6.1", features = ["rsa", "ed25519"] }
-ssh-packet = { version = "0.1.13", features = [
-    "futures",
-], path = "../ssh-packet" }
+ssh-packet = { version = "0.1.16", features = ["futures"] }
 
 rand = "0.8.5"
 digest = "0.10.7"
