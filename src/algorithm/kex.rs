@@ -14,8 +14,7 @@ use ssh_packet::{
 use strum::{AsRefStr, EnumString};
 
 use crate::{
-    stream::Stream,
-    transport::{KeyChain, Transport, TransportPair},
+    stream::{Keys, Stream, Transport, TransportPair},
     Error, Result,
 };
 
@@ -109,7 +108,7 @@ impl Kex {
 
                 Ok(TransportPair {
                     rx: Transport {
-                        chain: KeyChain::as_server::<Sha256>(
+                        chain: Keys::as_server::<Sha256>(
                             &secret,
                             &hash,
                             session_id,
@@ -122,7 +121,7 @@ impl Kex {
                         compress: client_compress,
                     },
                     tx: Transport {
-                        chain: KeyChain::as_client::<Sha256>(
+                        chain: Keys::as_client::<Sha256>(
                             &secret,
                             &hash,
                             session_id,
@@ -204,7 +203,7 @@ impl Kex {
 
                 Ok(TransportPair {
                     rx: Transport {
-                        chain: KeyChain::as_client::<Sha256>(
+                        chain: Keys::as_client::<Sha256>(
                             &secret,
                             &hash,
                             session_id,
@@ -217,7 +216,7 @@ impl Kex {
                         compress: client_compress,
                     },
                     tx: Transport {
-                        chain: KeyChain::as_server::<Sha256>(
+                        chain: Keys::as_server::<Sha256>(
                             &secret,
                             &hash,
                             session_id,

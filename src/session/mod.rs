@@ -8,7 +8,10 @@ use ssh_packet::{
     Id, Message,
 };
 
-use crate::{stream::Stream, transport::TransportPair, Error, Result};
+use crate::{
+    stream::{Stream, TransportPair},
+    Error, Result,
+};
 
 mod side;
 pub use side::Side;

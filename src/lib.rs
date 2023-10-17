@@ -20,7 +20,6 @@
 #![warn(clippy::unwrap_used, clippy::panic, clippy::unimplemented)]
 
 mod stream;
-mod transport;
 
 mod error;
 pub use error::{Error, Result};

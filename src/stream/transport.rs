@@ -2,9 +2,6 @@ use rand::Rng;
 use securefmt::Debug;
 use ssh_packet::{CipherCore, Mac, OpeningCipher, SealingCipher};
 
-mod keychain;
-pub use keychain::KeyChain;
-
 use crate::{
     algorithm::{
         self,
@@ -12,6 +9,8 @@ use crate::{
     },
     Error, Result,
 };
+
+use super::Keys;
 
 #[derive(Debug, Default)]
 pub struct TransportPair {
@@ -22,7 +21,7 @@ pub struct TransportPair {
 #[derive(Debug, Default)]
 pub struct Transport {
     #[sensitive]
-    pub chain: KeyChain,
+    pub chain: Keys,
     #[sensitive]
     pub state: Option<CipherState>,
     pub cipher: algorithm::Cipher,

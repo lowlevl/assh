@@ -5,16 +5,18 @@ use ssh_packet::{arch::MpInt, Mac};
 use crate::algorithm::cipher::CipherLike;
 
 #[derive(Debug, Default)]
-pub struct KeyChain {
+pub struct Keys {
     #[sensitive]
     pub iv: Vec<u8>,
+
     #[sensitive]
     pub key: Vec<u8>,
+
     #[sensitive]
     pub hmac: Vec<u8>,
 }
 
-impl KeyChain {
+impl Keys {
     pub fn as_client<D: Digest + FixedOutputReset>(
         secret: &MpInt,
         hash: &[u8],

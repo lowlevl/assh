@@ -10,7 +10,13 @@ use ssh_packet::{
     Packet,
 };
 
-use crate::{transport::TransportPair, Result};
+use crate::Result;
+
+mod transport;
+pub use transport::{Transport, TransportPair};
+
+mod keys;
+pub use keys::Keys;
 
 /// After 2 ^ 28 packets, initiate a rekey as recommended in the RFC.
 pub const REKEY_THRESHOLD: u32 = 0x10000000;

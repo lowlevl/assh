@@ -10,8 +10,7 @@ use ssh_packet::{arch::NameList, trans::KexInit, Id};
 use super::Side;
 use crate::{
     algorithm::{kex, key, Cipher, Compress, Hmac, Kex},
-    stream::Stream,
-    transport::TransportPair,
+    stream::{Stream, TransportPair},
     Result,
 };
 

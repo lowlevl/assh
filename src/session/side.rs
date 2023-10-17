@@ -7,7 +7,10 @@ use ssh_packet::{
 };
 
 use super::{client::Client, server::Server};
-use crate::{stream::Stream, transport::TransportPair, Result};
+use crate::{
+    stream::{Stream, TransportPair},
+    Result,
+};
 
 mod private {
     pub trait Sealed {}
