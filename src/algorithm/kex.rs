@@ -79,9 +79,9 @@ impl Kex {
                 let ecdh: KexEcdhReply = stream.recv().await?;
                 let q_s = agreement::UnparsedPublicKey::new(&agreement::X25519, &*ecdh.q_s);
 
-                let secret: MpInt =
-                    agreement::agree_ephemeral(e_c, &q_s, Error::KexError, |key| Ok(key.to_vec()))?
-                        .into();
+                let secret: MpInt = agreement::agree_ephemeral(e_c, &q_s, |key| key.to_vec())
+                    .map_err(|_| Error::KexError)?
+                    .into();
 
                 let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
                 let exchange = EcdhExchange {
@@ -169,9 +169,9 @@ impl Kex {
                 let q_c = agreement::UnparsedPublicKey::new(&agreement::X25519, &*ecdh.q_c);
                 let q_s = e_s.compute_public_key().map_err(|_| Error::KexError)?;
 
-                let secret: MpInt =
-                    agreement::agree_ephemeral(e_s, &q_c, Error::KexError, |key| Ok(key.to_vec()))?
-                        .into();
+                let secret: MpInt = agreement::agree_ephemeral(e_s, &q_c, |key| key.to_vec())
+                    .map_err(|_| Error::KexError)?
+                    .into();
 
                 let exchange = EcdhExchange {
                     v_c: v_c.to_string().into_bytes().into(),

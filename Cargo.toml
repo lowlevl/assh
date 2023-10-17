@@ -39,7 +39,7 @@ signature = "2.1.0"
 cipher = "0.4.4"
 
 # Key-exchange algorithms
-ring = { version = "0.16.20", features = ["std"] }
+ring = { version = "0.17.4", features = ["std"] }
 
 # Compression algorithms
 libflate = "2.0.0"
