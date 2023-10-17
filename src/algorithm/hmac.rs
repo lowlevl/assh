@@ -25,7 +25,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Hmac, Hmac
 
 /// SSH hmac algorithms.
 #[non_exhaustive]
-#[derive(Debug, Default, EnumString, AsRefStr)]
+#[derive(Debug, Default, PartialEq, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Hmac {
     /// HMAC with sha-2-512 digest on encrypted message.

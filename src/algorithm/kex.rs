@@ -31,7 +31,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Kex> {
 
 /// SSH key-exchange algorithms.
 #[non_exhaustive]
-#[derive(Debug, EnumString, AsRefStr)]
+#[derive(Debug, PartialEq, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Kex {
     /// Curve25519 ECDH with sha-2-256 digest.

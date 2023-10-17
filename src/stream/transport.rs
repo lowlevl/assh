@@ -6,6 +6,7 @@ use crate::{
     algorithm::{
         self,
         cipher::{CipherLike, CipherState},
+        Cipher,
     },
     Error, Result,
 };
@@ -44,7 +45,7 @@ impl CipherCore for Transport {
 
 impl OpeningCipher for Transport {
     fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
-        if self.cipher.is_some() {
+        if self.cipher != Cipher::None {
             self.cipher.decrypt(
                 &mut self.state,
                 &self.chain.key,
@@ -89,7 +90,7 @@ impl SealingCipher for Transport {
     }
 
     fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
-        if self.cipher.is_some() {
+        if self.cipher != Cipher::None {
             self.cipher.encrypt(
                 &mut self.state,
                 &self.chain.key,

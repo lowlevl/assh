@@ -27,14 +27,12 @@ pub trait CipherLike {
     fn block_size(&self) -> usize;
     fn key_size(&self) -> usize;
     fn iv_size(&self) -> usize;
-
     fn has_tag(&self) -> bool;
-    fn is_some(&self) -> bool;
 }
 
 /// SSH cipher algorithms.
 #[non_exhaustive]
-#[derive(Default, Debug, EnumString, AsRefStr)]
+#[derive(Default, Debug, PartialEq, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Cipher {
     // /// ChaCha20-Poly1305.
@@ -265,19 +263,6 @@ impl CipherLike for Cipher {
             | Self::Aes128Ctr { .. }
             | Self::Aes192Ctr { .. }
             | Self::Aes256Ctr { .. } => false,
-        }
-    }
-
-    fn is_some(&self) -> bool {
-        match self {
-            Self::None => false,
-            Self::TDesCbc { .. }
-            | Self::Aes128Cbc { .. }
-            | Self::Aes192Cbc { .. }
-            | Self::Aes256Cbc { .. }
-            | Self::Aes128Ctr { .. }
-            | Self::Aes192Ctr { .. }
-            | Self::Aes256Ctr { .. } => true,
         }
     }
 }
