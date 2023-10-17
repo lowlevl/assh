@@ -33,6 +33,7 @@ pub trait CipherLike {
 }
 
 /// SSH cipher algorithms.
+#[non_exhaustive]
 #[derive(Default, Debug, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Cipher {

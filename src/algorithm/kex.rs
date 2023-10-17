@@ -30,6 +30,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Kex> {
 }
 
 /// SSH key-exchange algorithms.
+#[non_exhaustive]
 #[derive(Debug, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Kex {

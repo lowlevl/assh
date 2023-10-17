@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 /// The error types that can occur when manipulating this crate.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
     /// Identifier parsing error.
