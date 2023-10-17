@@ -32,6 +32,7 @@ pub trait CipherLike {
     fn is_some(&self) -> bool;
 }
 
+/// SSH cipher algorithms.
 #[derive(Default, Debug, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Cipher {
@@ -69,7 +70,7 @@ pub enum Cipher {
     #[strum(serialize = "3des-cbc")]
     TDesCbc,
 
-    /// No cipher.
+    /// No cipher algorithm.
     #[default]
     None,
 }

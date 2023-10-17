@@ -1,7 +1,7 @@
 # Possible improvements
 - [x] Client-side cryptographic verification of Diffie-Hellman exchange (!!).
 - [ ] Client-side authorized keys database.
-- [ ] 100% crate documentation.
+- [x] 100% crate documentation.
 - [ ] Provide client and server examples.
 - [x] Improve rekeying threshold calculation.
 - [ ] Test rekeying implementation.

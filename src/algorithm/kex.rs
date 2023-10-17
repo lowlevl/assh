@@ -29,11 +29,14 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Kex> {
         .map_err(|_| Error::UnsupportedAlgorithm)
 }
 
+/// SSH key-exchange algorithms.
 #[derive(Debug, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Kex {
+    /// Curve25519 ECDH with sha-2-256 digest.
     Curve25519Sha256,
 
+    /// Curve25519 ECDH with sha-2-256 digest (pre-RFC 8731).
     #[strum(serialize = "curve25519-sha256@libssh.org")]
     Curve25519Sha256Libssh,
     //
@@ -62,8 +65,9 @@ impl Kex {
                 let e_c = agreement::EphemeralPrivateKey::generate(
                     &agreement::X25519,
                     &ring::rand::SystemRandom::new(),
-                )?;
-                let q_c = e_c.compute_public_key()?;
+                )
+                .map_err(|_| Error::KexError)?;
+                let q_c = e_c.compute_public_key().map_err(|_| Error::KexError)?;
 
                 stream
                     .send(&KexEcdhInit {
@@ -158,10 +162,11 @@ impl Kex {
                 let e_s = agreement::EphemeralPrivateKey::generate(
                     &agreement::X25519,
                     &ring::rand::SystemRandom::new(),
-                )?;
+                )
+                .map_err(|_| Error::KexError)?;
 
                 let q_c = agreement::UnparsedPublicKey::new(&agreement::X25519, &*ecdh.q_c);
-                let q_s = e_s.compute_public_key()?;
+                let q_s = e_s.compute_public_key().map_err(|_| Error::KexError)?;
 
                 let secret: MpInt =
                     agreement::agree_ephemeral(e_s, &q_c, Error::KexError, |key| Ok(key.to_vec()))?

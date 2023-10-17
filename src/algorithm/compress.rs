@@ -22,17 +22,18 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Compress, 
     ))
 }
 
+/// SSH compression algorithms.
 #[derive(Debug, Default, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Compress {
-    /// Zlib compression (OpenSSH mode).
+    /// zlib compression (OpenSSH mode).
     #[strum(serialize = "zlib@openssh.com")]
     ZlibOpenssh,
 
-    /// Zlib compression.
+    /// zlib compression.
     Zlib,
 
-    /// No compression.
+    /// No compression algorithm.
     #[default]
     None,
 }

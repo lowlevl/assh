@@ -51,12 +51,16 @@ impl Default for Server {
 /// Algorithms for a _server_-side session.
 #[derive(Debug)]
 pub struct Algorithms {
+    /// Enabled algorithms for _key-exchange_.
     pub kexs: Vec<Kex>,
 
+    /// Enabled algorithms for _encryption & decryption_.
     pub ciphers: Vec<Cipher>,
 
+    /// Enabled algorithms for _hmac_.
     pub macs: Vec<Hmac>,
 
+    /// Enabled algorithms for _compression_.
     pub compressions: Vec<Compress>,
 }
 

@@ -23,24 +23,31 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Hmac, Hmac
     ))
 }
 
+/// SSH hmac algorithms.
 #[derive(Debug, Default, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Hmac {
+    /// HMAC with sha-2-512 digest on encrypted message.
     #[strum(serialize = "hmac-sha2-512-etm@openssh.com")]
     HmacSha512ETM,
 
+    /// HMAC with sha-2-256 digest on encrypted message.
     #[strum(serialize = "hmac-sha2-256-etm@openssh.com")]
     HmacSha256ETM,
 
+    /// HMAC with sha-2-512 digest.
     #[strum(serialize = "hmac-sha2-512")]
     HmacSha512,
 
+    /// HMAC with sha-2-256 digest.
     #[strum(serialize = "hmac-sha2-256")]
     HmacSha256,
 
+    /// HMAC with sha-1 digest on encrypted message.
     #[strum(serialize = "hmac-sha1-etm@openssh.com")]
     HmacSha1ETM,
 
+    /// HMAC with sha-1 digest.
     HmacSha1,
 
     /// No HMAC algorithm.

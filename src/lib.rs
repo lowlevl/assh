@@ -17,7 +17,13 @@
 //! see [`algorithm::Compress`].
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![warn(clippy::unwrap_used, clippy::panic, clippy::unimplemented)]
+#![warn(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::undocumented_unsafe_blocks
+)]
 
 pub use ssh_key::private::PrivateKey;
 pub use ssh_packet::{Id, Message};
