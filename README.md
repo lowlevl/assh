@@ -14,6 +14,7 @@ A low-level SSH library handling the transport and key-exchange, not more, not l
 - [ ] Implement legacy key exchange methods (`diffie-hellman-group14-sha256`, `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`).
 - [ ] Implement latest ciphers (`chacha20-poly1305@openssh.com`, `aes256-gcm@openssh.com`, `aes128-gcm@openssh.com`).
 - [ ] Add a service-handling facility.
+- [ ] Make use of `zeroize` to ensure forward secrecy.
 - [ ] Implement a service for authentication.
 - [ ] Getting rid of dynamic dispatch altogether ?
 - [ ] Get rid of `ring` for Diffie-Hellman ?
