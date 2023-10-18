@@ -4,10 +4,17 @@ use async_std::net::TcpStream;
 use rstest::rstest;
 
 use assh::{
-    session::{client::Client, Session},
-    Message, Result,
+    session::{
+        client::{Algorithms, Client},
+        Session,
+    },
+    Error, Message, Result,
 };
-use ssh_packet::{trans::ServiceRequest, userauth::AuthRequest};
+use ssh_packet::{
+    connect::{ChannelOpen, ChannelOpenContext},
+    trans::{Disconnect, ServiceRequest},
+    userauth::AuthRequest,
+};
 
 mod common;
 
@@ -41,7 +48,19 @@ async fn end_to_end(
     tracing::info!("cipher::{cipher}, mac::{mac}, kex::{kex}, bound to {addr}");
 
     let stream = TcpStream::connect(addr).await?;
-    let mut client = Session::new(stream, Client::default()).await?;
+    let mut client = Session::new(
+        stream,
+        Client {
+            algorithms: Algorithms {
+                kexs: vec![kex.parse()?],
+                ciphers: vec![cipher.parse()?],
+                macs: vec![mac.parse()?],
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .await?;
 
     client
         .send(&ServiceRequest {
@@ -51,6 +70,7 @@ async fn end_to_end(
     let Message::ServiceAccept(_) = client.recv().await? else {
         panic!("Service refused")
     };
+
     client
         .send(&AuthRequest {
             username: "user".into(),
@@ -58,12 +78,36 @@ async fn end_to_end(
             method: ssh_packet::userauth::AuthMethod::None,
         })
         .await?;
+    let Message::AuthSuccess(_) = client.recv().await? else {
+        panic!("Auth refused")
+    };
 
-    let message = handle.await?;
+    client
+        .send(&ChannelOpen {
+            sender_channel: 0,
+            initial_window_size: 128,
+            maximum_packet_size: 128,
+            context: ChannelOpenContext::Session,
+        })
+        .await?;
+
+    let Message::ChannelOpenConfirmation(_) = client.recv().await? else {
+        panic!("Channel refused")
+    };
+
+    client
+        .send(&Disconnect {
+            reason: ssh_packet::trans::DisconnectReason::ByApplication,
+            description: "bbbb".into(),
+            language: Default::default(),
+        })
+        .await?;
+
+    let message = handle.await;
 
     tracing::info!("message: {message:?}");
 
-    assert!(matches!(message, Message::AuthRequest { .. }));
+    assert!(matches!(message, Err(Error::Disconnected)));
 
     Ok(())
 }

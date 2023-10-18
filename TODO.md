@@ -4,7 +4,7 @@
 - [x] 100% crate documentation.
 - [ ] Provide client and server examples.
 - [x] Improve rekeying threshold calculation.
-- [ ] Test rekeying implementation.
+- [x] Test rekeying implementation.
 - [ ] Test project against multiple async runtimes.
 - [ ] Take care of `KexInit::first_kex_packet_follows` being true.
 - [ ] Implement compression & decompression algorithms (now broken).

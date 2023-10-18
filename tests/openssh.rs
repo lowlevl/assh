@@ -39,6 +39,7 @@ async fn against_openssh_client(
     let mut client = Command::new("ssh")
         .arg("-oStrictHostKeyChecking=no")
         .arg("-oUserKnownHostsFile=/dev/null")
+        .arg("-oRekeyLimit=1K")
         .arg(format!("-oKexAlgorithms={kex}"))
         .arg(format!("-c{cipher}"))
         .arg(format!("-m{mac}"))
@@ -52,7 +53,7 @@ async fn against_openssh_client(
 
     tracing::info!("message: {message:?}, {status}");
 
-    assert!(matches!(message, Message::AuthRequest { .. }));
+    assert!(matches!(message, Message::ChannelRequest { .. }));
 
     Ok(())
 }
