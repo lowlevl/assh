@@ -1,4 +1,3 @@
-use digest::Digest;
 use futures::{AsyncRead, AsyncWrite};
 use sha2::Sha256;
 use signature::{SignatureEncoding, Signer, Verifier};
@@ -97,10 +96,7 @@ impl Kex {
                     q_s: q_s.to_bytes().to_vec().into(),
                     k: secret.clone(),
                 };
-
-                let mut buffer = Vec::new();
-                exchange.write(&mut std::io::Cursor::new(&mut buffer))?;
-                let hash = Sha256::digest(&buffer);
+                let hash = exchange.hash::<Sha256>();
 
                 Verifier::verify(&k_s, &hash, &Signature::try_from(&*ecdh.signature)?)?;
 
@@ -182,10 +178,7 @@ impl Kex {
                     q_s: q_s.as_ref().to_vec().into(),
                     k: secret.clone(),
                 };
-
-                let mut buffer = Vec::new();
-                exchange.write(&mut std::io::Cursor::new(&mut buffer))?;
-                let hash = Sha256::digest(&buffer);
+                let hash = exchange.hash::<Sha256>();
 
                 let signature = Signer::sign(key, &hash);
                 stream
