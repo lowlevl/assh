@@ -14,5 +14,5 @@
 - [ ] Make use of `zeroize` to ensure forward secrecy.
 - [ ] Implement a service for authentication.
 - [ ] Getting rid of dynamic dispatch altogether ?
-- [ ] Get rid of `ring` for Diffie-Hellman ?
+- [x] Get rid of `ring` for Diffie-Hellman ?
 - [ ] 100% test coverage ?

@@ -1,6 +1,5 @@
 use digest::Digest;
 use futures::{AsyncRead, AsyncWrite};
-use ring::agreement;
 use sha2::Sha256;
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
@@ -63,12 +62,8 @@ impl Kex {
 
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
-                let e_c = agreement::EphemeralPrivateKey::generate(
-                    &agreement::X25519,
-                    &ring::rand::SystemRandom::new(),
-                )
-                .map_err(|_| Error::KexError)?;
-                let q_c = e_c.compute_public_key().map_err(|_| Error::KexError)?;
+                let e_c = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+                let q_c = x25519_dalek::PublicKey::from(&e_c);
 
                 stream
                     .send(&KexEcdhInit {
@@ -77,11 +72,11 @@ impl Kex {
                     .await?;
 
                 let ecdh: KexEcdhReply = stream.recv().await?;
-                let q_s = agreement::UnparsedPublicKey::new(&agreement::X25519, &*ecdh.q_s);
+                let q_s = x25519_dalek::PublicKey::from(
+                    <[u8; 32]>::try_from(&*ecdh.q_s).map_err(|_| Error::KexError)?,
+                );
 
-                let secret: MpInt = agreement::agree_ephemeral(e_c, &q_s, |key| key.to_vec())
-                    .map_err(|_| Error::KexError)?
-                    .into();
+                let secret: MpInt = e_c.diffie_hellman(&q_s).to_bytes().to_vec().into();
 
                 let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
                 let exchange = EcdhExchange {
@@ -99,7 +94,7 @@ impl Kex {
                     },
                     k_s: ecdh.k_s,
                     q_c: q_c.as_ref().to_vec().into(),
-                    q_s: q_s.bytes().to_vec().into(),
+                    q_s: q_s.to_bytes().to_vec().into(),
                     k: secret.clone(),
                 };
 
@@ -160,18 +155,14 @@ impl Kex {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
                 let ecdh: KexEcdhInit = stream.recv().await?;
 
-                let e_s = agreement::EphemeralPrivateKey::generate(
-                    &agreement::X25519,
-                    &ring::rand::SystemRandom::new(),
-                )
-                .map_err(|_| Error::KexError)?;
+                let e_s = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+                let q_s = x25519_dalek::PublicKey::from(&e_s);
 
-                let q_c = agreement::UnparsedPublicKey::new(&agreement::X25519, &*ecdh.q_c);
-                let q_s = e_s.compute_public_key().map_err(|_| Error::KexError)?;
+                let q_c = x25519_dalek::PublicKey::from(
+                    <[u8; 32]>::try_from(&*ecdh.q_c).map_err(|_| Error::KexError)?,
+                );
 
-                let secret: MpInt = agreement::agree_ephemeral(e_s, &q_c, |key| key.to_vec())
-                    .map_err(|_| Error::KexError)?
-                    .into();
+                let secret: MpInt = e_s.diffie_hellman(&q_c).to_bytes().to_vec().into();
 
                 let exchange = EcdhExchange {
                     v_c: v_c.to_string().into_bytes().into(),
@@ -187,7 +178,7 @@ impl Kex {
                         buffer.into()
                     },
                     k_s: key.public_key().to_bytes()?.into(),
-                    q_c: q_c.bytes().to_vec().into(),
+                    q_c: q_c.to_bytes().to_vec().into(),
                     q_s: q_s.as_ref().to_vec().into(),
                     k: secret.clone(),
                 };

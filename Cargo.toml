@@ -45,7 +45,7 @@ signature = "2.1.0"
 cipher = "0.4.4"
 
 # Key-exchange algorithms
-ring = { version = "0.17.4", features = ["std"] }
+x25519-dalek = "2.0.0"
 
 # Compression algorithms
 libflate = "2.0.0"
