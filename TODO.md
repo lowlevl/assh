@@ -5,6 +5,7 @@
 - [ ] Provide client and server examples.
 - [x] Improve rekeying threshold calculation.
 - [x] Test rekeying implementation.
+- [ ] Share the rng per-session to avoid re-spawning one each time.
 - [ ] Test project against multiple async runtimes.
 - [ ] Take care of `KexInit::first_kex_packet_follows` being true.
 - [ ] Implement compression & decompression algorithms (now broken).
