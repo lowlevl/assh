@@ -65,7 +65,7 @@ pub enum Cipher {
     /// AES-128 in cipher block chaining (CBC) mode.
     Aes128Cbc,
 
-    /// TripleDES in block chaining (CBC) mode.
+    /// TripleDES in cipher block chaining (CBC) mode.
     #[strum(serialize = "3des-cbc")]
     TDesCbc,
 
