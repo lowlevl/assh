@@ -1,8 +1,10 @@
 //! Client-[`Side`] implementation of the _session_.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite};
-use futures_time::time::Duration;
+use futures_time::time::Duration as Timeout;
 use rand::RngCore;
 use ssh_packet::{arch::NameList, trans::KexInit, SshId};
 
@@ -103,8 +105,8 @@ impl Side for Client {
         &self.id
     }
 
-    fn timeout(&self) -> Duration {
-        self.timeout
+    fn timeout(&self) -> Timeout {
+        self.timeout.into()
     }
 
     fn kexinit(&self) -> KexInit {
