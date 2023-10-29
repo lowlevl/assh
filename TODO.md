@@ -1,11 +1,11 @@
 # Possible improvements
 - [x] Client-side cryptographic verification of Diffie-Hellman exchange (!!).
-- [ ] Client-side authorized keys database.
+- [ ] Client-side authorized hosts key database.
 - [x] 100% crate documentation.
 - [ ] Provide client and server examples.
 - [x] Improve rekeying threshold calculation.
 - [x] Test rekeying implementation.
-- [ ] Share the rng per-session to avoid re-spawning one each time.
+- ~~[ ] Share the rng per-session to avoid re-spawning one each time.~~: Uses the thread-local rng provided by rand.
 - [ ] Test project against multiple async runtimes.
 - [ ] Take care of `KexInit::first_kex_packet_follows` being true.
 - [ ] Implement compression & decompression algorithms (now broken).
