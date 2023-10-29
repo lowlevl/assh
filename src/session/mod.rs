@@ -50,7 +50,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
         })
     }
 
-    /// Get the [`Id`] of the connected peer.
+    /// Get the [`SshId`] of the connected peer.
     pub fn peer_id(&self) -> &SshId {
         &self.peer_id
     }

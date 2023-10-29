@@ -17,7 +17,7 @@ use crate::{
 /// A _server_-side session  configuration.
 #[derive(Debug)]
 pub struct Server {
-    /// SSH [`SshId`] for this _server_ session.
+    /// [`SshId`] for this _server_ session.
     pub id: SshId,
 
     /// Timeout for sending and receiving packets.
