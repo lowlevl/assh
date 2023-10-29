@@ -16,7 +16,7 @@ use crate::{
     Result,
 };
 
-/// A _server_-side session  configuration.
+/// A _server_-side session configuration.
 #[derive(Debug)]
 pub struct Server {
     /// [`SshId`] for this _server_ session.
