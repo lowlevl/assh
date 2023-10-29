@@ -6,6 +6,7 @@
 - [x] Improve rekeying threshold calculation.
 - [x] Test rekeying implementation.
 - [x] ~~Share the rng per-session to avoid re-spawning one each time.~~: Uses the thread-local rng provided by rand already.
+- [ ] Disable insecure algorithms by default behind an `insecure` feature.
 - [ ] Test project against multiple async runtimes.
 - [ ] Take care of `KexInit::first_kex_packet_follows` being true.
 - [ ] Implement compression & decompression algorithms (now broken).
