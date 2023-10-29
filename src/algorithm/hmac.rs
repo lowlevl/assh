@@ -1,4 +1,5 @@
 use digest::OutputSizeUser;
+use md5::Md5;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 use ssh_packet::trans::KexInit;
@@ -11,7 +12,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Hmac, Hmac
         clientkex
             .mac_algorithms_client_to_server
             .preferred_in(&serverkex.mac_algorithms_client_to_server)
-            .ok_or(Error::NoCommonCipher)?
+            .ok_or(Error::NoCommonHmac)?
             .parse()
             .map_err(|_| Error::UnsupportedAlgorithm)?,
         clientkex
@@ -51,6 +52,13 @@ pub enum Hmac {
     /// HMAC with sha-1 digest.
     HmacSha1,
 
+    /// HMAC with md5 digest on encrypted message.
+    #[strum(serialize = "hmac-md5-etm@openssh.com")]
+    HmacMd5ETM,
+
+    /// HMAC with md5 digest.
+    HmacMd5,
+
     /// No HMAC algorithm.
     #[default]
     None,
@@ -85,6 +93,7 @@ impl Hmac {
                 verify::<hmac::Hmac<Sha256>>(seq, buf, key, mac)
             }
             Self::HmacSha1ETM | Self::HmacSha1 => verify::<hmac::Hmac<Sha1>>(seq, buf, key, mac),
+            Self::HmacMd5ETM | Self::HmacMd5 => verify::<hmac::Hmac<Md5>>(seq, buf, key, mac),
             Self::None => Ok(()),
         }
     }
@@ -104,6 +113,7 @@ impl Hmac {
             Self::HmacSha512ETM | Self::HmacSha512 => sign::<hmac::Hmac<Sha512>>(seq, buf, key),
             Self::HmacSha256ETM | Self::HmacSha256 => sign::<hmac::Hmac<Sha256>>(seq, buf, key),
             Self::HmacSha1ETM | Self::HmacSha1 => sign::<hmac::Hmac<Sha1>>(seq, buf, key),
+            Self::HmacMd5ETM | Self::HmacMd5 => sign::<hmac::Hmac<Md5>>(seq, buf, key),
             Self::None => Default::default(),
         }
     }
@@ -115,6 +125,7 @@ impl ssh_packet::Mac for Hmac {
             Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
             Self::HmacSha256ETM | Self::HmacSha256 => Sha256::output_size(),
             Self::HmacSha1ETM | Self::HmacSha1 => Sha1::output_size(),
+            Self::HmacMd5ETM | Self::HmacMd5 => Md5::output_size(),
             Self::None => 0,
         }
     }
@@ -122,7 +133,7 @@ impl ssh_packet::Mac for Hmac {
     fn etm(&self) -> bool {
         matches!(
             self,
-            Self::HmacSha512ETM | Self::HmacSha256ETM | Self::HmacSha1ETM
+            Self::HmacSha512ETM | Self::HmacSha256ETM | Self::HmacSha1ETM | Self::HmacMd5ETM
         )
     }
 }

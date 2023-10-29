@@ -86,6 +86,8 @@ impl Default for Algorithms {
                 Hmac::HmacSha256,
                 Hmac::HmacSha1ETM,
                 Hmac::HmacSha1,
+                Hmac::HmacMd5ETM,
+                Hmac::HmacMd5,
             ],
             compressions: vec![Compress::ZlibOpenssh, Compress::Zlib, Compress::None],
         }
