@@ -5,7 +5,7 @@ use futures_time::future::FutureExt;
 use ssh_packet::{
     binrw::{meta::WriteEndian, BinWrite},
     trans::KexInit,
-    Id, Message,
+    Message, SshId,
 };
 
 use crate::{stream::Stream, Error, Result};
@@ -22,7 +22,7 @@ pub struct Session<I, S> {
     config: S,
     stream: Stream<I>,
 
-    peer_id: Id,
+    peer_id: SshId,
     disconnected: bool,
 }
 
@@ -33,7 +33,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
         let mut stream = BufReader::new(stream);
 
         config.id().to_async_writer(&mut stream).await?;
-        let peer_id = Id::from_async_reader(&mut stream)
+        let peer_id = SshId::from_async_reader(&mut stream)
             .timeout(config.timeout())
             .await??;
 
@@ -51,7 +51,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
     }
 
     /// Get the [`Id`] of the connected peer.
-    pub fn peer_id(&self) -> &Id {
+    pub fn peer_id(&self) -> &SshId {
         &self.peer_id
     }
 

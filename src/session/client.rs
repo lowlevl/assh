@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::{AsyncRead, AsyncWrite};
 use futures_time::time::Duration;
 use rand::RngCore;
-use ssh_packet::{arch::NameList, trans::KexInit, Id};
+use ssh_packet::{arch::NameList, trans::KexInit, SshId};
 
 use super::Side;
 use crate::{
@@ -16,8 +16,8 @@ use crate::{
 /// A _client_-side session configuration.
 #[derive(Debug)]
 pub struct Client {
-    /// SSH [`Id`] for this _client_ session.
-    pub id: Id,
+    /// SSH [`SshId`] for this _client_ session.
+    pub id: SshId,
 
     /// Timeout for sending and receiving packets.
     pub timeout: Duration,
@@ -29,7 +29,7 @@ pub struct Client {
 impl Default for Client {
     fn default() -> Self {
         Self {
-            id: Id::v2(
+            id: SshId::v2(
                 concat!(
                     env!("CARGO_PKG_NAME"),
                     "@client:",
@@ -99,7 +99,7 @@ impl Default for Algorithms {
 
 #[async_trait]
 impl Side for Client {
-    fn id(&self) -> &Id {
+    fn id(&self) -> &SshId {
         &self.id
     }
 
@@ -132,7 +132,7 @@ impl Side for Client {
         stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
-        peer_id: &Id,
+        peer_id: &SshId,
     ) -> Result<TransportPair> {
         kex::negociate(&kexinit, &peerkexinit)?
             .init(stream, self.id(), peer_id, kexinit, peerkexinit)

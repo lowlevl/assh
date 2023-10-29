@@ -36,7 +36,7 @@ ssh-key = { version = "0.6.1", features = [
     "p384",
     "ed25519",
 ] }
-ssh-packet = { version = "0.1.18", features = ["futures", "digest"] }
+ssh-packet = { version = "0.1.19", features = ["futures", "digest"] }
 
 rand = "0.8.5"
 digest = "0.10.7"
