@@ -26,7 +26,7 @@
 )]
 
 pub use ssh_key::private::PrivateKey;
-pub use ssh_packet::{Id, Message};
+pub use ssh_packet::{Message, SshId};
 
 mod error;
 pub use error::{Error, Result};

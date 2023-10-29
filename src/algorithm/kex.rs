@@ -7,7 +7,7 @@ use ssh_packet::{
     binrw::BinWrite,
     kex::EcdhExchange,
     trans::{KexEcdhInit, KexEcdhReply, KexInit},
-    Id,
+    SshId,
 };
 use strum::{AsRefStr, EnumString};
 
@@ -50,8 +50,8 @@ impl Kex {
     pub(crate) async fn init<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
-        v_c: &Id,
-        v_s: &Id,
+        v_c: &SshId,
+        v_s: &SshId,
         i_c: KexInit,
         i_s: KexInit,
     ) -> Result<TransportPair> {
@@ -137,8 +137,8 @@ impl Kex {
     pub(crate) async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
-        v_c: &Id,
-        v_s: &Id,
+        v_c: &SshId,
+        v_s: &SshId,
         i_c: KexInit,
         i_s: KexInit,
         key: &PrivateKey,

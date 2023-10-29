@@ -5,7 +5,7 @@ use futures::{AsyncRead, AsyncWrite};
 use futures_time::time::Duration;
 use rand::RngCore;
 use ssh_key::PrivateKey;
-use ssh_packet::{arch::NameList, trans::KexInit, Id};
+use ssh_packet::{arch::NameList, trans::KexInit, SshId};
 
 use super::Side;
 use crate::{
@@ -17,8 +17,8 @@ use crate::{
 /// A _server_-side session  configuration.
 #[derive(Debug)]
 pub struct Server {
-    /// SSH [`Id`] for this _server_ session.
-    pub id: Id,
+    /// SSH [`SshId`] for this _server_ session.
+    pub id: SshId,
 
     /// Timeout for sending and receiving packets.
     pub timeout: Duration,
@@ -33,7 +33,7 @@ pub struct Server {
 impl Default for Server {
     fn default() -> Self {
         Self {
-            id: Id::v2(
+            id: SshId::v2(
                 concat!(
                     env!("CARGO_PKG_NAME"),
                     "@server:",
@@ -92,7 +92,7 @@ impl Default for Algorithms {
 
 #[async_trait]
 impl Side for Server {
-    fn id(&self) -> &Id {
+    fn id(&self) -> &SshId {
         &self.id
     }
 
@@ -131,7 +131,7 @@ impl Side for Server {
         stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
-        peer_id: &Id,
+        peer_id: &SshId,
     ) -> Result<TransportPair> {
         let keyalg = key::negociate(&peerkexinit, &kexinit)?;
         let key = self
