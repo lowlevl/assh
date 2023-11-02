@@ -230,13 +230,9 @@ impl CipherLike for Cipher {
     fn key_size(&self) -> usize {
         match self {
             Self::None => 0,
-            Self::TDesCbc { .. } => 24,
-            Self::Aes128Cbc { .. } => 16,
-            Self::Aes192Cbc { .. } => 24,
-            Self::Aes256Cbc { .. } => 32,
-            Self::Aes128Ctr { .. } => 16,
-            Self::Aes192Ctr { .. } => 24,
-            Self::Aes256Ctr { .. } => 32,
+            Self::Aes128Cbc { .. } | Self::Aes128Ctr { .. } => 16,
+            Self::TDesCbc { .. } | Self::Aes192Cbc { .. } | Self::Aes192Ctr { .. } => 24,
+            Self::Aes256Cbc { .. } | Self::Aes256Ctr { .. } => 32,
         }
     }
 
@@ -244,12 +240,12 @@ impl CipherLike for Cipher {
         match self {
             Self::None => 0,
             Self::TDesCbc { .. } => 8,
-            Self::Aes128Cbc { .. } => 16,
-            Self::Aes192Cbc { .. } => 16,
-            Self::Aes256Cbc { .. } => 16,
-            Self::Aes128Ctr { .. } => 16,
-            Self::Aes192Ctr { .. } => 16,
-            Self::Aes256Ctr { .. } => 16,
+            Self::Aes128Cbc { .. }
+            | Self::Aes192Cbc { .. }
+            | Self::Aes256Cbc { .. }
+            | Self::Aes128Ctr { .. }
+            | Self::Aes192Ctr { .. }
+            | Self::Aes256Ctr { .. } => 16,
         }
     }
 
