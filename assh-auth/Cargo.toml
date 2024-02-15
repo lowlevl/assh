@@ -1,0 +1,33 @@
+[package]
+name = "assh-auth"
+description = "An extension to provide the `SSH-USERAUTH` authentication layer to assh."
+documentation = "https://docs.rs/assh-auth"
+repository.workspace = true
+readme.workspace = true
+license.workspace = true
+keywords.workspace = true
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package.metadata.docs.rs]
+
+# Whether to pass `--all-features` to Cargo (default: false)
+all-features = true
+
+# Enable unstable features in the documentation
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+
+[dev-dependencies]
+rstest = "0.18.2"
+async-std = { version = "1.12.0", features = ["attributes", "unstable"] }
+
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "env-filter",
+    "fmt",
+    "tracing-log",
+] }
