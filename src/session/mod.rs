@@ -20,10 +20,9 @@ pub mod server;
 /// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
 pub struct Session<I, S> {
     config: S,
-    stream: Stream<I>,
+    stream: Option<Stream<I>>,
 
     peer_id: SshId,
-    disconnected: bool,
 }
 
 impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
@@ -43,10 +42,9 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
 
         Ok(Self {
             config,
-            stream,
+            stream: Some(stream),
 
             peer_id,
-            disconnected: false,
         })
     }
 
@@ -58,19 +56,17 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
     /// Receive a [`Message`] from the `stream`.
     pub async fn recv(&mut self) -> Result<Message> {
         loop {
-            if self.disconnected {
+            let Some(ref mut stream) = self.stream else {
                 break Err(Error::Disconnected);
+            };
+
+            if stream.rekeyable() {
+                self.config.kex(stream, None, &self.peer_id).await?;
             }
 
-            if self.stream.rekeyable() {
-                self.config
-                    .kex(&mut self.stream, None, &self.peer_id)
-                    .await?;
-            }
-
-            match self.stream.recv().await? {
+            match stream.recv().await? {
                 Message::Disconnect(_) => {
-                    self.disconnected = true;
+                    drop(self.stream.take());
                 }
                 Message::Ignore(_) => {
                     tracing::debug!("Received an 'ignore' message");
@@ -86,7 +82,7 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
                 }
                 Message::KexInit(kexinit) => {
                     self.config
-                        .kex(&mut self.stream, Some(kexinit), &self.peer_id)
+                        .kex(stream, Some(kexinit), &self.peer_id)
                         .await?
                 }
                 message => break Ok(message),
@@ -99,21 +95,19 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
     where
         T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug,
     {
-        if self.disconnected {
+        let Some(ref mut stream) = self.stream else {
             return Err(Error::Disconnected);
+        };
+
+        if let Some(kexinit) = stream.try_recv::<KexInit>().await? {
+            self.config
+                .kex(stream, Some(kexinit), &self.peer_id)
+                .await?
+        } else if stream.rekeyable() {
+            self.config.kex(stream, None, &self.peer_id).await?
         }
 
-        if let Some(kexinit) = self.stream.try_recv::<KexInit>().await? {
-            self.config
-                .kex(&mut self.stream, Some(kexinit), &self.peer_id)
-                .await?
-        } else if self.stream.rekeyable() {
-            self.config
-                .kex(&mut self.stream, None, &self.peer_id)
-                .await?
-        }
-
-        self.stream.send(message).await
+        stream.send(message).await
     }
 }
 
