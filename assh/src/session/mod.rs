@@ -8,7 +8,11 @@ use ssh_packet::{
     Message, SshId,
 };
 
-use crate::{stream::Stream, Error, Result};
+use crate::{
+    layer::{Layer, Layers},
+    stream::Stream,
+    Error, Result,
+};
 
 mod side;
 pub use side::Side;
@@ -18,9 +22,10 @@ pub mod server;
 
 /// A session wrapping an [`AsyncRead`] + [`AsyncWrite`]
 /// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
-pub struct Session<I, S> {
+pub struct Session<I, S, L = ()> {
     stream: Option<Stream<I>>,
     config: S,
+    layers: L,
 
     peer_id: SshId,
 }
@@ -28,7 +33,7 @@ pub struct Session<I, S> {
 impl<I, S> Session<I, S>
 where
     I: AsyncRead + AsyncWrite + Unpin + Send,
-    S: side::Side,
+    S: Side,
 {
     /// Create a new [`Session`] from a [`AsyncRead`] + [`AsyncWrite`] stream,
     /// and some configuration.
@@ -49,14 +54,33 @@ where
         Ok(Self {
             stream: Some(stream),
             config,
-
+            layers: (),
             peer_id,
         })
     }
+}
 
-    /// Get the [`SshId`] of the connected peer.
-    pub fn peer_id(&self) -> &SshId {
-        &self.peer_id
+impl<I, S, L> Session<I, S, L>
+where
+    I: AsyncRead + AsyncWrite + Unpin + Send,
+    S: Side,
+    L: Layer,
+{
+    /// Extend the session with a [`Layer`].
+    pub fn layer<N: Layer>(self, next: N) -> Session<I, S, impl Layer> {
+        let Self {
+            stream,
+            config,
+            layers,
+            peer_id,
+        } = self;
+
+        Session {
+            stream,
+            config,
+            layers: Layers(layers, next),
+            peer_id,
+        }
     }
 
     /// Receive a [`Message`] from the `stream`.
@@ -68,9 +92,13 @@ where
 
             if stream.rekeyable() {
                 self.config.kex(stream, None, &self.peer_id).await?;
+                self.layers.on_kex(stream).await?;
             }
 
-            match stream.recv().await? {
+            let message = stream.recv().await?;
+            let message = self.layers.on_recv(stream, message).await?;
+
+            match message {
                 Message::Disconnect(_) => {
                     drop(self.stream.take());
                 }
@@ -89,7 +117,8 @@ where
                 Message::KexInit(kexinit) => {
                     self.config
                         .kex(stream, Some(kexinit), &self.peer_id)
-                        .await?
+                        .await?;
+                    self.layers.on_kex(stream).await?;
                 }
                 message => break Ok(message),
             }
@@ -108,12 +137,20 @@ where
         if let Some(kexinit) = stream.try_recv::<KexInit>().await? {
             self.config
                 .kex(stream, Some(kexinit), &self.peer_id)
-                .await?
+                .await?;
+            self.layers.on_kex(stream).await?;
         } else if stream.rekeyable() {
-            self.config.kex(stream, None, &self.peer_id).await?
+            self.config.kex(stream, None, &self.peer_id).await?;
+            self.layers.on_kex(stream).await?;
         }
 
+        self.layers.on_send(stream).await?;
         stream.send(message).await
+    }
+
+    /// Get the [`SshId`] of the connected peer.
+    pub fn peer_id(&self) -> &SshId {
+        &self.peer_id
     }
 }
 

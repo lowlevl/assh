@@ -41,4 +41,5 @@ pub use error::{Error, Result};
 mod stream;
 
 pub mod algorithm;
+pub mod layer;
 pub mod session;
