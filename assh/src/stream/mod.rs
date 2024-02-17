@@ -3,7 +3,7 @@
 
 use std::fmt::Debug;
 
-use futures::{io::BufReader, AsyncRead, AsyncWrite};
+use futures::{io::BufReader, AsyncRead, AsyncWrite, AsyncWriteExt};
 use futures_time::{future::FutureExt, time::Duration};
 use ssh_packet::{
     binrw::{
@@ -48,7 +48,7 @@ pub struct Stream<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
-    pub fn new(stream: BufReader<S>, timeout: Duration) -> Self {
+    pub(crate) fn new(stream: BufReader<S>, timeout: Duration) -> Self {
         Self {
             inner: IoCounter::new(stream),
             timeout,
@@ -60,11 +60,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         }
     }
 
-    pub fn with_session(&mut self, session: &[u8]) -> &[u8] {
+    pub(crate) fn with_session(&mut self, session: &[u8]) -> &[u8] {
         self.session.get_or_insert_with(|| session.to_vec())
     }
 
-    pub fn with_transport(&mut self, transport: TransportPair) {
+    pub(crate) fn with_transport(&mut self, transport: TransportPair) {
         self.transport = transport;
         self.inner.reset();
     }
@@ -131,6 +131,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
             .to_async_writer(&mut self.inner, &mut self.transport.tx, self.txseq)
             .timeout(self.timeout)
             .await??;
+        self.inner.flush().await?;
 
         self.txseq = self.txseq.wrapping_add(1);
 

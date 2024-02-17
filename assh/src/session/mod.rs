@@ -1,6 +1,6 @@
 //! Session and transport handling mechanics.
 
-use futures::{io::BufReader, AsyncRead, AsyncWrite};
+use futures::{io::BufReader, AsyncRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
     binrw::{meta::WriteEndian, BinWrite},
@@ -19,19 +19,25 @@ pub mod server;
 /// A session wrapping an [`AsyncRead`] + [`AsyncWrite`]
 /// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
 pub struct Session<I, S> {
-    config: S,
     stream: Option<Stream<I>>,
+    config: S,
 
     peer_id: SshId,
 }
 
-impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
+impl<I, S> Session<I, S>
+where
+    I: AsyncRead + AsyncWrite + Unpin + Send,
+    S: side::Side,
+{
     /// Create a new [`Session`] from a [`AsyncRead`] + [`AsyncWrite`] stream,
     /// and some configuration.
     pub async fn new(stream: I, config: S) -> Result<Self> {
         let mut stream = BufReader::new(stream);
 
         config.id().to_async_writer(&mut stream).await?;
+        stream.flush().await?;
+
         let peer_id = SshId::from_async_reader(&mut stream)
             .timeout(config.timeout())
             .await??;
@@ -41,8 +47,8 @@ impl<I: AsyncRead + AsyncWrite + Unpin + Send, S: side::Side> Session<I, S> {
         tracing::debug!("Session started with peer `{peer_id}`");
 
         Ok(Self {
-            config,
             stream: Some(stream),
+            config,
 
             peer_id,
         })
