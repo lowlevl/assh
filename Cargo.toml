@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["assh", "assh-auth"]
+members = ["assh", "assh-auth", "assh-channel"]
 
 [workspace.package]
 repository = "https://github.com/lowlevl/assh"
@@ -11,5 +11,5 @@ authors = ["Maya the bee <15341887+lowlevl@users.noreply.github.com>"]
 version = "0.0.0"
 edition = "2021"
 
-[patch.crates-io]
+[workspace.dependencies]
 assh = { path = "assh" }
