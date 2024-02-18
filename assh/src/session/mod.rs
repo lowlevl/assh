@@ -64,10 +64,10 @@ impl<I, S, L> Session<I, S, L>
 where
     I: AsyncRead + AsyncWrite + Unpin + Send,
     S: Side,
-    L: Layer,
+    L: Layer<S>,
 {
     /// Extend the session with a [`Layer`].
-    pub fn layer<N: Layer>(self, next: N) -> Session<I, S, impl Layer> {
+    pub fn layer<N: Layer<S>>(self, next: N) -> Session<I, S, impl Layer<S>> {
         let Self {
             stream,
             config,

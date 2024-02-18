@@ -3,14 +3,28 @@
 use async_trait::async_trait;
 use ssh_packet::Message;
 
-use crate::{stream::Stream, Result};
+use crate::{session::Side, stream::Stream, Result};
 
 #[cfg(doc)]
-use crate::session::Session;
+use crate::session::{client::Client, server::Server, Session};
 
-/// A [`Session`] extension, either client-side or server-side.
+/// A [`Session`] extension layer.
+///
+/// A [`Layer`] can work either for both of the sides ([`Client`] and [`Server`])
+/// or be constrained to a single [`Side`] using the type parameter.
+///
+/// In example, the no-op layer (`()`) can be used on both sides as seen there:
+/// ```rust,no_run
+/// # async fn test() -> Result<(), Box<dyn std::error::Error>> {
+/// # use assh::session::{Session, client::Client, server::Server};
+/// # let mut stream = futures::io::Cursor::new(Vec::<u8>::new());
+/// Session::new(&mut stream, Client::default()).await?.layer(());
+/// # let mut stream = futures::io::Cursor::new(Vec::<u8>::new());
+/// Session::new(&mut stream, Server::default()).await?.layer(());
+/// # Ok(()) }
+/// ```
 #[async_trait(?Send)]
-pub trait Layer {
+pub trait Layer<S: Side> {
     /// A method called on successful kex-exchange.
     async fn on_kex<I>(&mut self, stream: &mut Stream<I>) -> Result<()>;
 
@@ -22,7 +36,7 @@ pub trait Layer {
 }
 
 #[async_trait(?Send)]
-impl Layer for () {
+impl<S: Side> Layer<S> for () {
     async fn on_kex<I>(&mut self, _stream: &mut Stream<I>) -> Result<()> {
         Ok(())
     }
@@ -38,10 +52,10 @@ impl Layer for () {
 
 /// An helper to join multiple [`Layer`]s into one.
 #[derive(Debug)]
-pub struct Layers<L: Layer, N: Layer>(pub L, pub N);
+pub struct Layers<L, N>(pub L, pub N);
 
 #[async_trait(?Send)]
-impl<L: Layer, N: Layer> Layer for Layers<L, N> {
+impl<S: Side, L: Layer<S>, N: Layer<S>> Layer<S> for Layers<L, N> {
     async fn on_kex<I>(&mut self, stream: &mut Stream<I>) -> Result<()> {
         self.0.on_kex(stream).await?;
         self.1.on_kex(stream).await?;
