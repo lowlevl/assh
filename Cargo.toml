@@ -14,5 +14,9 @@ edition = "2021"
 [workspace.dependencies]
 assh = "^0"
 
+async-trait = "0.1.73"
+futures = "0.3.28"
+
 [patch.crates-io]
 assh = { path = "assh" }
+
