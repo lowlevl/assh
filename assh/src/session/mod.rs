@@ -144,7 +144,6 @@ where
             self.layers.on_kex(stream).await?;
         }
 
-        self.layers.on_send(stream).await?;
         stream.send(message).await
     }
 

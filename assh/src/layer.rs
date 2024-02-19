@@ -30,29 +30,18 @@ use crate::session::{client::Client, server::Server, Session};
 #[async_trait(?Send)]
 pub trait Layer<S: Side> {
     /// A method called on successful kex-exchange.
-    async fn on_kex<I>(&mut self, stream: &mut Stream<I>) -> Result<()>;
-
-    /// A method called, _after a successful key-exchange_, after a message is received.
-    async fn on_recv<I>(&mut self, stream: &mut Stream<I>, message: Message) -> Result<Message>;
-
-    /// A method called, _after a successful key-exchange_, before a message is sent.
-    async fn on_send<I>(&mut self, stream: &mut Stream<I>) -> Result<()>;
-}
-
-#[async_trait(?Send)]
-impl<S: Side> Layer<S> for () {
     async fn on_kex<I>(&mut self, _stream: &mut Stream<I>) -> Result<()> {
         Ok(())
     }
 
+    /// A method called, _after a successful key-exchange_, after a message is received.
     async fn on_recv<I>(&mut self, _stream: &mut Stream<I>, message: Message) -> Result<Message> {
         Ok(message)
     }
-
-    async fn on_send<I>(&mut self, _stream: &mut Stream<I>) -> Result<()> {
-        Ok(())
-    }
 }
+
+#[async_trait(?Send)]
+impl<S: Side> Layer<S> for () {}
 
 /// An helper to join multiple [`Layer`]s into one.
 #[derive(Debug)]
@@ -72,12 +61,5 @@ impl<S: Side, L: Layer<S>, N: Layer<S>> Layer<S> for Layers<L, N> {
         let message = self.1.on_recv(stream, message).await?;
 
         Ok(message)
-    }
-
-    async fn on_send<I>(&mut self, stream: &mut Stream<I>) -> Result<()> {
-        self.0.on_send(stream).await?;
-        self.1.on_send(stream).await?;
-
-        Ok(())
     }
 }

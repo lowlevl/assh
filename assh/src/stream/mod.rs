@@ -48,7 +48,7 @@ pub struct Stream<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
-    pub(crate) fn new(stream: BufReader<S>, timeout: Duration) -> Self {
+    pub fn new(stream: BufReader<S>, timeout: Duration) -> Self {
         Self {
             inner: IoCounter::new(stream),
             timeout,
@@ -60,11 +60,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
         }
     }
 
-    pub(crate) fn with_session(&mut self, session: &[u8]) -> &[u8] {
+    pub fn with_session(&mut self, session: &[u8]) -> &[u8] {
         self.session.get_or_insert_with(|| session.to_vec())
     }
 
-    pub(crate) fn with_transport(&mut self, transport: TransportPair) {
+    pub fn with_transport(&mut self, transport: TransportPair) {
         self.transport = transport;
         self.inner.reset();
     }
