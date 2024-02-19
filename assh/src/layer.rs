@@ -18,9 +18,13 @@ use crate::session::{client::Client, server::Server, Session};
 /// # async fn test() -> Result<(), Box<dyn std::error::Error>> {
 /// # use assh::session::{Session, client::Client, server::Server};
 /// # let mut stream = futures::io::Cursor::new(Vec::<u8>::new());
-/// Session::new(&mut stream, Client::default()).await?.layer(());
+/// Session::new(&mut stream, Client::default())
+///     .await?
+///     .add_layer(());
 /// # let mut stream = futures::io::Cursor::new(Vec::<u8>::new());
-/// Session::new(&mut stream, Server::default()).await?.layer(());
+/// Session::new(&mut stream, Server::default())
+///     .await?
+///     .add_layer(());
 /// # Ok(()) }
 /// ```
 #[async_trait(?Send)]

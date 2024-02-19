@@ -67,7 +67,7 @@ where
     L: Layer<S>,
 {
     /// Extend the session with a [`Layer`].
-    pub fn layer<N: Layer<S>>(self, next: N) -> Session<I, S, impl Layer<S>> {
+    pub fn add_layer<N: Layer<S>>(self, layer: N) -> Session<I, S, impl Layer<S>> {
         let Self {
             stream,
             config,
@@ -78,7 +78,7 @@ where
         Session {
             stream,
             config,
-            layers: Layers(layers, next),
+            layers: Layers(layers, layer),
             peer_id,
         }
     }
