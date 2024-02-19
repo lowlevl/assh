@@ -95,10 +95,9 @@ where
                 self.layers.on_kex(stream).await?;
             }
 
-            let message = stream.recv().await?;
-            let message = self.layers.on_recv(stream, message).await?;
+            self.layers.on_recv(stream).await?;
 
-            match message {
+            match stream.recv().await? {
                 Message::Disconnect(_) => {
                     drop(self.stream.take());
                 }

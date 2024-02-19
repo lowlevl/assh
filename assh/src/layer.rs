@@ -1,7 +1,6 @@
 //! Session extension traits and helpers.
 
 use async_trait::async_trait;
-use ssh_packet::Message;
 
 use crate::{session::Side, stream::Stream, Result};
 
@@ -35,8 +34,8 @@ pub trait Layer<S: Side> {
     }
 
     /// A method called, _after a successful key-exchange_, after a message is received.
-    async fn on_recv<I>(&mut self, _stream: &mut Stream<I>, message: Message) -> Result<Message> {
-        Ok(message)
+    async fn on_recv<I>(&mut self, _stream: &mut Stream<I>) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -56,10 +55,10 @@ impl<S: Side, L: Layer<S>, N: Layer<S>> Layer<S> for Layers<L, N> {
         Ok(())
     }
 
-    async fn on_recv<I>(&mut self, stream: &mut Stream<I>, message: Message) -> Result<Message> {
-        let message = self.0.on_recv(stream, message).await?;
-        let message = self.1.on_recv(stream, message).await?;
+    async fn on_recv<I>(&mut self, stream: &mut Stream<I>) -> Result<()> {
+        self.0.on_recv(stream).await?;
+        self.1.on_recv(stream).await?;
 
-        Ok(message)
+        Ok(())
     }
 }
