@@ -7,7 +7,7 @@ use crate::{session::Side, stream::Stream, Result};
 #[cfg(doc)]
 use crate::session::{client::Client, server::Server, Session};
 
-/// A [`Session`] extension layer.
+/// An extension layer for a [`Session`], see [`Session::add_layer`].
 ///
 /// A [`Layer`] can work either for both of the sides ([`Client`] and [`Server`])
 /// or be constrained to a single [`Side`] using the type parameter.
@@ -42,12 +42,8 @@ pub trait Layer<S: Side> {
 #[async_trait(?Send)]
 impl<S: Side> Layer<S> for () {}
 
-/// An helper to join multiple [`Layer`]s into one.
-#[derive(Debug)]
-pub struct Layers<L, N>(pub L, pub N);
-
 #[async_trait(?Send)]
-impl<S: Side, L: Layer<S>, N: Layer<S>> Layer<S> for Layers<L, N> {
+impl<S: Side, A: Layer<S>, B: Layer<S>> Layer<S> for (A, B) {
     async fn on_kex<I>(&mut self, stream: &mut Stream<I>) -> Result<()> {
         self.0.on_kex(stream).await?;
         self.1.on_kex(stream).await?;

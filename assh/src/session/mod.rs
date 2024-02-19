@@ -8,11 +8,7 @@ use ssh_packet::{
     Message, SshId,
 };
 
-use crate::{
-    layer::{Layer, Layers},
-    stream::Stream,
-    Error, Result,
-};
+use crate::{layer::Layer, stream::Stream, Error, Result};
 
 mod side;
 pub use side::Side;
@@ -78,7 +74,7 @@ where
         Session {
             stream,
             config,
-            layers: Layers(layers, layer),
+            layers: (layers, layer),
             peer_id,
         }
     }
