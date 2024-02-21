@@ -5,7 +5,7 @@ use futures_time::future::FutureExt;
 use ssh_packet::{
     binrw::{meta::WriteEndian, BinWrite},
     trans::KexInit,
-    Message, SshId,
+    Id, Message,
 };
 
 use crate::{layer::Layer, stream::Stream, Error, Result};
@@ -23,7 +23,7 @@ pub struct Session<I, S, L = ()> {
     config: S,
     layers: L,
 
-    peer_id: SshId,
+    peer_id: Id,
 }
 
 impl<I, S> Session<I, S>
@@ -39,7 +39,7 @@ where
         config.id().to_async_writer(&mut stream).await?;
         stream.flush().await?;
 
-        let peer_id = SshId::from_async_reader(&mut stream)
+        let peer_id = Id::from_async_reader(&mut stream)
             .timeout(config.timeout())
             .await??;
 
@@ -62,7 +62,7 @@ where
     S: Side,
     L: Layer<S>,
 {
-    /// Extend the session with a [`Layer`].
+    /// Extend [`Session`]'s protocol handling capabilities with a [`Layer`].
     pub fn add_layer<N: Layer<S>>(self, layer: N) -> Session<I, S, impl Layer<S>> {
         let Self {
             stream,
@@ -79,7 +79,7 @@ where
         }
     }
 
-    /// Receive a [`Message`] from the `stream`.
+    /// Receive a _message_ from the connected peer.
     pub async fn recv(&mut self) -> Result<Message> {
         loop {
             let Some(ref mut stream) = self.stream else {
@@ -120,7 +120,7 @@ where
         }
     }
 
-    /// Send a [`Message`] to the `stream`.
+    /// Send a _message_ to the connected peer.
     pub async fn send<T>(&mut self, message: &T) -> Result<()>
     where
         T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug,
@@ -142,8 +142,8 @@ where
         stream.send(message).await
     }
 
-    /// Get the [`SshId`] of the connected peer.
-    pub fn peer_id(&self) -> &SshId {
+    /// Access [`Id`] of the connected peer.
+    pub fn peer_id(&self) -> &Id {
         &self.peer_id
     }
 }

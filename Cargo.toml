@@ -14,6 +14,8 @@ edition = "2021"
 [workspace.dependencies]
 assh = "^0"
 
+ssh-packet = { version = "0.2.0", features = ["futures", "digest"] }
+
 async-trait = "0.1.73"
 futures = "0.3.28"
 

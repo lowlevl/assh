@@ -3,7 +3,7 @@ use futures::{AsyncRead, AsyncWrite};
 use futures_time::time::Duration;
 use ssh_packet::{
     trans::{KexInit, NewKeys},
-    SshId,
+    Id,
 };
 
 use super::{client::Client, server::Server};
@@ -23,8 +23,8 @@ mod private {
 /// A side of the SSH protocol, either [`Client`] or [`Server`].
 #[async_trait]
 pub trait Side: private::Sealed + Send + Sync {
-    /// Get the [`SshId`] for this session.
-    fn id(&self) -> &SshId;
+    /// Get the [`Id`] for this session.
+    fn id(&self) -> &Id;
 
     /// Get the _timeout_ for this session.
     fn timeout(&self) -> Duration;
@@ -38,7 +38,7 @@ pub trait Side: private::Sealed + Send + Sync {
         stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
-        peer_id: &SshId,
+        peer_id: &Id,
     ) -> Result<TransportPair>;
 
     /// Perform the key-exchange from this side.
@@ -46,7 +46,7 @@ pub trait Side: private::Sealed + Send + Sync {
         &self,
         stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
         mut peerkexinit: Option<KexInit>,
-        peer_id: &SshId,
+        peer_id: &Id,
     ) -> Result<()> {
         tracing::debug!("Starting key-exchange procedure");
 
@@ -77,7 +77,7 @@ pub trait Side: private::Sealed + Send + Sync {
 
 #[async_trait]
 impl<T: Side> Side for std::sync::Arc<T> {
-    fn id(&self) -> &SshId {
+    fn id(&self) -> &Id {
         (**self).id()
     }
 
@@ -94,7 +94,7 @@ impl<T: Side> Side for std::sync::Arc<T> {
         stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
-        peer_id: &SshId,
+        peer_id: &Id,
     ) -> Result<TransportPair> {
         (**self)
             .exchange(stream, kexinit, peerkexinit, peer_id)

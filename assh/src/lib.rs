@@ -35,7 +35,7 @@
 #[doc(no_inline)]
 pub use ssh_key::private::PrivateKey;
 #[doc(no_inline)]
-pub use ssh_packet::{Message, SshId};
+pub use ssh_packet::{Message, Id};
 
 mod error;
 pub use error::{Error, Result};
