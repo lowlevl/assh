@@ -16,7 +16,7 @@ use ssh_packet::{
 use crate::Result;
 
 mod counter;
-pub use counter::IoCounter;
+use counter::IoCounter;
 
 mod transport;
 pub use transport::{Transport, TransportPair};
@@ -25,7 +25,7 @@ mod keys;
 pub use keys::Keys;
 
 /// After 1GiB, initiate a rekey as recommended in the RFC.
-pub const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
+const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
 pub struct Stream<S> {
     inner: IoCounter<BufReader<S>>,

@@ -32,7 +32,9 @@
     clippy::undocumented_unsafe_blocks
 )]
 
+#[doc(no_inline)]
 pub use ssh_key::private::PrivateKey;
+#[doc(no_inline)]
 pub use ssh_packet::{Message, SshId};
 
 mod error;
