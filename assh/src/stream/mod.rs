@@ -3,7 +3,7 @@
 
 use std::fmt::Debug;
 
-use futures::{io::BufReader, AsyncRead, AsyncWrite, AsyncWriteExt};
+use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use futures_time::{future::FutureExt, time::Duration};
 use ssh_packet::{
     binrw::{
@@ -28,7 +28,7 @@ pub use keys::Keys;
 const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
 pub struct Stream<S> {
-    inner: IoCounter<BufReader<S>>,
+    inner: IoCounter<S>,
     timeout: Duration,
 
     /// The pair of transport algorithms and keys issued by the key exchange.
@@ -47,8 +47,8 @@ pub struct Stream<S> {
     buffer: Option<Packet>,
 }
 
-impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
-    pub fn new(stream: BufReader<S>, timeout: Duration) -> Self {
+impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
+    pub fn new(stream: S, timeout: Duration) -> Self {
         Self {
             inner: IoCounter::new(stream),
             timeout,
@@ -82,14 +82,25 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Stream<S> {
     /// Read a packet from the connected peer,
     /// and decrypt the underlying message in a non-blocking way,
     /// storing the packet if deserialization failed.
-    pub async fn try_recv<T>(&mut self) -> Result<Option<T>>
+    pub async fn try_recv<T>(&mut self, timeout: Duration) -> Result<Option<T>>
     where
         for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
     {
         let packet = match self.buffer.take() {
             Some(packet) => packet,
-            None if !self.inner.buffer().is_empty() => self.packet().await?,
-            None => return Ok(None),
+            None => {
+                match self
+                    .inner
+                    .fill_buf()
+                    .timeout(timeout)
+                    .await
+                    .ok()
+                    .transpose()?
+                {
+                    Some(buf) if !buf.is_empty() => self.packet().await?,
+                    _ => return Ok(None),
+                }
+            }
         };
         let message = packet.read().ok();
 

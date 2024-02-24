@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use async_std::net::TcpStream;
+use futures::io::BufReader;
 use rstest::rstest;
 
 use assh::{
@@ -47,7 +48,7 @@ async fn end_to_end(
 
     tracing::info!("cipher::{cipher}, mac::{mac}, kex::{kex}, bound to {addr}");
 
-    let stream = TcpStream::connect(addr).await?;
+    let stream = BufReader::new(TcpStream::connect(addr).await?);
     let mut client = Session::new(
         stream,
         Client {

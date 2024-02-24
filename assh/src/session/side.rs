@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use futures::{AsyncRead, AsyncWrite};
+use futures::{AsyncBufRead, AsyncWrite};
 use futures_time::time::Duration;
 use ssh_packet::{
     trans::{KexInit, NewKeys},
@@ -35,7 +35,7 @@ pub trait Side: private::Sealed + Send + Sync {
     /// Exchange the keys from the config.
     async fn exchange(
         &self,
-        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
         peer_id: &Id,
@@ -44,7 +44,7 @@ pub trait Side: private::Sealed + Send + Sync {
     /// Perform the key-exchange from this side.
     async fn kex(
         &self,
-        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
         mut peerkexinit: Option<KexInit>,
         peer_id: &Id,
     ) -> Result<()> {
@@ -91,7 +91,7 @@ impl<T: Side> Side for std::sync::Arc<T> {
 
     async fn exchange(
         &self,
-        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
         peer_id: &Id,

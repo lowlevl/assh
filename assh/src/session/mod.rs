@@ -1,7 +1,7 @@
 //! Session and transport handling mechanics.
 
-use futures::{io::BufReader, AsyncRead, AsyncWrite, AsyncWriteExt};
-use futures_time::future::FutureExt;
+use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
+use futures_time::{future::FutureExt, time::Duration};
 use ssh_packet::{
     binrw::{meta::WriteEndian, BinWrite},
     trans::KexInit,
@@ -16,7 +16,7 @@ pub use side::Side;
 pub mod client;
 pub mod server;
 
-/// A session wrapping an [`AsyncRead`] + [`AsyncWrite`]
+/// A session wrapping an [`AsyncBufRead`] + [`AsyncWrite`]
 /// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
 pub struct Session<I, S, L = ()> {
     stream: Option<Stream<I>>,
@@ -28,14 +28,12 @@ pub struct Session<I, S, L = ()> {
 
 impl<I, S> Session<I, S>
 where
-    I: AsyncRead + AsyncWrite + Unpin + Send,
+    I: AsyncBufRead + AsyncWrite + Unpin + Send,
     S: Side,
 {
-    /// Create a new [`Session`] from a [`AsyncRead`] + [`AsyncWrite`] stream,
+    /// Create a new [`Session`] from a [`AsyncBufRead`] + [`AsyncWrite`] stream,
     /// and some configuration.
-    pub async fn new(stream: I, config: S) -> Result<Self> {
-        let mut stream = BufReader::new(stream);
-
+    pub async fn new(mut stream: I, config: S) -> Result<Self> {
         config.id().to_async_writer(&mut stream).await?;
         stream.flush().await?;
 
@@ -58,7 +56,7 @@ where
 
 impl<I, S, L> Session<I, S, L>
 where
-    I: AsyncRead + AsyncWrite + Unpin + Send,
+    I: AsyncBufRead + AsyncWrite + Unpin + Send,
     S: Side,
     L: Layer<S>,
 {
@@ -129,7 +127,7 @@ where
             return Err(Error::Disconnected);
         };
 
-        if let Some(kexinit) = stream.try_recv::<KexInit>().await? {
+        if let Some(kexinit) = stream.try_recv::<KexInit>(Duration::from_millis(1)).await? {
             self.config
                 .kex(stream, Some(kexinit), &self.peer_id)
                 .await?;

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::{AsyncRead, AsyncWrite};
+use futures::{AsyncBufRead, AsyncWrite};
 use futures_time::time::Duration as Timeout;
 use rand::RngCore;
 use ssh_packet::{arch::NameList, trans::KexInit, Id};
@@ -131,7 +131,7 @@ impl Side for Client {
 
     async fn exchange(
         &self,
-        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
         kexinit: KexInit,
         peerkexinit: KexInit,
         peer_id: &Id,

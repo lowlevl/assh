@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use async_std::{net::TcpListener, stream::StreamExt};
+use futures::io::BufReader;
 use ssh_packet::{
     connect::ChannelOpenConfirmation,
     trans::{Ignore, ServiceAccept},
@@ -17,7 +18,7 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
     let addr = socket.local_addr()?;
 
     let handle = async_std::task::spawn_local(async move {
-        let stream = socket.incoming().next().await.unwrap()?;
+        let stream = BufReader::new(socket.incoming().next().await.unwrap()?);
 
         let server = Server {
             keys: vec![ssh_key::PrivateKey::random(

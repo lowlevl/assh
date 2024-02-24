@@ -1,4 +1,4 @@
-use futures::{AsyncRead, AsyncWrite};
+use futures::{AsyncBufRead, AsyncWrite};
 use sha2::Sha256;
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
@@ -40,14 +40,14 @@ pub enum Kex {
     Curve25519Sha256Libssh,
     //
     // DiffieHellmanGroup14Sha256,
-
+    //
     // DiffieHellmanGroup14Sha1,
-
+    //
     // DiffieHellmanGroup1Sha1,
 }
 
 impl Kex {
-    pub(crate) async fn init<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(crate) async fn init<S: AsyncBufRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
         v_c: &Id,
@@ -134,7 +134,7 @@ impl Kex {
         }
     }
 
-    pub(crate) async fn reply<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(crate) async fn reply<S: AsyncBufRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut Stream<S>,
         v_c: &Id,
