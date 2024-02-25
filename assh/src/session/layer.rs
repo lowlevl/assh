@@ -3,14 +3,12 @@
 use async_trait::async_trait;
 use futures::{AsyncBufRead, AsyncWrite};
 
-use crate::{session::Side, Result};
+use crate::{session::Side, stream::Stream, Result};
 
 #[cfg(doc)]
 use crate::session::{client::Client, server::Server, Session};
 
-pub use crate::stream::Stream;
-
-/// An extension layer for a [`Session`], see [`Session::add_layer`].
+/// An extension layer for a [`Session`].
 ///
 /// A [`Layer`] can work either for both of the sides ([`Client`] and [`Server`])
 /// or be constrained to a single [`Side`] using the type parameter.
@@ -31,7 +29,7 @@ pub use crate::stream::Stream;
 /// ```
 #[async_trait]
 pub trait Layer<S: Side>: Send {
-    /// A method called on successful kex-exchange.
+    /// A method called _after successful key-exchange_.
     async fn on_kex(
         &mut self,
         _stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
@@ -39,7 +37,7 @@ pub trait Layer<S: Side>: Send {
         Ok(())
     }
 
-    /// A method called, _after a successful key-exchange_, after a message is received.
+    /// A method called _before a message is received_.
     async fn on_recv(
         &mut self,
         _stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,

@@ -40,8 +40,7 @@ pub use ssh_packet::{Id, Message};
 mod error;
 pub use error::{Error, Result};
 
-mod stream;
-
 pub mod algorithm;
-pub mod layer;
 pub mod session;
+
+mod stream;

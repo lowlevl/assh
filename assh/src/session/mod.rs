@@ -1,4 +1,4 @@
-//! Session and transport handling mechanics.
+//! Session management and transport handling mechanics.
 
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
@@ -8,16 +8,20 @@ use ssh_packet::{
     Id, Message,
 };
 
-use crate::{layer::Layer, stream::Stream, Error, Result};
+use crate::{Error, Result};
 
 mod side;
 pub use side::Side;
 
+mod layer;
+pub use layer::Layer;
+
 pub mod client;
 pub mod server;
 
-/// A session wrapping an [`AsyncBufRead`] + [`AsyncWrite`]
-/// stream to handle **key exchange** and **[`SSH-TRANS`]** messages.
+pub use crate::stream::Stream;
+
+/// A session wrapping a [`Stream`] to handle **key-exchange** and **[`SSH-TRANS`]** messages.
 pub struct Session<I, S, L = ()> {
     stream: Option<Stream<I>>,
     config: S,

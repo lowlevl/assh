@@ -1,6 +1,6 @@
 [package]
 name = "assh-auth"
-description = "An extension to [`assh`] that provides a [`assh::layer::Layer`] to handle the `SSH-USERAUTH` authentication layer."
+description = "An extension to [`assh`] that provides a [`assh::session::Layer`] to handle the [`SSH-USERAUTH`] authentication layer."
 documentation = "https://docs.rs/assh-auth"
 repository.workspace = true
 readme.workspace = true
