@@ -21,7 +21,6 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-async-trait.workspace = true
 futures.workspace = true
 
 tracing = "0.1.37"

@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use async_trait::async_trait;
 use futures::{AsyncBufRead, AsyncWrite};
 use futures_time::time::Duration as Timeout;
 use rand::RngCore;
@@ -94,7 +93,6 @@ impl Default for Algorithms {
     }
 }
 
-#[async_trait]
 impl Side for Server {
     fn id(&self) -> &Id {
         &self.id
@@ -132,7 +130,7 @@ impl Side for Server {
 
     async fn exchange(
         &self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
         kexinit: KexInit,
         peerkexinit: KexInit,
         peer_id: &Id,

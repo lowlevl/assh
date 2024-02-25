@@ -154,7 +154,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         Ok(())
     }
 
-    /// Tells whether the stream should be re-keyed.
+    /// Returns whether the stream should be re-keyed.
     pub(crate) fn rekeyable(&self) -> bool {
         self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
