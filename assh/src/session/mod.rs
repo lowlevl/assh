@@ -1,7 +1,7 @@
 //! Session and transport handling mechanics.
 
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
-use futures_time::{future::FutureExt, time::Duration};
+use futures_time::future::FutureExt;
 use ssh_packet::{
     binrw::{meta::WriteEndian, BinWrite},
     trans::KexInit,
@@ -127,7 +127,7 @@ where
             return Err(Error::Disconnected);
         };
 
-        if let Some(kexinit) = stream.try_recv::<KexInit>(Duration::from_millis(1)).await? {
+        if let Some(kexinit) = stream.try_recv::<KexInit>().await? {
             self.config
                 .kex(stream, Some(kexinit), &self.peer_id)
                 .await?;

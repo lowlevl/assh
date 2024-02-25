@@ -1,12 +1,14 @@
 //! Session extension traits and helpers.
 
 use async_trait::async_trait;
-use futures::{AsyncRead, AsyncWrite};
+use futures::{AsyncBufRead, AsyncWrite};
 
-use crate::{session::Side, stream::Stream, Result};
+use crate::{session::Side, Result};
 
 #[cfg(doc)]
 use crate::session::{client::Client, server::Server, Session};
+
+pub use crate::stream::Stream;
 
 /// An extension layer for a [`Session`], see [`Session::add_layer`].
 ///
@@ -32,7 +34,7 @@ pub trait Layer<S: Side>: Send {
     /// A method called on successful kex-exchange.
     async fn on_kex(
         &mut self,
-        _stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        _stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> Result<()> {
         Ok(())
     }
@@ -40,7 +42,7 @@ pub trait Layer<S: Side>: Send {
     /// A method called, _after a successful key-exchange_, after a message is received.
     async fn on_recv(
         &mut self,
-        _stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        _stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> Result<()> {
         Ok(())
     }
@@ -53,7 +55,7 @@ impl<S: Side> Layer<S> for () {}
 impl<S: Side, A: Layer<S>, B: Layer<S>> Layer<S> for (A, B) {
     async fn on_kex(
         &mut self,
-        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> Result<()> {
         self.0.on_kex(stream).await?;
         self.1.on_kex(stream).await?;
@@ -63,7 +65,7 @@ impl<S: Side, A: Layer<S>, B: Layer<S>> Layer<S> for (A, B) {
 
     async fn on_recv(
         &mut self,
-        stream: &mut Stream<impl AsyncRead + AsyncWrite + Unpin + Send>,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> Result<()> {
         self.0.on_recv(stream).await?;
         self.1.on_recv(stream).await?;

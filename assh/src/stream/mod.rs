@@ -1,5 +1,5 @@
 //! Primitives to manipulate binary data to extract and encode
-//! messages from/to an [`AsyncRead`] + [`AsyncWrite`] stream.
+//! messages from/to an [`AsyncBufRead`] + [`AsyncWrite`] stream.
 
 use std::fmt::Debug;
 
@@ -24,31 +24,33 @@ pub use transport::{Transport, TransportPair};
 mod keys;
 pub use keys::Keys;
 
-/// After 1GiB, initiate a rekey as recommended in the RFC.
+/// Re-key after 1GiB of exchanged data as recommended per the RFC.
 const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
+/// A wrapper around [`AsyncBufRead`] + [`AsyncWrite`]
+/// to interface with to the SSH binary protocol.
 pub struct Stream<S> {
     inner: IoCounter<S>,
     timeout: Duration,
 
-    /// The pair of transport algorithms and keys issued by the key exchange.
+    /// The pair of transport algorithms and keys computed from the key exchange.
     transport: TransportPair,
 
     /// The session identifier derived from the first key exchange.
     session: Option<Vec<u8>>,
 
-    /// Sequence numbers for the `tx` side.
+    /// Sequence number for the `tx` side.
     txseq: u32,
 
-    /// Sequence numbers for the `rx` side.
+    /// Sequence number for the `rx` side.
     rxseq: u32,
 
-    /// A packet buffer to enable `try_recv` method to function.
+    /// A packet buffer for the `try_recv` method.
     buffer: Option<Packet>,
 }
 
 impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
-    pub fn new(stream: S, timeout: Duration) -> Self {
+    pub(crate) fn new(stream: S, timeout: Duration) -> Self {
         Self {
             inner: IoCounter::new(stream),
             timeout,
@@ -60,11 +62,11 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         }
     }
 
-    pub fn with_session(&mut self, session: &[u8]) -> &[u8] {
+    pub(crate) fn with_session(&mut self, session: &[u8]) -> &[u8] {
         self.session.get_or_insert_with(|| session.to_vec())
     }
 
-    pub fn with_transport(&mut self, transport: TransportPair) {
+    pub(crate) fn with_transport(&mut self, transport: TransportPair) {
         self.transport = transport;
         self.inner.reset();
     }
@@ -79,10 +81,9 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         Ok(packet)
     }
 
-    /// Read a packet from the connected peer,
-    /// and decrypt the underlying message in a non-blocking way,
-    /// storing the packet if deserialization failed.
-    pub async fn try_recv<T>(&mut self, timeout: Duration) -> Result<Option<T>>
+    /// Try to receive a _packet_ from the peer (if data is immediately available, returning `None` otherwise),
+    /// storing the _packet_ and returning `None` if the deserialization failed.
+    pub async fn try_recv<T>(&mut self) -> Result<Option<T>>
     where
         for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
     {
@@ -92,7 +93,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
                 match self
                     .inner
                     .fill_buf()
-                    .timeout(timeout)
+                    .timeout(Duration::from_micros(1))
                     .await
                     .ok()
                     .transpose()?
@@ -102,19 +103,22 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
                 }
             }
         };
-        let message = packet.read().ok();
 
-        if message.is_none() {
-            self.buffer = Some(packet);
+        match packet.read() {
+            Ok(message) => {
+                tracing::trace!("<-({})? {message:?}", self.rxseq - 1);
+
+                Ok(Some(message))
+            }
+            _ => {
+                self.buffer = Some(packet);
+
+                Ok(None)
+            }
         }
-
-        tracing::trace!("<-({})? {message:?}", self.rxseq - 1);
-
-        Ok(message)
     }
 
-    /// Read a packet from the connected peer,
-    /// and decrypt the underlying message.
+    /// Receive a _packet_ from the peer, decrypt it and deserialize it as `T`.
     pub async fn recv<T>(&mut self) -> Result<T>
     where
         for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
@@ -130,8 +134,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         Ok(message)
     }
 
-    /// Send a message to the connected peer,
-    /// by sealing it an encrypted packet.
+    /// Send a _packet_ to the peer, by serializing and encrypting the `message`.
     pub async fn send<T>(&mut self, message: &T) -> Result<()>
     where
         for<'w> T: BinWrite<Args<'w> = ()> + WriteEndian + Debug,
@@ -151,8 +154,8 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         Ok(())
     }
 
-    /// Whether the stream has to be re-keyed before use.
-    pub fn rekeyable(&self) -> bool {
+    /// Tells whether the stream should be re-keyed.
+    pub(crate) fn rekeyable(&self) -> bool {
         self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
 }
