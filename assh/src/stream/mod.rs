@@ -71,6 +71,24 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         self.inner.reset();
     }
 
+    /// Returns whether the stream should be re-keyed.
+    pub(crate) fn is_rekeyable(&self) -> bool {
+        self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
+    }
+
+    /// Poll the stream to detect whether there is some pending data to be read.
+    pub async fn is_readable(&mut self) -> Result<bool> {
+        Ok(self
+            .inner
+            .fill_buf()
+            .timeout(Duration::from_micros(1))
+            .await
+            .ok()
+            .transpose()?
+            .map(|buf| !buf.is_empty())
+            .unwrap_or_default())
+    }
+
     async fn packet(&mut self) -> Result<Packet> {
         let packet = Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.rxseq)
             .timeout(self.timeout)
@@ -79,43 +97,6 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         self.rxseq = self.rxseq.wrapping_add(1);
 
         Ok(packet)
-    }
-
-    /// Try to receive a _packet_ from the peer (if data is immediately available, returning `None` otherwise),
-    /// storing the _packet_ and returning `None` if the deserialization failed.
-    pub async fn try_recv<T>(&mut self) -> Result<Option<T>>
-    where
-        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
-    {
-        let packet = match self.buffer.take() {
-            Some(packet) => packet,
-            None => {
-                match self
-                    .inner
-                    .fill_buf()
-                    .timeout(Duration::from_micros(1))
-                    .await
-                    .ok()
-                    .transpose()?
-                {
-                    Some(buf) if !buf.is_empty() => self.packet().await?,
-                    _ => return Ok(None),
-                }
-            }
-        };
-
-        match packet.read() {
-            Ok(message) => {
-                tracing::trace!("<-({})? {message:?}", self.rxseq - 1);
-
-                Ok(Some(message))
-            }
-            _ => {
-                self.buffer = Some(packet);
-
-                Ok(None)
-            }
-        }
     }
 
     /// Receive a _packet_ from the peer, decrypt it and deserialize it as `T`.
@@ -132,6 +113,31 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         tracing::trace!("<-({}) {message:?}", self.rxseq - 1);
 
         Ok(message)
+    }
+
+    /// Receive a _packet_ from the peer,
+    /// storing the _packet_ and returning `None` if the deserialization failed.
+    pub async fn try_recv<T>(&mut self) -> Result<Option<T>>
+    where
+        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
+    {
+        let packet = match self.buffer.take() {
+            Some(packet) => packet,
+            None => self.packet().await?,
+        };
+
+        match packet.read() {
+            Ok(message) => {
+                tracing::trace!("<-({})? {message:?}", self.rxseq - 1);
+
+                Ok(Some(message))
+            }
+            _ => {
+                self.buffer = Some(packet);
+
+                Ok(None)
+            }
+        }
     }
 
     /// Send a _packet_ to the peer, by serializing and encrypting the `message`.
@@ -152,10 +158,5 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         tracing::trace!("({})-> {message:?}", self.txseq - 1);
 
         Ok(())
-    }
-
-    /// Returns whether the stream should be re-keyed.
-    pub(crate) fn rekeyable(&self) -> bool {
-        self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
 }

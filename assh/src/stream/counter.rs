@@ -41,14 +41,6 @@ impl<C: AsyncRead + Unpin> AsyncRead for IoCounter<C> {
 
         poll
     }
-
-    fn poll_read_vectored(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        bufs: &mut [std::io::IoSliceMut<'_>],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        std::pin::Pin::new(&mut self.inner).poll_read_vectored(cx, bufs)
-    }
 }
 
 impl<C: AsyncWrite + Unpin> AsyncWrite for IoCounter<C> {

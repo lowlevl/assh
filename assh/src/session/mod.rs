@@ -3,9 +3,12 @@
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
-    binrw::{meta::WriteEndian, BinWrite},
-    trans::KexInit,
-    Id, Message,
+    binrw::{
+        meta::{ReadEndian, WriteEndian},
+        BinRead, BinWrite,
+    },
+    trans::{Debug, Disconnect, Ignore, KexInit, Unimplemented},
+    Id,
 };
 
 use crate::{Error, Result};
@@ -82,42 +85,44 @@ where
     }
 
     /// Receive a _message_ from the connected peer.
-    pub async fn recv(&mut self) -> Result<Message> {
+    pub async fn recv<T>(&mut self) -> Result<T>
+    where
+        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + std::fmt::Debug,
+    {
         loop {
             let Some(ref mut stream) = self.stream else {
                 break Err(Error::Disconnected);
             };
 
-            if stream.rekeyable() {
+            if stream.is_rekeyable() {
                 self.config.kex(stream, None, &self.peer_id).await?;
                 self.layers.on_kex(stream).await?;
             }
 
             self.layers.on_recv(stream).await?;
 
-            match stream.recv().await? {
-                Message::Disconnect(_) => {
-                    drop(self.stream.take());
-                }
-                Message::Ignore(_) => {
-                    tracing::debug!("Received an 'ignore' message");
-                }
-                Message::Debug(message) => {
-                    tracing::debug!("Received a 'debug' message: {}", &*message.message);
-                }
-                Message::Unimplemented(message) => {
-                    tracing::debug!(
-                        "Received a 'unimplemented' message about packet #{}",
-                        message.seq
-                    );
-                }
-                Message::KexInit(kexinit) => {
-                    self.config
-                        .kex(stream, Some(kexinit), &self.peer_id)
-                        .await?;
-                    self.layers.on_kex(stream).await?;
-                }
-                message => break Ok(message),
+            if let Some(Disconnect {
+                reason,
+                description,
+                ..
+            }) = stream.try_recv().await?
+            {
+                drop(self.stream.take());
+
+                tracing::warn!("Peer disconnected with `{reason:?}`: {}", &*description);
+            } else if let Some(Ignore { data }) = stream.try_recv().await? {
+                tracing::debug!("Received an 'ignore' message with length {}", data.len());
+            } else if let Some(Debug { message, .. }) = stream.try_recv().await? {
+                tracing::debug!("Received a 'debug' message: {}", &*message);
+            } else if let Some(Unimplemented { seq }) = stream.try_recv().await? {
+                tracing::debug!("Received a 'unimplemented' message about packet #{seq}",);
+            } else if let Some(kexinit) = stream.try_recv().await? {
+                self.config
+                    .kex(stream, Some(kexinit), &self.peer_id)
+                    .await?;
+                self.layers.on_kex(stream).await?;
+            } else {
+                break stream.recv().await;
             }
         }
     }
@@ -125,20 +130,22 @@ where
     /// Send a _message_ to the connected peer.
     pub async fn send<T>(&mut self, message: &T) -> Result<()>
     where
-        T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian + std::fmt::Debug,
+        T: for<'w> BinWrite<Args<'w> = ()> + WriteEndian + std::fmt::Debug,
     {
         let Some(ref mut stream) = self.stream else {
             return Err(Error::Disconnected);
         };
 
-        if let Some(kexinit) = stream.try_recv::<KexInit>().await? {
-            self.config
-                .kex(stream, Some(kexinit), &self.peer_id)
-                .await?;
-            self.layers.on_kex(stream).await?;
-        } else if stream.rekeyable() {
+        if stream.is_rekeyable() {
             self.config.kex(stream, None, &self.peer_id).await?;
             self.layers.on_kex(stream).await?;
+        } else if stream.is_readable().await? {
+            if let Some(kexinit) = stream.try_recv::<KexInit>().await? {
+                self.config
+                    .kex(stream, Some(kexinit), &self.peer_id)
+                    .await?;
+                self.layers.on_kex(stream).await?;
+            }
         }
 
         stream.send(message).await
