@@ -35,12 +35,13 @@
 #[doc(no_inline)]
 pub use ssh_key::private::PrivateKey;
 #[doc(no_inline)]
-pub use ssh_packet::{Id, Message};
+pub use ssh_packet::{Id, Packet};
 
 mod error;
 pub use error::{Error, Result};
 
 pub mod algorithm;
+pub mod layer;
 pub mod session;
 
 mod stream;

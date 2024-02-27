@@ -1,11 +1,28 @@
 //! Session extension traits and helpers.
 
 use futures::{AsyncBufRead, AsyncWrite, Future};
+use ssh_packet::{trans::DisconnectReason, Packet};
 
 use crate::{session::Side, stream::Stream, Result};
 
 #[cfg(doc)]
 use crate::session::{client::Client, server::Server, Session};
+
+/// The action that emerges from the [`Layer`]'s message processing.
+#[derive(Debug)]
+pub enum Action {
+    /// Request the next _packet_ from the session.
+    Next,
+
+    /// Forward the current _packet_ to the next layer.
+    Forward(Packet),
+
+    /// Disconnect from the peer with specified `reason` and `description`.
+    Disconnect {
+        reason: DisconnectReason,
+        description: String,
+    },
+}
 
 /// An extension layer for a [`Session`].
 ///
@@ -42,10 +59,11 @@ pub trait Layer<S: Side> {
     fn on_recv(
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
-    ) -> impl Future<Output = Result<()>> {
+        packet: Packet,
+    ) -> impl Future<Output = Result<Action>> {
         let _ = stream;
 
-        async { Ok(()) }
+        async { Ok(Action::Forward(packet)) }
     }
 }
 
@@ -65,10 +83,11 @@ impl<S: Side, A: Layer<S>, B: Layer<S>> Layer<S> for (A, B) {
     async fn on_recv(
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
-    ) -> Result<()> {
-        self.0.on_recv(stream).await?;
-        self.1.on_recv(stream).await?;
-
-        Ok(())
+        packet: Packet,
+    ) -> Result<Action> {
+        match self.0.on_recv(stream, packet).await? {
+            action @ Action::Next | action @ Action::Disconnect { .. } => Ok(action),
+            Action::Forward(packet) => self.1.on_recv(stream, packet).await,
+        }
     }
 }

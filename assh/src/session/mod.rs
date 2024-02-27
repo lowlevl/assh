@@ -16,13 +16,12 @@ use crate::{Error, Result};
 mod side;
 pub use side::Side;
 
-mod layer;
-pub use layer::Layer;
-
 pub mod client;
 pub mod server;
 
 pub use crate::stream::Stream;
+
+use crate::layer::{Action, Layer};
 
 /// A session wrapping a [`Stream`] to handle **key-exchange** and **[`SSH-TRANS`]** messages.
 pub struct Session<I, S, L = ()> {
@@ -109,19 +108,34 @@ where
                 ..
             }) = packet.to()
             {
-                drop(self.stream.take());
-
                 tracing::warn!("Peer disconnected with `{reason:?}`: {}", &*description);
+
+                drop(self.stream.take());
             } else if let Ok(Ignore { data }) = packet.to() {
                 tracing::debug!("Received an 'ignore' message with length {}", data.len());
+            } else if let Ok(Unimplemented { seq }) = packet.to() {
+                tracing::debug!("Received an 'unimplemented' message about packet #{seq}",);
             } else if let Ok(Debug { message, .. }) = packet.to() {
                 tracing::debug!("Received a 'debug' message: {}", &*message);
-            } else if let Ok(Unimplemented { seq }) = packet.to() {
-                tracing::debug!("Received a 'unimplemented' message about packet #{seq}",);
             } else {
-                self.layers.on_recv(stream).await?;
+                match self.layers.on_recv(stream, packet).await? {
+                    Action::Next => continue,
+                    Action::Disconnect {
+                        reason,
+                        description,
+                    } => {
+                        stream
+                            .send(&Disconnect {
+                                reason,
+                                description: description.into(),
+                                language: Default::default(),
+                            })
+                            .await?;
 
-                break packet.to().map_err(Into::into);
+                        drop(self.stream.take());
+                    }
+                    Action::Forward(packet) => break packet.to().map_err(Into::into),
+                }
             }
         }
     }

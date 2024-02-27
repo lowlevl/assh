@@ -9,12 +9,13 @@ use assh::{
         client::{Algorithms, Client},
         Session,
     },
-    Error, Message, Result,
+    Error, Result,
 };
 use ssh_packet::{
     connect::{ChannelOpen, ChannelOpenContext},
     trans::{Disconnect, ServiceRequest},
     userauth::AuthRequest,
+    Message,
 };
 
 mod common;

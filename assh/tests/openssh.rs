@@ -3,7 +3,8 @@
 use async_std::process::Command;
 use rstest::rstest;
 
-use assh::{Message, Result};
+use assh::Result;
+use ssh_packet::Message;
 
 mod common;
 

@@ -2,15 +2,16 @@ use std::net::SocketAddr;
 
 use async_std::{net::TcpListener, stream::StreamExt};
 use futures::io::BufReader;
+
+use assh::{
+    session::{server::Server, Session},
+    Result,
+};
 use ssh_packet::{
     connect::ChannelOpenConfirmation,
     trans::{Ignore, ServiceAccept},
     userauth::AuthSuccess,
-};
-
-use assh::{
-    session::{server::Server, Session},
-    Message, Result,
+    Message,
 };
 
 pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Result<Message>>)> {
