@@ -43,7 +43,6 @@ pub trait Side: private::Sealed {
     fn kex(
         &self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
-        mut peerkexinit: Option<KexInit>,
         peer_id: &Id,
     ) -> impl Future<Output = Result<()>> {
         async move {
@@ -52,15 +51,12 @@ pub trait Side: private::Sealed {
             let kexinit = self.kexinit();
             stream.send(&kexinit).await?;
 
-            let peerkexinit = match peerkexinit.take() {
-                Some(peerkexinit) => peerkexinit,
-                None => stream.recv().await?,
-            };
+            let peerkexinit = stream.recv().await?.to::<KexInit>()?;
 
             let transport = self.exchange(stream, kexinit, peerkexinit, peer_id).await?;
 
             stream.send(&NewKeys).await?;
-            stream.recv::<NewKeys>().await?;
+            stream.recv().await?.to::<NewKeys>()?;
 
             tracing::debug!(
                 "Key exchange success, negociated algorithms:\nrx: {:?}\ntx: {:?}",

@@ -70,7 +70,7 @@ impl Kex {
                     })
                     .await?;
 
-                let ecdh: KexEcdhReply = stream.recv().await?;
+                let ecdh: KexEcdhReply = stream.recv().await?.to()?;
                 let q_s = x25519_dalek::PublicKey::from(
                     <[u8; 32]>::try_from(&*ecdh.q_s).map_err(|_| Error::KexError)?,
                 );
@@ -149,7 +149,7 @@ impl Kex {
 
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
-                let ecdh: KexEcdhInit = stream.recv().await?;
+                let ecdh: KexEcdhInit = stream.recv().await?.to()?;
 
                 let e_s = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
                 let q_s = x25519_dalek::PublicKey::from(&e_s);

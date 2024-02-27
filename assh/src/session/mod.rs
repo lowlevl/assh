@@ -87,42 +87,41 @@ where
     /// Receive a _message_ from the connected peer.
     pub async fn recv<T>(&mut self) -> Result<T>
     where
-        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + std::fmt::Debug,
+        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian,
     {
         loop {
             let Some(ref mut stream) = self.stream else {
                 break Err(Error::Disconnected);
             };
 
-            if stream.is_rekeyable() {
-                self.config.kex(stream, None, &self.peer_id).await?;
+            if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
+                self.config.kex(stream, &self.peer_id).await?;
                 self.layers.on_kex(stream).await?;
+
+                continue;
             }
 
-            self.layers.on_recv(stream).await?;
+            let packet = stream.recv().await?;
 
-            if let Some(Disconnect {
+            if let Ok(Disconnect {
                 reason,
                 description,
                 ..
-            }) = stream.try_recv().await?
+            }) = packet.to()
             {
                 drop(self.stream.take());
 
                 tracing::warn!("Peer disconnected with `{reason:?}`: {}", &*description);
-            } else if let Some(Ignore { data }) = stream.try_recv().await? {
+            } else if let Ok(Ignore { data }) = packet.to() {
                 tracing::debug!("Received an 'ignore' message with length {}", data.len());
-            } else if let Some(Debug { message, .. }) = stream.try_recv().await? {
+            } else if let Ok(Debug { message, .. }) = packet.to() {
                 tracing::debug!("Received a 'debug' message: {}", &*message);
-            } else if let Some(Unimplemented { seq }) = stream.try_recv().await? {
+            } else if let Ok(Unimplemented { seq }) = packet.to() {
                 tracing::debug!("Received a 'unimplemented' message about packet #{seq}",);
-            } else if let Some(kexinit) = stream.try_recv().await? {
-                self.config
-                    .kex(stream, Some(kexinit), &self.peer_id)
-                    .await?;
-                self.layers.on_kex(stream).await?;
             } else {
-                break stream.recv().await;
+                self.layers.on_recv(stream).await?;
+
+                break packet.to().map_err(Into::into);
             }
         }
     }
@@ -130,22 +129,17 @@ where
     /// Send a _message_ to the connected peer.
     pub async fn send<T>(&mut self, message: &T) -> Result<()>
     where
-        T: for<'w> BinWrite<Args<'w> = ()> + WriteEndian + std::fmt::Debug,
+        T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian,
     {
         let Some(ref mut stream) = self.stream else {
             return Err(Error::Disconnected);
         };
 
-        if stream.is_rekeyable() {
-            self.config.kex(stream, None, &self.peer_id).await?;
+        if stream.is_rekeyable()
+            || (stream.is_readable().await? && stream.peek().await?.to::<KexInit>().is_ok())
+        {
+            self.config.kex(stream, &self.peer_id).await?;
             self.layers.on_kex(stream).await?;
-        } else if stream.is_readable().await? {
-            if let Some(kexinit) = stream.try_recv::<KexInit>().await? {
-                self.config
-                    .kex(stream, Some(kexinit), &self.peer_id)
-                    .await?;
-                self.layers.on_kex(stream).await?;
-            }
         }
 
         stream.send(message).await

@@ -1,17 +1,9 @@
 //! Primitives to manipulate binary data to extract and encode
 //! messages from/to an [`AsyncBufRead`] + [`AsyncWrite`] stream.
 
-use std::fmt::Debug;
-
 use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use futures_time::{future::FutureExt, time::Duration};
-use ssh_packet::{
-    binrw::{
-        meta::{ReadEndian, WriteEndian},
-        BinRead, BinWrite,
-    },
-    Packet,
-};
+use ssh_packet::{Packet, ToPacket};
 
 use crate::Result;
 
@@ -45,7 +37,7 @@ pub struct Stream<S> {
     /// Sequence number for the `rx` side.
     rxseq: u32,
 
-    /// A packet buffer for the `try_recv` method.
+    /// A buffer for the `peek` method.
     buffer: Option<Packet>,
 }
 
@@ -81,7 +73,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         Ok(self
             .inner
             .fill_buf()
-            .timeout(Duration::from_micros(1))
+            .timeout(Duration::from_millis(1))
             .await
             .ok()
             .transpose()?
@@ -89,63 +81,35 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
             .unwrap_or_default())
     }
 
-    async fn packet(&mut self) -> Result<Packet> {
-        let packet = Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.rxseq)
-            .timeout(self.timeout)
-            .await??;
+    /// Receive and decrypt a _packet_ from the peer without removing it from the queue.
+    pub async fn peek(&mut self) -> Result<&Packet> {
+        let packet = self.recv().await?;
 
-        self.rxseq = self.rxseq.wrapping_add(1);
-
-        Ok(packet)
+        Ok(self.buffer.insert(packet))
     }
 
-    /// Receive a _packet_ from the peer, decrypt it and deserialize it as `T`.
-    pub async fn recv<T>(&mut self) -> Result<T>
-    where
-        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
-    {
-        let packet = match self.buffer.take() {
-            Some(packet) => packet,
-            None => self.packet().await?,
-        };
-        let message = packet.read()?;
+    /// Receive and decrypt a _packet_ from the peer.
+    pub async fn recv(&mut self) -> Result<Packet> {
+        match self.buffer.take() {
+            Some(packet) => Ok(packet),
+            None => {
+                let packet =
+                    Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.rxseq)
+                        .timeout(self.timeout)
+                        .await??;
 
-        tracing::trace!("<-({}) {message:?}", self.rxseq - 1);
+                self.rxseq = self.rxseq.wrapping_add(1);
 
-        Ok(message)
-    }
+                tracing::trace!("<-({}): {} bytes", self.rxseq - 1, packet.payload.len());
 
-    /// Receive a _packet_ from the peer,
-    /// storing the _packet_ and returning `None` if the deserialization failed.
-    pub async fn try_recv<T>(&mut self) -> Result<Option<T>>
-    where
-        for<'r> T: BinRead<Args<'r> = ()> + ReadEndian + Debug,
-    {
-        let packet = match self.buffer.take() {
-            Some(packet) => packet,
-            None => self.packet().await?,
-        };
-
-        match packet.read() {
-            Ok(message) => {
-                tracing::trace!("<-({})? {message:?}", self.rxseq - 1);
-
-                Ok(Some(message))
-            }
-            _ => {
-                self.buffer = Some(packet);
-
-                Ok(None)
+                Ok(packet)
             }
         }
     }
 
-    /// Send a _packet_ to the peer, by serializing and encrypting the `message`.
-    pub async fn send<T>(&mut self, message: &T) -> Result<()>
-    where
-        for<'w> T: BinWrite<Args<'w> = ()> + WriteEndian + Debug,
-    {
-        let packet = Packet::write(message)?;
+    /// Encrypt and send a _packet_ to the peer.
+    pub async fn send(&mut self, packet: &impl ToPacket) -> Result<()> {
+        let packet = packet.to_packet()?;
 
         packet
             .to_async_writer(&mut self.inner, &mut self.transport.tx, self.txseq)
@@ -155,7 +119,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
 
         self.txseq = self.txseq.wrapping_add(1);
 
-        tracing::trace!("({})-> {message:?}", self.txseq - 1);
+        tracing::trace!("({})->: {} bytes", self.txseq - 1, packet.payload.len());
 
         Ok(())
     }

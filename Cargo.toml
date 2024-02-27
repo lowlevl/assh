@@ -13,9 +13,10 @@ edition = "2021"
 
 [workspace.dependencies]
 assh = "^0"
-ssh-packet = { version = "0.2.1", features = ["futures", "digest"] }
+ssh-packet = { version = "0.2.3", features = ["futures", "digest"] }
 
 futures = "0.3.28"
 
 [patch.crates-io]
 assh = { path = "assh" }
+# ssh-packet = { path = "../ssh-packet" }
