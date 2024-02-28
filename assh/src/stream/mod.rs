@@ -15,7 +15,7 @@ mod transport;
 pub(super) use transport::{Transport, TransportPair};
 
 mod keys;
-pub(super) use keys::Keys;
+use keys::Keys;
 
 pub use ssh_packet::{Packet, ToPacket};
 

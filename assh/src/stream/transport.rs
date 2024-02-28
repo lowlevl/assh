@@ -3,11 +3,7 @@ use securefmt::Debug;
 use ssh_packet::{CipherCore, Mac, OpeningCipher, SealingCipher};
 
 use crate::{
-    stream::algorithm::{
-        self,
-        cipher::{CipherLike, CipherState},
-        Cipher,
-    },
+    stream::algorithm::{self, Cipher, CipherState},
     Error, Result,
 };
 

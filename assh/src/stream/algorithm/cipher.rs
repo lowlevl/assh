@@ -23,13 +23,6 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Cipher, Ci
     ))
 }
 
-pub trait CipherLike {
-    fn block_size(&self) -> usize;
-    fn key_size(&self) -> usize;
-    fn iv_size(&self) -> usize;
-    fn has_tag(&self) -> bool;
-}
-
 /// SSH cipher algorithms.
 #[non_exhaustive]
 #[derive(Default, Debug, PartialEq, EnumString, AsRefStr)]
@@ -212,10 +205,8 @@ impl Cipher {
             Self::None => Ok(None),
         }
     }
-}
 
-impl CipherLike for Cipher {
-    fn block_size(&self) -> usize {
+    pub(crate) fn block_size(&self) -> usize {
         match self {
             Self::None | Self::TDesCbc { .. } => 8,
             Self::Aes128Cbc { .. }
@@ -227,7 +218,7 @@ impl CipherLike for Cipher {
         }
     }
 
-    fn key_size(&self) -> usize {
+    pub(crate) fn key_size(&self) -> usize {
         match self {
             Self::None => 0,
             Self::Aes128Cbc { .. } | Self::Aes128Ctr { .. } => 16,
@@ -236,7 +227,7 @@ impl CipherLike for Cipher {
         }
     }
 
-    fn iv_size(&self) -> usize {
+    pub(crate) fn iv_size(&self) -> usize {
         match self {
             Self::None => 0,
             Self::TDesCbc { .. } => 8,
@@ -249,16 +240,16 @@ impl CipherLike for Cipher {
         }
     }
 
-    fn has_tag(&self) -> bool {
-        match self {
-            Self::None
-            | Self::TDesCbc { .. }
-            | Self::Aes128Cbc { .. }
-            | Self::Aes192Cbc { .. }
-            | Self::Aes256Cbc { .. }
-            | Self::Aes128Ctr { .. }
-            | Self::Aes192Ctr { .. }
-            | Self::Aes256Ctr { .. } => false,
-        }
-    }
+    // pub(crate) fn has_tag(&self) -> bool {
+    //     match self {
+    //         Self::None
+    //         | Self::TDesCbc { .. }
+    //         | Self::Aes128Cbc { .. }
+    //         | Self::Aes192Cbc { .. }
+    //         | Self::Aes256Cbc { .. }
+    //         | Self::Aes128Ctr { .. }
+    //         | Self::Aes192Ctr { .. }
+    //         | Self::Aes256Ctr { .. } => false,
+    //     }
+    // }
 }

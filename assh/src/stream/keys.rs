@@ -2,7 +2,7 @@ use digest::{Digest, FixedOutputReset};
 use securefmt::Debug;
 use ssh_packet::Mac;
 
-use crate::stream::algorithm::cipher::CipherLike;
+use super::algorithm::Cipher;
 
 #[derive(Debug, Default)]
 pub struct Keys {
@@ -21,7 +21,7 @@ impl Keys {
         secret: &impl AsRef<[u8]>,
         hash: &[u8],
         session_id: &[u8],
-        cipher: &impl CipherLike,
+        cipher: &Cipher,
         hmac: &impl Mac,
     ) -> Self {
         let ivsize = cipher.iv_size();
@@ -39,7 +39,7 @@ impl Keys {
         secret: &impl AsRef<[u8]>,
         hash: &[u8],
         session_id: &[u8],
-        cipher: &impl CipherLike,
+        cipher: &Cipher,
         hmac: &impl Mac,
     ) -> Self {
         let ivsize = cipher.iv_size();

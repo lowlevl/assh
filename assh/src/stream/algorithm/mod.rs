@@ -1,12 +1,13 @@
 //! Algorithm implementations for **compression**, **encryption**, **integrity** and **key-exchange**.
 
-pub(crate) mod cipher;
+mod cipher;
 pub use cipher::Cipher;
+pub(super) use cipher::CipherState;
 
-pub(crate) mod compress;
+mod compress;
 pub use compress::Compress;
 
-pub(crate) mod hmac;
+mod hmac;
 pub use hmac::Hmac;
 
 pub(crate) mod kex;
