@@ -2,7 +2,7 @@ use digest::{Digest, FixedOutputReset};
 use securefmt::Debug;
 use ssh_packet::Mac;
 
-use crate::algorithm::cipher::CipherLike;
+use crate::stream::algorithm::cipher::CipherLike;
 
 #[derive(Debug, Default)]
 pub struct Keys {

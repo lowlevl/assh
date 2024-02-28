@@ -9,19 +9,19 @@
 //! ### Supported algorithms
 //!
 //! #### Key-exchange:
-//! see [`algorithm::Kex`].
+//! see [`stream::algorithm::Kex`].
 //!
 //! #### Encryption:
 //!
-//! see [`algorithm::Cipher`].
+//! see [`stream::algorithm::Cipher`].
 //!
 //! #### MACs
 //!
-//! see [`algorithm::Hmac`].
+//! see [`stream::algorithm::Hmac`].
 //!
 //! #### Compression:
 //!
-//! see [`algorithm::Compress`].
+//! see [`stream::algorithm::Compress`].
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(
@@ -35,13 +35,11 @@
 #[doc(no_inline)]
 pub use ssh_key::private::PrivateKey;
 #[doc(no_inline)]
-pub use ssh_packet::{Id, Packet};
+pub use ssh_packet::Id;
 
 mod error;
 pub use error::{Error, Result};
 
-pub mod algorithm;
 pub mod layer;
 pub mod session;
-
-mod stream;
+pub mod stream;

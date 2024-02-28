@@ -1,4 +1,4 @@
-//! Session management and transport handling mechanics.
+//! Session-based transport handling, with support for extensions.
 
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
@@ -11,15 +11,13 @@ use ssh_packet::{
     Id,
 };
 
-use crate::{Error, Result};
+use crate::{stream::Stream, Error, Result};
 
 mod side;
 pub use side::Side;
 
 pub mod client;
 pub mod server;
-
-pub use crate::stream::Stream;
 
 use crate::layer::{Action, Layer};
 
@@ -119,7 +117,8 @@ where
                 tracing::debug!("Received a 'debug' message: {}", &*message);
             } else {
                 match self.layers.on_recv(stream, packet).await? {
-                    Action::Next => continue,
+                    Action::Fetch => continue,
+                    Action::Forward(packet) => break packet.to().map_err(Into::into),
                     Action::Disconnect {
                         reason,
                         description,
@@ -134,7 +133,6 @@ where
 
                         drop(self.stream.take());
                     }
-                    Action::Forward(packet) => break packet.to().map_err(Into::into),
                 }
             }
         }

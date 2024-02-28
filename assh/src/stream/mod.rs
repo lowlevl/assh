@@ -3,18 +3,21 @@
 
 use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use futures_time::{future::FutureExt, time::Duration};
-use ssh_packet::{Packet, ToPacket};
 
 use crate::Result;
 
 mod counter;
 use counter::IoCounter;
 
+pub mod algorithm;
+
 mod transport;
-pub use transport::{Transport, TransportPair};
+pub(super) use transport::{Transport, TransportPair};
 
 mod keys;
-pub use keys::Keys;
+pub(super) use keys::Keys;
+
+pub use ssh_packet::{Packet, ToPacket};
 
 /// Re-key after 1GiB of exchanged data as recommended per the RFC.
 const REKEY_BYTES_THRESHOLD: usize = 0x40000000;

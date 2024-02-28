@@ -11,15 +11,18 @@ use crate::session::{client::Client, server::Server, Session};
 /// The action that emerges from the [`Layer`]'s message processing.
 #[derive(Debug)]
 pub enum Action {
-    /// Request the next _packet_ from the session.
-    Next,
+    /// Fetch a new _packet_ and call the layer stack again.
+    Fetch,
 
     /// Forward the current _packet_ to the next layer.
     Forward(Packet),
 
-    /// Disconnect from the peer with specified `reason` and `description`.
+    /// Disconnect from the peer.
     Disconnect {
+        /// The reason for disconnection.
         reason: DisconnectReason,
+
+        /// A textual description of the reason for disconnection.
         description: String,
     },
 }
@@ -85,9 +88,12 @@ impl<S: Side, A: Layer<S>, B: Layer<S>> Layer<S> for (A, B) {
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
         packet: Packet,
     ) -> Result<Action> {
-        match self.0.on_recv(stream, packet).await? {
-            action @ Action::Next | action @ Action::Disconnect { .. } => Ok(action),
-            Action::Forward(packet) => self.1.on_recv(stream, packet).await,
+        let action = self.0.on_recv(stream, packet).await?;
+
+        if let Action::Forward(packet) = action {
+            self.1.on_recv(stream, packet).await
+        } else {
+            Ok(action)
         }
     }
 }
