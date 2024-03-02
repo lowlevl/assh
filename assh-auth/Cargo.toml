@@ -1,6 +1,6 @@
 [package]
 name = "assh-auth"
-description = "An extension to [`assh`] that provides a [`assh::session::Layer`] to handle the [`SSH-USERAUTH`] authentication layer."
+description = "An extension to [`assh`] that provides a [`assh::layer::Layer`] to handle the [`SSH-USERAUTH`] authentication layer."
 documentation = "https://docs.rs/assh-auth"
 repository.workspace = true
 readme.workspace = true
@@ -22,6 +22,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 assh.workspace = true
+ssh-packet.workspace = true
+
+futures.workspace = true
+bitflags = "2.4.2"
+convert_case = "0.6.0"
 
 [dev-dependencies]
 rstest = "0.18.2"
