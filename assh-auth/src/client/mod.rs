@@ -1,1 +1,1 @@
-//! Client-side authentication layer.
+//! Client-side authentication mechanics.

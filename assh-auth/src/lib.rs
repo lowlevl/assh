@@ -9,8 +9,8 @@
 const SERVICE_NAME: &str = "ssh-userauth";
 const CONNECTION_SERVICE_NAME: &str = "ssh-connection";
 
-mod methods;
-pub use methods::Methods;
+mod method;
+pub use method::Method;
 
 pub mod client;
 pub mod server;
