@@ -111,13 +111,7 @@ impl Side for Server {
         KexInit {
             cookie,
             kex_algorithms: NameList::new(&self.algorithms.kexs),
-            server_host_key_algorithms: NameList::new(
-                &self
-                    .keys
-                    .iter()
-                    .map(|key| key.algorithm().to_string())
-                    .collect::<Vec<_>>(),
-            ),
+            server_host_key_algorithms: NameList::new(self.keys.iter().map(PrivateKey::algorithm)),
             encryption_algorithms_client_to_server: NameList::new(&self.algorithms.ciphers),
             encryption_algorithms_server_to_client: NameList::new(&self.algorithms.ciphers),
             mac_algorithms_client_to_server: NameList::new(&self.algorithms.macs),

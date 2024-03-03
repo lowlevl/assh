@@ -10,8 +10,7 @@ use assh::{
 use ssh_packet::{
     connect::ChannelOpenConfirmation,
     trans::{Ignore, ServiceAccept},
-    userauth::AuthSuccess,
-    Message,
+    userauth, Message,
 };
 
 pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Result<Message>>)> {
@@ -50,7 +49,7 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
             .await?;
 
         if let Message::AuthRequest { .. } = session.recv().await? {
-            session.send(&AuthSuccess).await?;
+            session.send(&userauth::Success).await?;
         }
 
         if let Message::ChannelOpen(open) = session.recv().await? {

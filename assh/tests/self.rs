@@ -14,8 +14,7 @@ use assh::{
 use ssh_packet::{
     connect::{ChannelOpen, ChannelOpenContext},
     trans::{Disconnect, ServiceRequest},
-    userauth::AuthRequest,
-    Message,
+    userauth, Message,
 };
 
 mod common;
@@ -74,10 +73,10 @@ async fn end_to_end(
     };
 
     client
-        .send(&AuthRequest {
+        .send(&userauth::Request {
             username: "user".into(),
             service_name: "?".into(),
-            method: ssh_packet::userauth::AuthMethod::None,
+            method: ssh_packet::userauth::Method::None,
         })
         .await?;
     let Message::AuthSuccess(_) = client.recv().await? else {
