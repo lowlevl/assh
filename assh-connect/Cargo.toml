@@ -1,7 +1,7 @@
 [package]
-name = "assh-channel"
-description = "An extension to [`assh`] that provides a [`assh::layer::Layer`] to handle SSH channels."
-documentation = "https://docs.rs/assh-auth"
+name = "assh-connect"
+description = "An extension to [`assh`] that provides the [`SSH-CONNECT`] layer."
+documentation = "https://docs.rs/assh-connect"
 repository.workspace = true
 readme.workspace = true
 license.workspace = true
