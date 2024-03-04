@@ -5,7 +5,7 @@ use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
     arch::MpInt,
     binrw::BinWrite,
-    kex::EcdhExchange,
+    cryptography::EcdhExchange,
     trans::{KexEcdhInit, KexEcdhReply, KexInit},
     Id,
 };
@@ -79,22 +79,22 @@ impl Kex {
 
                 let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
                 let exchange = EcdhExchange {
-                    v_c: v_c.to_string().into_bytes().into(),
-                    v_s: v_s.to_string().into_bytes().into(),
-                    i_c: {
+                    v_c: &v_c.to_string().into_bytes().into(),
+                    v_s: &v_s.to_string().into_bytes().into(),
+                    i_c: &{
                         let mut buffer = Vec::new();
                         i_c.write(&mut std::io::Cursor::new(&mut buffer))?;
                         buffer.into()
                     },
-                    i_s: {
+                    i_s: &{
                         let mut buffer = Vec::new();
                         i_s.write(&mut std::io::Cursor::new(&mut buffer))?;
                         buffer.into()
                     },
-                    k_s: ecdh.k_s,
-                    q_c: q_c.as_ref().to_vec().into(),
-                    q_s: q_s.to_bytes().to_vec().into(),
-                    k: secret.clone(),
+                    k_s: &ecdh.k_s,
+                    q_c: &q_c.as_ref().to_vec().into(),
+                    q_s: &q_s.to_bytes().to_vec().into(),
+                    k: &secret,
                 };
                 let hash = exchange.hash::<Sha256>();
 
@@ -160,31 +160,34 @@ impl Kex {
 
                 let secret: MpInt = e_s.diffie_hellman(&q_c).to_bytes().to_vec().into();
 
+                let k_s = key.public_key().to_bytes()?.into();
+                let q_s = q_s.as_ref().to_vec().into();
+
                 let exchange = EcdhExchange {
-                    v_c: v_c.to_string().into_bytes().into(),
-                    v_s: v_s.to_string().into_bytes().into(),
-                    i_c: {
+                    v_c: &v_c.to_string().into_bytes().into(),
+                    v_s: &v_s.to_string().into_bytes().into(),
+                    i_c: &{
                         let mut buffer = Vec::new();
                         i_c.write(&mut std::io::Cursor::new(&mut buffer))?;
                         buffer.into()
                     },
-                    i_s: {
+                    i_s: &{
                         let mut buffer = Vec::new();
                         i_s.write(&mut std::io::Cursor::new(&mut buffer))?;
                         buffer.into()
                     },
-                    k_s: key.public_key().to_bytes()?.into(),
-                    q_c: q_c.to_bytes().to_vec().into(),
-                    q_s: q_s.as_ref().to_vec().into(),
-                    k: secret.clone(),
+                    k_s: &k_s,
+                    q_c: &q_c.to_bytes().to_vec().into(),
+                    q_s: &q_s,
+                    k: &secret,
                 };
                 let hash = exchange.hash::<Sha256>();
 
                 let signature = Signer::sign(key, &hash);
                 stream
                     .send(&KexEcdhReply {
-                        k_s: exchange.k_s,
-                        q_s: exchange.q_s,
+                        k_s,
+                        q_s,
                         signature: signature.to_vec().into(),
                     })
                     .await?;
