@@ -13,7 +13,15 @@ edition = "2021"
 
 [workspace.dependencies]
 assh = "^0"
+
 ssh-packet = { version = "0.3.0", features = ["futures", "digest"] }
+ssh-key = { version = "0.6.1", features = [
+    "dsa",
+    "rsa",
+    "p256",
+    "p384",
+    "ed25519",
+] }
 
 futures = "0.3.28"
 

@@ -22,7 +22,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 assh.workspace = true
+
 ssh-packet.workspace = true
+ssh-key.workspace = true
 
 futures.workspace = true
 enumset = "1.1.3"
