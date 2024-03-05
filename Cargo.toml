@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["assh", "assh-auth", "assh-connect"]
+members = ["assh", "assh-auth", "assh-connect", "examples"]
 
 [workspace.package]
 repository = "https://github.com/lowlevl/assh"

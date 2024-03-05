@@ -1,13 +1,8 @@
 [package]
-name = "assh-auth"
-description = "An extension to [`assh`] that provides the [`SSH-USERAUTH`] authentication layer."
-documentation = "https://docs.rs/assh-auth"
-repository.workspace = true
-readme.workspace = true
+name = "examples"
+version = "0.0.0-dev"
 license.workspace = true
-keywords.workspace = true
 authors.workspace = true
-version.workspace = true
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -22,9 +17,20 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 assh.workspace = true
-
+assh-auth.workspace = true
+assh-connect.workspace = true
 ssh-packet.workspace = true
 ssh-key.workspace = true
 
 futures.workspace = true
-enumset = "1.1.3"
+async-std = { version = "1.12.0", features = ["attributes", "unstable"] }
+color-eyre = "0.6.2"
+clap = { version = "4.5.1", features = ["derive"] }
+
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", default-features = false, features = [
+    "env-filter",
+    "fmt",
+    "tracing-log",
+] }
+rand = "0.8.5"
