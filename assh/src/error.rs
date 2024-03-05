@@ -37,7 +37,7 @@ pub enum Error {
     NoCommonKex,
 
     /// No common key algorithm found between both sides.
-    #[error("Unable to negociate a common key algorithm")]
+    #[error("Unable to negociate a common host key algorithm")]
     NoCommonKey,
 
     /// No common cipher algorithm found between both sides.

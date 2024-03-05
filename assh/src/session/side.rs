@@ -16,7 +16,6 @@ mod private {
 
     impl Sealed for super::Client {}
     impl Sealed for super::Server {}
-    impl<T: Sealed> Sealed for std::sync::Arc<T> {}
 }
 
 /// A side of the SSH protocol, either [`Client`] or [`Server`].
@@ -68,31 +67,5 @@ pub trait Side: private::Sealed {
 
             Ok(())
         }
-    }
-}
-
-impl<T: Side> Side for std::sync::Arc<T> {
-    fn id(&self) -> &Id {
-        (**self).id()
-    }
-
-    fn timeout(&self) -> Duration {
-        (**self).timeout()
-    }
-
-    fn kexinit(&self) -> KexInit {
-        (**self).kexinit()
-    }
-
-    async fn exchange(
-        &self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
-        kexinit: KexInit,
-        peerkexinit: KexInit,
-        peer_id: &Id,
-    ) -> Result<TransportPair> {
-        (**self)
-            .exchange(stream, kexinit, peerkexinit, peer_id)
-            .await
     }
 }

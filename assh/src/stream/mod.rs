@@ -57,8 +57,8 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         }
     }
 
-    pub(crate) fn with_session(&mut self, session: &[u8]) -> &[u8] {
-        self.session.get_or_insert_with(|| session.to_vec())
+    pub(crate) fn is_rekeyable(&self) -> bool {
+        self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
 
     pub(crate) fn with_transport(&mut self, transport: TransportPair) {
@@ -66,9 +66,13 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         self.inner.reset();
     }
 
-    /// Returns whether the stream should be re-keyed.
-    pub(crate) fn is_rekeyable(&self) -> bool {
-        self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
+    pub(crate) fn with_session(&mut self, session: &[u8]) -> &[u8] {
+        self.session.get_or_insert_with(|| session.to_vec())
+    }
+
+    /// Access the session id of this stream, issued by the initial key-exchange.
+    pub fn session_id(&self) -> Option<&[u8]> {
+        self.session.as_deref()
     }
 
     /// Poll the stream to detect whether there is some pending data to be read.

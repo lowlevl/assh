@@ -32,7 +32,7 @@ pub struct Session<I, S, L = ()> {
 
 impl<I, S> Session<I, S>
 where
-    I: AsyncBufRead + AsyncWrite + Unpin,
+    I: AsyncBufRead + AsyncWrite + Unpin + Send,
     S: Side,
 {
     /// Create a new [`Session`] from a [`AsyncBufRead`] + [`AsyncWrite`] stream,
@@ -60,7 +60,7 @@ where
 
 impl<I, S, L> Session<I, S, L>
 where
-    I: AsyncBufRead + AsyncWrite + Unpin,
+    I: AsyncBufRead + AsyncWrite + Unpin + Send,
     S: Side,
     L: Layer<S>,
 {

@@ -40,7 +40,7 @@ impl Default for Client {
                 ),
                 None::<&str>,
             ),
-            timeout: Duration::from_secs(3),
+            timeout: Duration::from_secs(120),
             algorithms: Default::default(),
         }
     }

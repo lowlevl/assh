@@ -13,6 +13,8 @@ edition = "2021"
 
 [workspace.dependencies]
 assh = "^0"
+assh-auth = "^0"
+assh-connect = "^0"
 
 ssh-packet = { version = "0.4.0-alpha.1", features = [
     "futures",
@@ -27,9 +29,11 @@ ssh-key = { version = "0.6.1", features = [
     "ed25519",
 ] }
 
+tracing = "0.1.40"
 futures = "0.3.28"
-signature = "2.1.0"
 
 [patch.crates-io]
 assh = { path = "assh" }
+assh-auth = { path = "assh-auth" }
+assh-connect = { path = "assh-connect" }
 # ssh-packet = { path = "../ssh-packet" }

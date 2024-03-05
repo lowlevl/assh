@@ -44,7 +44,7 @@ impl Default for Server {
                 ),
                 None::<&str>,
             ),
-            timeout: Duration::from_secs(3),
+            timeout: Duration::from_secs(120),
             keys: Default::default(),
             algorithms: Default::default(),
         }
