@@ -18,6 +18,10 @@ use ssh_packet::{
 
 use crate::{Method, CONNECTION_SERVICE_NAME, SERVICE_NAME};
 
+pub mod none;
+pub mod password;
+pub mod publickey;
+
 /// The response to the authentication request.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
@@ -28,36 +32,109 @@ pub enum Response {
     Reject,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum State {
+    #[default]
     Unauthorized,
+
     Transient,
+
     Authorized,
 }
 
 /// The authentication [`Layer`] for server-side sessions.
 #[derive(Debug)]
-pub struct Auth<F> {
+pub struct Auth<N = (), P = (), PK = ()> {
     state: State,
 
     banner: Option<StringUtf8>,
     methods: EnumSet<Method>,
-    handler: F,
+
+    none: N,
+    password: P,
+    publickey: PK,
 }
 
-impl<F> Auth<F> {
-    /// Create an [`Auth`] layer from the `banner` text, allowed `methods` and an authentication `handler`.
-    pub fn new(
-        banner: Option<impl Into<StringUtf8>>,
-        methods: impl Into<EnumSet<Method>>,
-        handler: F,
-    ) -> Self {
+impl Auth {
+    /// Create an [`Auth`] layer from allowed `methods`.
+    pub fn new(methods: impl Into<EnumSet<Method>>) -> Self {
         Self {
-            state: State::Unauthorized,
+            state: Default::default(),
 
-            banner: banner.map(Into::into),
+            banner: Default::default(),
             methods: methods.into() | Method::None, // always insert the `none` method
-            handler,
+
+            none: (),
+            password: (),
+            publickey: (),
+        }
+    }
+}
+
+impl<N, P, PK> Auth<N, P, PK> {
+    pub fn banner(mut self, banner: impl Into<StringUtf8>) -> Self {
+        self.banner = Some(banner.into());
+
+        self
+    }
+
+    pub fn none<T>(self, none: T) -> Auth<T, P, PK> {
+        let Self {
+            state,
+            banner,
+            methods,
+            none: _,
+            password,
+            publickey,
+        } = self;
+
+        Auth {
+            state,
+            banner,
+            methods,
+            none,
+            password,
+            publickey,
+        }
+    }
+
+    pub fn password<T>(self, password: T) -> Auth<N, T, PK> {
+        let Self {
+            state,
+            banner,
+            methods,
+            none,
+            password: _,
+            publickey,
+        } = self;
+
+        Auth {
+            state,
+            banner,
+            methods,
+            none,
+            password,
+            publickey,
+        }
+    }
+
+    pub fn publickey<T>(self, publickey: T) -> Auth<N, P, T> {
+        let Self {
+            state,
+            banner,
+            methods,
+            none,
+            password,
+            publickey: _,
+        } = self;
+
+        Auth {
+            state,
+            banner,
+            methods,
+            none,
+            password,
+            publickey,
         }
     }
 
@@ -92,7 +169,9 @@ impl<F> Auth<F> {
     }
 }
 
-impl<F: FnMut(String, userauth::Method) -> Response + Send + Sync> Layer<Server> for Auth<F> {
+impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Server>
+    for Auth<N, P, PK>
+{
     async fn on_recv(
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
@@ -137,9 +216,9 @@ impl<F: FnMut(String, userauth::Method) -> Response + Send + Sync> Layer<Server>
                     },
 
                     userauth::Method::None if self.is_available(&method) => {
-                        match (self.handler)(username.to_string(), method) {
-                            Response::Accept => self.success(stream).await?,
-                            Response::Reject => self.failure(stream).await?,
+                        match self.none.process(username.to_string()) {
+                            none::Response::Accept => self.success(stream).await?,
+                            none::Response::Reject => self.failure(stream).await?,
                         }
 
                         Action::Fetch
@@ -168,8 +247,8 @@ impl<F: FnMut(String, userauth::Method) -> Response + Send + Sync> Layer<Server>
                                     if message
                                         .verify(&key, &Signature::try_from(signature.as_ref())?)
                                         .is_ok()
-                                        && (self.handler)(username.to_string(), method)
-                                            == Response::Accept
+                                        && self.publickey.process(username.to_string(), key)
+                                            == publickey::Response::Accept
                                     {
                                         self.success(stream).await?;
                                     } else {
@@ -197,10 +276,15 @@ impl<F: FnMut(String, userauth::Method) -> Response + Send + Sync> Layer<Server>
 
                         Action::Fetch
                     }
-                    userauth::Method::Password { .. } if self.is_available(&method) => {
-                        match (self.handler)(username.to_string(), method) {
-                            Response::Accept => self.success(stream).await?,
-                            Response::Reject => self.failure(stream).await?,
+                    userauth::Method::Password { password, new } if self.is_available(&method) => {
+                        match self.password.process(
+                            username.into_string(),
+                            password.into_string(),
+                            new.map(StringUtf8::into_string),
+                        ) {
+                            password::Response::Accept => self.success(stream).await?,
+                            password::Response::PasswordExpired => todo!(),
+                            password::Response::Reject => self.failure(stream).await?,
                         }
 
                         Action::Fetch

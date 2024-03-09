@@ -1,9 +1,8 @@
 use assh::session::{server::Server, Session};
 use assh_auth::{
-    server::{Auth, Response},
+    server::{publickey, Auth},
     Method,
 };
-use ssh_packet::userauth;
 
 use async_std::{
     net::{TcpListener, TcpStream},
@@ -41,18 +40,11 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
             },
         )
         .await?
-        .add_layer(Auth::new(
-            Some("Hi there :)\r\n"),
-            Method::Password | Method::Publickey,
-            |username, method| {
-                tracing::info!("Authentication attempt for `{username}` with {method:?}");
-
-                match method {
-                    userauth::Method::Publickey { .. } => Response::Accept,
-                    _ => Response::Reject,
-                }
-            },
-        ));
+        .add_layer(
+            Auth::new(Method::Password | Method::Publickey)
+                .banner("Hi there !")
+                .publickey(|_, _| publickey::Response::Accept),
+        );
 
         tracing::info!("Connected to `{}`", session.peer_id());
 
