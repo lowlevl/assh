@@ -22,16 +22,6 @@ pub mod none;
 pub mod password;
 pub mod publickey;
 
-/// The response to the authentication request.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Response {
-    /// _Accept_ the authentication request.
-    Accept,
-
-    /// _Reject_ the authentication request.
-    Reject,
-}
-
 #[derive(Debug, Default)]
 enum State {
     #[default]
