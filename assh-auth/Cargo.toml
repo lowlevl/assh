@@ -26,5 +26,6 @@ assh.workspace = true
 ssh-packet.workspace = true
 ssh-key.workspace = true
 
+tracing.workspace = true
 futures.workspace = true
 enumset = "1.1.3"

@@ -180,9 +180,13 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
         Ok(match self.state {
             State::Unauthorized => match packet.to::<ServiceRequest>().ok() {
                 Some(ServiceRequest { service_name }) if service_name.as_str() == SERVICE_NAME => {
+                    tracing::debug!("Received authentication request from peer");
+
                     stream.send(&ServiceAccept { service_name }).await?;
 
                     if let Some(message) = self.banner.take() {
+                        tracing::debug!("Sending authentication banner to peer");
+
                         stream
                             .send(&userauth::Banner {
                                 message,
@@ -216,6 +220,11 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                     },
 
                     userauth::Method::None if self.is_available(&method) => {
+                        tracing::debug!(
+                            "Attempt using method `none` for user `{}`",
+                            username.as_str()
+                        );
+
                         match self.none.process(username.to_string()) {
                             none::Response::Accept => self.success(stream).await?,
                             none::Response::Reject => self.failure(stream).await?,
@@ -224,11 +233,18 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                         Action::Fetch
                     }
                     userauth::Method::Publickey {
-                        ref algorithm,
-                        ref blob,
-                        ref signature,
+                        algorithm,
+                        blob,
+                        signature,
                     } if self.is_available(&method) => {
-                        let key = PublicKey::from_bytes(blob);
+                        tracing::debug!(
+                            "Attempt using method `publickey` (signed: {}, algorithm: {}) for user `{}`",
+                            signature.is_some(),
+                            std::str::from_utf8(&algorithm).unwrap_or("unknown"),
+                            username.as_str(),
+                        );
+
+                        let key = PublicKey::from_bytes(&blob);
 
                         match signature {
                             Some(signature) => match key {
@@ -240,8 +256,8 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                                         session_id: &stream.session_id().unwrap_or_default().into(),
                                         username: &username,
                                         service_name,
-                                        algorithm,
-                                        blob,
+                                        algorithm: &algorithm,
+                                        blob: &blob,
                                     };
 
                                     if message
@@ -262,12 +278,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                                 self.methods |= Method::Publickey;
 
                                 if key.is_ok() {
-                                    stream
-                                        .send(&userauth::PkOk {
-                                            blob: blob.clone(),
-                                            algorithm: algorithm.clone(),
-                                        })
-                                        .await?;
+                                    stream.send(&userauth::PkOk { blob, algorithm }).await?;
                                 } else {
                                     self.failure(stream).await?;
                                 }
@@ -277,6 +288,12 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                         Action::Fetch
                     }
                     userauth::Method::Password { password, new } if self.is_available(&method) => {
+                        tracing::debug!(
+                            "Attempt using method `password` (renew: {}) for user `{}`",
+                            new.is_some(),
+                            username.as_str()
+                        );
+
                         match self.password.process(
                             username.into_string(),
                             password.into_string(),
