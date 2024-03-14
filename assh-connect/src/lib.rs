@@ -16,3 +16,4 @@
     clippy::todo,
     clippy::undocumented_unsafe_blocks
 )]
+#![forbid(unsafe_code)]

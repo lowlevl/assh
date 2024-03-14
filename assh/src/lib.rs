@@ -32,6 +32,7 @@
     clippy::todo,
     clippy::undocumented_unsafe_blocks
 )]
+#![forbid(unsafe_code)]
 
 #[doc(no_inline)]
 pub use ssh_key::private::PrivateKey;

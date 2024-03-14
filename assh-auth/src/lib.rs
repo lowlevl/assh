@@ -17,6 +17,7 @@
     clippy::todo,
     clippy::undocumented_unsafe_blocks
 )]
+#![forbid(unsafe_code)]
 
 const SERVICE_NAME: &str = "ssh-userauth";
 const CONNECTION_SERVICE_NAME: &str = "ssh-connection";
