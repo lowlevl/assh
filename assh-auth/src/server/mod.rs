@@ -26,9 +26,7 @@ pub mod publickey;
 enum State {
     #[default]
     Unauthorized,
-
     Transient,
-
     Authorized,
 }
 
