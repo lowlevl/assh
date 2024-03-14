@@ -5,7 +5,10 @@ pub enum Response {
     Accept,
 
     /// _Partially accept_ the authentication request, asking for a password change.
-    PasswordExpired,
+    PasswordExpired {
+        /// The prompt displayed to user before the password change.
+        prompt: String,
+    },
 
     /// _Reject_ the authentication request.
     Reject,

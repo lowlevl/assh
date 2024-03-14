@@ -279,7 +279,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                     }
                     userauth::Method::Password { password, new } if self.is_available(&method) => {
                         tracing::debug!(
-                            "Attempt using method `password` (renew: {}) for user `{}`",
+                            "Attempt using method `password` (update: {}) for user `{}`",
                             new.is_some(),
                             username.as_str()
                         );
@@ -290,7 +290,16 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                             new.map(StringUtf8::into_string),
                         ) {
                             password::Response::Accept => self.success(stream).await?,
-                            password::Response::PasswordExpired => todo!(),
+                            password::Response::PasswordExpired { prompt } => {
+                                self.methods |= Method::Password;
+
+                                stream
+                                    .send(&userauth::PasswdChangereq {
+                                        prompt: prompt.into(),
+                                        ..Default::default()
+                                    })
+                                    .await?;
+                            }
                             password::Response::Reject => self.failure(stream).await?,
                         }
 
