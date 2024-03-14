@@ -1,3 +1,5 @@
+//! The `none` authentication method.
+
 /// The response to the authentication request.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
@@ -8,7 +10,9 @@ pub enum Response {
     Reject,
 }
 
+/// An interface to the `none` authentication method.
 pub trait None: Send + Sync {
+    /// Process the authentication request.
     fn process(&mut self, user: String) -> Response;
 }
 

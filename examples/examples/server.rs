@@ -1,6 +1,6 @@
 use assh::session::{server::Server, Session};
 use assh_auth::{
-    server::{publickey, Auth},
+    server::{password, publickey, Auth},
     Method,
 };
 
@@ -42,8 +42,24 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
         .await?
         .add_layer(
             Auth::new(Method::Password | Method::Publickey)
-                .banner("Hi there !")
-                .publickey(|_, _| publickey::Response::Accept),
+                .banner("Hi there !\r\n")
+                .password(|_, _, new: Option<String>| {
+                    if let Some(new) = new {
+                        if new == "password1" {
+                            password::Response::Accept
+                        } else {
+                            password::Response::PasswordExpired {
+                                prompt: "[!] The only authorized new password is `password1`."
+                                    .into(),
+                            }
+                        }
+                    } else {
+                        password::Response::PasswordExpired {
+                            prompt: "[!] Password has expired for this user.".into(),
+                        }
+                    }
+                })
+                .publickey(|_, _| publickey::Response::Reject),
         );
 
         tracing::info!("Connected to `{}`", session.peer_id());

@@ -1,7 +1,7 @@
 use enumset::EnumSetType;
 use ssh_packet::userauth;
 
-/// Possible connection methods in the SSH protocol.
+/// Possible authentication methods in the SSH protocol.
 #[derive(Debug, EnumSetType)]
 pub enum Method {
     /// The SSH `none` authentication method.

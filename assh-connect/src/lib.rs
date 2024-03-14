@@ -5,3 +5,14 @@
 )]
 #![doc = ""]
 #![doc = env!("CARGO_PKG_DESCRIPTION")]
+//!
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(
+    missing_docs,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::unimplemented,
+    clippy::todo,
+    clippy::undocumented_unsafe_blocks
+)]

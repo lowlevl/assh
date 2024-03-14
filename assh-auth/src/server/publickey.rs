@@ -1,4 +1,7 @@
-use ssh_key::PublicKey;
+//! The `publickey` authentication method.
+
+#[doc(no_inline)]
+pub use ssh_key::PublicKey;
 
 /// The response to the authentication request.
 #[derive(Debug, PartialEq, Eq)]
@@ -10,7 +13,9 @@ pub enum Response {
     Reject,
 }
 
+/// An interface to the `publickey` authentication method.
 pub trait Publickey: Send + Sync {
+    /// Process the authentication request.
     fn process(&mut self, user: String, key: PublicKey) -> Response;
 }
 

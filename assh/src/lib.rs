@@ -25,6 +25,7 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(
+    missing_docs,
     clippy::unwrap_used,
     clippy::panic,
     clippy::unimplemented,

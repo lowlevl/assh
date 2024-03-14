@@ -1,3 +1,5 @@
+//! The `password` authentication method.
+
 /// The response to the authentication request.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
@@ -14,7 +16,9 @@ pub enum Response {
     Reject,
 }
 
+/// An interface to the `password` authentication method.
 pub trait Password: Send + Sync {
+    /// Process the authentication request.
     fn process(&mut self, user: String, password: String, newpassword: Option<String>) -> Response;
 }
 

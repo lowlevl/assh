@@ -46,7 +46,7 @@ pub struct Auth<N = (), P = (), PK = ()> {
 }
 
 impl Auth {
-    /// Create an [`Auth`] layer from allowed `methods`.
+    /// Create an [`Auth`] layer from allowed [`Method`]s.
     pub fn new(methods: impl Into<EnumSet<Method>>) -> Self {
         Self {
             state: Default::default(),
@@ -62,13 +62,15 @@ impl Auth {
 }
 
 impl<N, P, PK> Auth<N, P, PK> {
+    /// Set the authentication banner text to be displayed upon authentication (the string should be `\r\n` terminated).
     pub fn banner(mut self, banner: impl Into<StringUtf8>) -> Self {
         self.banner = Some(banner.into());
 
         self
     }
 
-    pub fn none<T>(self, none: T) -> Auth<T, P, PK> {
+    /// Set the authentication handler for the `none` method.
+    pub fn none(self, none: impl none::None) -> Auth<impl none::None, P, PK> {
         let Self {
             state,
             banner,
@@ -88,7 +90,11 @@ impl<N, P, PK> Auth<N, P, PK> {
         }
     }
 
-    pub fn password<T>(self, password: T) -> Auth<N, T, PK> {
+    /// Set the authentication handler for the `password` method.
+    pub fn password(
+        self,
+        password: impl password::Password,
+    ) -> Auth<N, impl password::Password, PK> {
         let Self {
             state,
             banner,
@@ -108,7 +114,11 @@ impl<N, P, PK> Auth<N, P, PK> {
         }
     }
 
-    pub fn publickey<T>(self, publickey: T) -> Auth<N, P, T> {
+    /// Set the authentication handler for the `publickey` method.
+    pub fn publickey(
+        self,
+        publickey: impl publickey::Publickey,
+    ) -> Auth<N, P, impl publickey::Publickey> {
         let Self {
             state,
             banner,
@@ -258,6 +268,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                                     {
                                         self.success(stream).await?;
                                     } else {
+                                        // TODO: Does a faked signature needs to cause disconnection ?
                                         self.failure(stream).await?;
                                     }
                                 }
@@ -306,10 +317,10 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                         Action::Fetch
                     }
                     userauth::Method::Hostbased { .. } if self.is_available(&method) => {
-                        unimplemented!()
+                        todo!()
                     }
                     userauth::Method::KeyboardInteractive { .. } if self.is_available(&method) => {
-                        unimplemented!()
+                        todo!()
                     }
 
                     _ => Action::Disconnect {
