@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures::{AsyncBufRead, AsyncWrite};
 use futures_time::time::Duration as Timeout;
 use rand::RngCore;
-use ssh_packet::{arch::NameList, trans::KexInit, Id};
+use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::Side;
 use crate::{
@@ -15,6 +15,9 @@ use crate::{
     },
     Result,
 };
+
+#[doc(no_inline)]
+pub use ssh_packet::Id;
 
 /// A _client_-side session configuration.
 #[derive(Debug)]
