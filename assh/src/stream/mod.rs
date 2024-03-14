@@ -3,6 +3,7 @@
 
 use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use futures_time::{future::FutureExt, time::Duration};
+use ssh_packet::ToPacket;
 
 use crate::Result;
 
@@ -17,7 +18,8 @@ pub(super) use transport::{Transport, TransportPair};
 mod keys;
 use keys::Keys;
 
-pub use ssh_packet::{Packet, ToPacket};
+#[doc(no_inline)]
+pub use ssh_packet::Packet;
 
 /// Re-key after 1GiB of exchanged data as recommended per the RFC.
 const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
