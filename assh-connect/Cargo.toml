@@ -22,6 +22,13 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 assh.workspace = true
+ssh-packet.workspace = true
+
+futures.workspace = true
+tracing.workspace = true
+
+binrw = "0.13.3"
+flume = "0.11.0"
 
 [dev-dependencies]
 rstest = "0.18.2"
