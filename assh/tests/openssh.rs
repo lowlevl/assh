@@ -54,7 +54,7 @@ async fn against_openssh_client(
 
     tracing::info!("message: {message:?}, {status}");
 
-    assert!(matches!(message, Message::ChannelRequest { .. }));
+    assert!(matches!(message.to()?, Message::ChannelRequest { .. }));
 
     Ok(())
 }

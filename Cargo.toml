@@ -16,7 +16,7 @@ assh = "^0"
 assh-auth = "^0"
 assh-connect = "^0"
 
-ssh-packet = { version = "0.4.0", features = [
+ssh-packet = { version = "0.4.3", features = [
     "futures",
     "digest",
     "signature",
@@ -31,6 +31,7 @@ ssh-key = { version = "0.6.1", features = [
 
 tracing = "0.1.40"
 futures = "0.3.28"
+thiserror = "1.0.58"
 
 [patch.crates-io]
 assh = { path = "assh" }

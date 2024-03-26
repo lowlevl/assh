@@ -3,12 +3,8 @@
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
-    binrw::{
-        meta::{ReadEndian, WriteEndian},
-        BinRead, BinWrite,
-    },
     trans::{Debug, Disconnect, Ignore, KexInit, Unimplemented},
-    Id,
+    Id, Packet, ToPacket,
 };
 
 use crate::{stream::Stream, Error, Result};
@@ -81,11 +77,8 @@ where
         }
     }
 
-    /// Receive a _message_ from the connected peer.
-    pub async fn recv<T>(&mut self) -> Result<T>
-    where
-        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian,
-    {
+    /// Receive a _packet_ from the connected peer.
+    pub async fn recv(&mut self) -> Result<Packet> {
         loop {
             let Some(ref mut stream) = self.stream else {
                 break Err(Error::Disconnected);
@@ -118,7 +111,7 @@ where
             } else {
                 match self.layers.on_recv(stream, packet).await? {
                     Action::Fetch => continue,
-                    Action::Forward(packet) => break packet.to().map_err(Into::into),
+                    Action::Forward(packet) => break Ok(packet),
                     Action::Disconnect {
                         reason,
                         description,
@@ -138,11 +131,8 @@ where
         }
     }
 
-    /// Send a _message_ to the connected peer.
-    pub async fn send<T>(&mut self, message: &T) -> Result<()>
-    where
-        T: for<'a> BinWrite<Args<'a> = ()> + WriteEndian,
-    {
+    /// Send a _packet_ to the connected peer.
+    pub async fn send(&mut self, message: &impl ToPacket) -> Result<()> {
         let Some(ref mut stream) = self.stream else {
             return Err(Error::Disconnected);
         };

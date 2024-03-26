@@ -24,7 +24,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 futures.workspace = true
 
 tracing.workspace = true
-thiserror = "1.0.49"
+thiserror.workspace = true
 futures-time = "3.0.0"
 strum = { version = "0.26.1", features = ["derive"] }
 securefmt = "0.1.4"

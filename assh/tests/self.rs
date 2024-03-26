@@ -68,7 +68,7 @@ async fn end_to_end(
             service_name: "ssh-userauth".into(),
         })
         .await?;
-    let Message::ServiceAccept(_) = client.recv().await? else {
+    let Message::ServiceAccept(_) = client.recv().await?.to()? else {
         panic!("Service refused")
     };
 
@@ -79,7 +79,7 @@ async fn end_to_end(
             method: ssh_packet::userauth::Method::None,
         })
         .await?;
-    let Message::AuthSuccess(_) = client.recv().await? else {
+    let Message::AuthSuccess(_) = client.recv().await?.to()? else {
         panic!("Auth refused")
     };
 
@@ -92,7 +92,7 @@ async fn end_to_end(
         })
         .await?;
 
-    let Message::ChannelOpenConfirmation(_) = client.recv().await? else {
+    let Message::ChannelOpenConfirmation(_) = client.recv().await?.to()? else {
         panic!("Channel refused")
     };
 

@@ -65,7 +65,7 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
         tracing::info!("Connected to `{}`", session.peer_id());
 
         loop {
-            let message: ssh_packet::Message = session.recv().await?;
+            let message: ssh_packet::Message = session.recv().await?.to()?;
 
             tracing::info!("Incoming message: {message:?}");
         }

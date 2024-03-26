@@ -10,10 +10,10 @@ use assh::{
 use ssh_packet::{
     connect::ChannelOpenConfirmation,
     trans::{Ignore, ServiceAccept},
-    userauth, Message,
+    userauth, Message, Packet,
 };
 
-pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Result<Message>>)> {
+pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Result<Packet>>)> {
     let socket = TcpListener::bind(("127.0.0.1", 0)).await?;
     let addr = socket.local_addr()?;
 
@@ -37,7 +37,7 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
             })
             .await?;
 
-        let request = match session.recv().await? {
+        let request = match session.recv().await?.to()? {
             Message::ServiceRequest(request) => request,
             other => panic!("Unexpected message: {:?}", other),
         };
@@ -48,11 +48,11 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
             })
             .await?;
 
-        if let Message::AuthRequest { .. } = session.recv().await? {
+        if let Message::AuthRequest { .. } = session.recv().await?.to()? {
             session.send(&userauth::Success).await?;
         }
 
-        if let Message::ChannelOpen(open) = session.recv().await? {
+        if let Message::ChannelOpen(open) = session.recv().await?.to()? {
             session
                 .send(&ChannelOpenConfirmation {
                     recipient_channel: open.sender_channel,
