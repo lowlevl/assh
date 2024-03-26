@@ -175,9 +175,9 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
         packet: Packet,
     ) -> Result<Action> {
-        Ok(match self.state {
-            State::Unauthorized => match packet.to::<ServiceRequest>().ok() {
-                Some(ServiceRequest { service_name }) if service_name.as_str() == SERVICE_NAME => {
+        let action = match self.state {
+            State::Unauthorized => match packet.to() {
+                Ok(ServiceRequest { service_name }) if service_name.as_str() == SERVICE_NAME => {
                     tracing::debug!("Received authentication request from peer");
 
                     stream.send(&ServiceAccept { service_name }).await?;
@@ -203,8 +203,8 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                 },
             },
 
-            State::Transient => match packet.to::<userauth::Request>().ok() {
-                Some(userauth::Request {
+            State::Transient => match packet.to() {
+                Ok(userauth::Request {
                     username,
                     ref service_name,
                     method,
@@ -327,7 +327,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                             .into(),
                     },
                 },
-                None => Action::Disconnect {
+                _ => Action::Disconnect {
                     reason: DisconnectReason::ProtocolError,
                     description: format!(
                         "Unexpected message in the context of the `{SERVICE_NAME}` service."
@@ -336,6 +336,8 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
             },
 
             State::Authorized => Action::Forward(packet),
-        })
+        };
+
+        Ok(action)
     }
 }
