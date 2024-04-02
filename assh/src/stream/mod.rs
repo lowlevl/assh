@@ -1,8 +1,8 @@
 //! Primitives to manipulate binary data to extract and encode
 //! messages from/to an [`AsyncBufRead`] + [`AsyncWrite`] stream.
 
-use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
-use futures_time::{future::FutureExt, time::Duration};
+use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
+use futures_time::{future::FutureExt as _, time::Duration};
 use ssh_packet::ToPacket;
 
 use crate::Result;
@@ -72,25 +72,31 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         self.session.get_or_insert_with(|| session.to_vec())
     }
 
-    /// Access the session id of this stream, issued by the initial key-exchange.
-    pub fn session_id(&self) -> Option<&[u8]> {
-        self.session.as_deref()
+    pub(crate) async fn fill_buf(&mut self) -> Result<()> {
+        self.inner.fill_buf().await?;
+
+        Ok(())
     }
 
-    /// Poll the stream to detect whether there is some pending data to be read.
+    /// Poll the stream to detect whether data is immediately readable.
     pub async fn is_readable(&mut self) -> Result<bool> {
-        Ok(self
-            .inner
-            .fill_buf()
-            .timeout(Duration::from_millis(1))
-            .await
-            .ok()
-            .transpose()?
-            .map(|buf| !buf.is_empty())
-            .unwrap_or_default())
+        futures::select_biased! {
+            buf = self.inner.fill_buf().fuse() => {
+                buf?;
+
+                Ok(true)
+            }
+            _ = futures_time::task::sleep(Duration::from_millis(1)).fuse() => {
+                Ok(false)
+            }
+        }
     }
 
     /// Receive and decrypt a _packet_ from the peer without removing it from the queue.
+    ///
+    /// # Cancel safety
+    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
+    /// some data may be partially received.
     pub async fn peek(&mut self) -> Result<&Packet> {
         let packet = self.recv().await?;
 
@@ -98,6 +104,10 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
     }
 
     /// Receive and decrypt a _packet_ from the peer.
+    ///
+    /// # Cancel safety
+    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
+    /// some data may be partially received.
     pub async fn recv(&mut self) -> Result<Packet> {
         match self.buffer.take() {
             Some(packet) => Ok(packet),
@@ -117,6 +127,10 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
     }
 
     /// Encrypt and send a _packet_ to the peer.
+    ///
+    /// # Cancel safety
+    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
+    /// some data may be partially written.
     pub async fn send(&mut self, packet: &impl ToPacket) -> Result<()> {
         let packet = packet.to_packet()?;
 
@@ -131,5 +145,10 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         self.txseq = self.txseq.wrapping_add(1);
 
         Ok(())
+    }
+
+    /// Access the session id of this stream, issued by the initial key-exchange.
+    pub fn session_id(&self) -> Option<&[u8]> {
+        self.session.as_deref()
     }
 }

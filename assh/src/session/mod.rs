@@ -77,7 +77,22 @@ where
         }
     }
 
+    /// Waits until the [`Session`] becomes readable,
+    /// mainly to be used with [`Session::recv`] in [`futures::select`],
+    /// since the `recv` method is **not cancel-safe**.
+    pub async fn readable(&mut self) -> Result<()> {
+        let Some(ref mut stream) = self.stream else {
+            return Err(Error::Disconnected);
+        };
+
+        stream.fill_buf().await
+    }
+
     /// Receive a _packet_ from the connected peer.
+    ///
+    /// # Cancel safety
+    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
+    /// some data may be partially received.
     pub async fn recv(&mut self) -> Result<Packet> {
         loop {
             let Some(ref mut stream) = self.stream else {
@@ -132,6 +147,10 @@ where
     }
 
     /// Send a _packet_ to the connected peer.
+    ///
+    /// # Cancel safety
+    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
+    /// some data may be partially written.
     pub async fn send(&mut self, message: &impl ToPacket) -> Result<()> {
         let Some(ref mut stream) = self.stream else {
             return Err(Error::Disconnected);
