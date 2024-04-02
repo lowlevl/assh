@@ -2,18 +2,19 @@
 
 use std::sync::atomic::AtomicU32;
 
-use assh::Result;
 use futures::{AsyncRead, AsyncWrite};
 use ssh_packet::connect;
 
-mod msg;
-pub use msg::Msg;
+use crate::{Error, Result};
 
-mod stream;
+mod io;
+
+mod msg;
+pub(super) use msg::Msg;
 
 /// A response to a channel request.
 #[derive(Debug)]
-pub enum Response {
+pub enum RequestResponse {
     /// The request succeeded.
     Success,
 
@@ -29,88 +30,127 @@ pub struct Channel {
     window_size: AtomicU32,
     maximum_packet_size: u32,
 
-    rx: flume::Receiver<Msg>,
-    tx: flume::Sender<Msg>,
+    sender: flume::Sender<Msg>,
+    receiver: flume::Receiver<Msg>,
 }
 
 impl Channel {
-    /// Interface with the current channel to transfer binary data.
-    pub fn as_data(&self) -> impl AsyncRead + AsyncWrite + '_ {
-        self.as_data_ext(None)
+    pub(super) fn new(
+        identifier: u32,
+        initial_window_size: u32,
+        maximum_packet_size: u32,
+        sender: flume::Sender<Msg>,
+    ) -> (Self, flume::Sender<Msg>) {
+        let (tx, rx) = flume::unbounded();
+
+        (
+            Self {
+                identifier,
+                window_size: initial_window_size.into(),
+                maximum_packet_size,
+                receiver: rx,
+                sender,
+            },
+            tx,
+        )
     }
 
-    /// Interface with the current channel to transfer binary data,
-    /// either as [`connect::ChannelData`] or [`connect::ChannelExtendedData`].
-    pub fn as_data_ext(
-        &self,
-        ext: Option<connect::ChannelExtendedDataType>,
-    ) -> impl AsyncRead + AsyncWrite + '_ {
-        stream::Stream { channel: self, ext }
+    /// Make a reader for current channel's _data_ stream.
+    ///
+    /// # Caveats
+    ///
+    /// Even though the interface allows having multiple _readers_,
+    /// polling for a reader will discard other data types
+    /// and polling concurrently for more than one reader may cause data integrity issues.
+    pub fn as_reader(&self) -> impl AsyncRead + '_ {
+        io::Read::new(self, None)
+    }
+
+    /// Make a reader for current channel's _extended data_ stream.
+    ///
+    /// # Caveats
+    ///
+    /// Even though the interface allows having multiple _readers_,
+    /// polling for a reader will discard other data types
+    /// and polling concurrently for more than one reader may cause data integrity issues.
+    pub fn as_reader_ext(&self, ext: connect::ChannelExtendedDataType) -> impl AsyncRead + '_ {
+        io::Read::new(self, Some(ext))
+    }
+
+    /// Make a writer for current channel's _data_ stream.
+    pub fn as_writer(&self) -> impl AsyncWrite + '_ {
+        io::Write::new(self, None)
+    }
+
+    /// Make a writer for current channel's _extended data_ stream.
+    pub fn as_writer_ext(&self, ext: connect::ChannelExtendedDataType) -> impl AsyncWrite + '_ {
+        io::Write::new(self, Some(ext))
     }
 
     /// Send a request on the current channel.
-    pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<Response> {
-        self.tx
-            .send_async(Msg::ChannelRequest(connect::ChannelRequest {
+    pub async fn request(
+        &self,
+        context: connect::ChannelRequestContext,
+    ) -> Result<RequestResponse> {
+        self.sender
+            .send_async(Msg::Request(connect::ChannelRequest {
                 recipient_channel: self.identifier,
                 want_reply: true.into(),
                 context,
             }))
-            .await?;
+            .await
+            .map_err(|_| Error::ChannelClosed)?;
 
-        match self.rx.recv_async().await? {
-            Msg::ChannelSuccess(_) => Ok(Response::Success),
-            Msg::ChannelFailure(_) => Ok(Response::Failure),
-            _ => Err(todo!("Unhandled packet")),
+        match self
+            .receiver
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)?
+        {
+            Msg::Success(_) => Ok(RequestResponse::Success),
+            Msg::Failure(_) => Ok(RequestResponse::Failure),
+            _ => Err(Error::UnexpectedMessage),
         }
     }
 
     /// Receive and handle a request on the current channel.
     pub async fn on_request(
         &self,
-        handler: impl FnMut(connect::ChannelRequestContext) -> Response,
+        mut handler: impl FnMut(connect::ChannelRequestContext) -> RequestResponse,
     ) -> Result<()> {
-        match self.rx.recv_async().await? {
-            Msg::ChannelRequest(request) => {
+        match self
+            .receiver
+            .recv_async()
+            .await
+            .map_err(|_| Error::ChannelClosed)?
+        {
+            Msg::Request(request) => {
                 let response = handler(request.context);
 
-                if request.want_reply {
+                if *request.want_reply {
                     match response {
-                        Response::Success => {
-                            self.tx
-                                .send_async(Msg::ChannelSuccess(connect::ChannelSuccess {
+                        RequestResponse::Success => {
+                            self.sender
+                                .send_async(Msg::Success(connect::ChannelSuccess {
                                     recipient_channel: self.identifier,
                                 }))
-                                .await?;
+                                .await
+                                .map_err(|_| Error::ChannelClosed)?;
                         }
-                        Response::Failure => {
-                            self.tx
-                                .send_async(Msg::ChannelFailure(connect::ChannelFailure {
+                        RequestResponse::Failure => {
+                            self.sender
+                                .send_async(Msg::Failure(connect::ChannelFailure {
                                     recipient_channel: self.identifier,
                                 }))
-                                .await?;
+                                .await
+                                .map_err(|_| Error::ChannelClosed)?;
                         }
                     }
                 }
 
                 Ok(())
             }
-            _ => Err(todo!("Unhandled packet")),
+            _ => Err(Error::UnexpectedMessage),
         }
-    }
-}
-
-impl Drop for Channel {
-    fn drop(&mut self) {
-        self.tx
-            .send(Msg::ChannelClose(connect::ChannelClose {
-                recipient_channel: self.identifier,
-            }))
-            .inspect_err(|err| {
-                tracing::error!(
-                    "Unable to send the closing message for channel #{}: {err}",
-                    self.identifier
-                )
-            });
     }
 }

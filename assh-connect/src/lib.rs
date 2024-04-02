@@ -20,7 +20,11 @@
 )]
 #![forbid(unsafe_code)]
 
-pub mod channel;
-
 mod connect;
 pub use connect::Connect;
+
+pub mod channel;
+pub mod request;
+
+mod error;
+pub use error::{Error, Result};
