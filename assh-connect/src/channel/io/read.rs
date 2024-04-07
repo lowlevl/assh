@@ -1,6 +1,8 @@
-use std::{io, pin::Pin, task};
+use std::{io, pin::Pin, sync::atomic::Ordering, task};
 
 use ssh_packet::connect;
+
+use crate::{INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
 
 use super::{Channel, Msg};
 
@@ -27,6 +29,21 @@ impl futures::AsyncRead for Read<'_> {
         cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
+        // Replenish the window when reading.
+        let window_size = self.channel.window_size.load(Ordering::Acquire);
+        if window_size < MAXIMUM_PACKET_SIZE {
+            let bytes_to_add = INITIAL_WINDOW_SIZE - window_size;
+
+            self.channel
+                .sender
+                .send(Msg::WindowAdjust(connect::ChannelWindowAdjust {
+                    recipient_channel: self.channel.recipient_channel,
+                    bytes_to_add,
+                }))
+                .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
+        }
+
+        // Process received messages as binary, ignoring any other message.
         let (msg, mut idx) = match self.buffer.take() {
             Some(buffer) => buffer,
             None => match self.channel.receiver.try_recv() {

@@ -7,10 +7,7 @@ use assh::{
 use futures::{AsyncBufRead, AsyncWrite, FutureExt};
 use ssh_packet::connect;
 
-use crate::{channel, Error, Result};
-
-const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
-const INITIAL_WINDOW_SIZE: u32 = 64 * MAXIMUM_PACKET_SIZE;
+use crate::{channel, Error, Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
 
 /// A wrapper around [`assh::session::Session`] to handle the connect layer.
 pub struct Connect<I, S, L> {
@@ -24,7 +21,7 @@ pub struct Connect<I, S, L> {
 impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<I, S, L> {
     /// Create a wrapper around the `session` to handle the connect layer.
     pub fn new(session: Session<I, S, L>) -> Self {
-        let (sender, receiver) = flume::bounded(48);
+        let (sender, receiver) = flume::unbounded();
 
         Self {
             session,
@@ -63,6 +60,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
             if recipient_channel == identifier {
                 let (channel, sender) = channel::Channel::new(
                     sender_channel,
+                    INITIAL_WINDOW_SIZE,
                     initial_window_size,
                     maximum_packet_size,
                     self.sender.clone(),
@@ -102,18 +100,24 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                     #[allow(clippy::unwrap_used)]
                     let msg = msg.unwrap(); // Will never be disconnected, since this struct always hold a sender.
 
-                    self.session.send(&msg).await?;
+                    self.tx(msg).await?;
                 }
                 res = self.session.readable().fuse() => {
                     res?;
 
-                    self.proxy().await?;
+                    self.rx().await?;
                 }
             }
         }
     }
 
-    async fn proxy(&mut self) -> Result<()> {
+    async fn tx(&mut self, msg: channel::Msg) -> Result<()> {
+        self.session.send(&msg).await?;
+
+        Ok(())
+    }
+
+    async fn rx(&mut self) -> Result<()> {
         let packet = self.session.recv().await?;
 
         if let Ok(connect::GlobalRequest { .. }) = packet.to() {
@@ -129,6 +133,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
 
             let (channel, sender) = channel::Channel::new(
                 sender_channel,
+                INITIAL_WINDOW_SIZE,
                 initial_window_size,
                 maximum_packet_size,
                 self.sender.clone(),
@@ -164,12 +169,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                 if let Err(err) = sender.send_async(msg).await {
                     // If we failed to send the message to the channel,
                     // the receiver has been dropped, so treat it as such and report it as closed.
-                    let recipient_channel = *err.into_inner().recipient_channel();
-
-                    self.session
-                        .send(&connect::ChannelClose { recipient_channel })
-                        .await?;
-                    self.channels.remove(&recipient_channel);
+                    self.channels.remove(err.into_inner().recipient_channel());
                 }
             } else {
                 tracing::warn!(

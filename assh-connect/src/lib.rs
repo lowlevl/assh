@@ -20,6 +20,9 @@
 )]
 #![forbid(unsafe_code)]
 
+const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
+const INITIAL_WINDOW_SIZE: u32 = 64 * MAXIMUM_PACKET_SIZE;
+
 mod connect;
 pub use connect::Connect;
 
