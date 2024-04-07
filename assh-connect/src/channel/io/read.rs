@@ -31,7 +31,7 @@ impl futures::AsyncRead for Read<'_> {
     ) -> task::Poll<io::Result<usize>> {
         // Replenish the window when reading.
         let window_size = self.channel.window_size.load(Ordering::Acquire);
-        if window_size < MAXIMUM_PACKET_SIZE {
+        if window_size < MAXIMUM_PACKET_SIZE * 16 {
             let bytes_to_add = INITIAL_WINDOW_SIZE - window_size;
 
             self.channel

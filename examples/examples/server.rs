@@ -66,7 +66,7 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
         tracing::info!("Connected to `{}`", session.peer_id());
 
         Connect::new(session)
-            .process(|_ctx, channel| {
+            .run(|_ctx, channel| {
                 task::spawn::<_, eyre::Result<()>>(async move {
                     let response = channel
                         .on_request(|_ctx| channel::RequestResponse::Success)
