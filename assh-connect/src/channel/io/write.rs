@@ -29,10 +29,6 @@ impl futures::AsyncWrite for Write<'_> {
             .min(buf.len() as u32) as usize;
 
         if writable == 0 {
-            self.channel
-                .peer_window_size
-                .fetch_add(0, Ordering::Release);
-
             cx.waker().wake_by_ref();
             return task::Poll::Pending;
         }

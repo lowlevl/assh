@@ -49,7 +49,12 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         &mut self,
         context: connect::ChannelOpenContext,
     ) -> Result<channel::Channel> {
-        let identifier = self.channels.keys().max().unwrap_or(&0) + 1;
+        let identifier = self
+            .channels
+            .keys()
+            .max()
+            .map(|x| x + 1)
+            .unwrap_or_default();
 
         self.session
             .send(&connect::ChannelOpen {
@@ -123,7 +128,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                     #[allow(clippy::unwrap_used)]
                     let msg = msg.unwrap(); // Will never be disconnected, since this struct always hold a sender.
 
-                    self.tx(msg).await?;
+                    self.session.send(&msg).await?;
                 }
                 res = self.session.readable().fuse() => {
                     res?;
@@ -132,12 +137,6 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                 }
             }
         }
-    }
-
-    async fn tx(&mut self, msg: channel::Msg) -> Result<()> {
-        self.session.send(&msg).await?;
-
-        Ok(())
     }
 
     async fn rx(
@@ -157,7 +156,12 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         {
             tracing::debug!("Peer requested to open channel %{sender_channel}: {context:?}");
 
-            let identifier = self.channels.keys().max().unwrap_or(&0) + 1;
+            let identifier = self
+                .channels
+                .keys()
+                .max()
+                .map(|x| x + 1)
+                .unwrap_or_default();
             let peer_window_size = Arc::new(AtomicU32::new(initial_window_size));
 
             let (channel, sender) = channel::Channel::new(
