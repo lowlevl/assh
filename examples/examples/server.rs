@@ -3,6 +3,7 @@ use assh_auth::{
     server::{password, publickey, Auth},
     Method,
 };
+use assh_connect::{channel, Connect};
 
 use async_std::{
     net::{TcpListener, TcpStream},
@@ -32,7 +33,7 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
 
     async move {
         let stream = BufReader::new(BufWriter::new(stream));
-        let mut session = Session::new(
+        let session = Session::new(
             stream,
             Server {
                 keys,
@@ -59,16 +60,32 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
                         }
                     }
                 })
-                .publickey(|_, _| publickey::Response::Reject),
+                .publickey(|_, _| publickey::Response::Accept),
         );
 
         tracing::info!("Connected to `{}`", session.peer_id());
 
-        loop {
-            let message: ssh_packet::Message = session.recv().await?.to()?;
+        Connect::new(session)
+            .process(|_ctx, channel| {
+                task::spawn::<_, eyre::Result<()>>(async move {
+                    let response = channel
+                        .on_request(|_ctx| channel::RequestResponse::Success)
+                        .await?;
 
-            tracing::info!("Incoming message: {message:?}");
-        }
+                    if response == channel::RequestResponse::Success {
+                        futures::io::copy(channel.as_reader(), &mut channel.as_writer()).await?;
+
+                        Ok(())
+                    } else {
+                        panic!();
+                    }
+                });
+
+                true
+            })
+            .await?;
+
+        Ok(())
     }
 }
 

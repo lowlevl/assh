@@ -1,6 +1,6 @@
 //! Facilities to interract with SSH channels.
 
-use std::sync::atomic::AtomicU32;
+use std::sync::{atomic::AtomicU32, Arc};
 
 use futures::{AsyncRead, AsyncWrite};
 use ssh_packet::connect;
@@ -13,7 +13,7 @@ mod msg;
 pub(super) use msg::Msg;
 
 /// A response to a channel request.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RequestResponse {
     /// The request succeeded.
     Success,
@@ -28,7 +28,7 @@ pub struct Channel {
     recipient_channel: u32,
 
     window_size: AtomicU32,
-    peer_window_size: AtomicU32,
+    peer_window_size: Arc<AtomicU32>,
     peer_maximum_packet_size: u32,
 
     sender: flume::Sender<Msg>,
@@ -39,7 +39,7 @@ impl Channel {
     pub(super) fn new(
         recipient_channel: u32,
         window_size: u32,
-        peer_initial_window_size: u32,
+        peer_window_size: Arc<AtomicU32>,
         peer_maximum_packet_size: u32,
         sender: flume::Sender<Msg>,
     ) -> (Self, flume::Sender<Msg>) {
@@ -49,13 +49,18 @@ impl Channel {
             Self {
                 recipient_channel,
                 window_size: window_size.into(),
-                peer_window_size: peer_initial_window_size.into(),
+                peer_window_size,
                 peer_maximum_packet_size,
                 receiver: rx,
                 sender,
             },
             tx,
         )
+    }
+
+    /// Tells whether the channel has been closed by us or the peer.
+    pub fn is_closed(&self) -> bool {
+        self.receiver.is_disconnected()
     }
 
     /// Make a reader for current channel's _data_ stream.
@@ -120,7 +125,7 @@ impl Channel {
     pub async fn on_request(
         &self,
         mut handler: impl FnMut(connect::ChannelRequestContext) -> RequestResponse,
-    ) -> Result<()> {
+    ) -> Result<RequestResponse> {
         match self
             .receiver
             .recv_async()
@@ -151,7 +156,7 @@ impl Channel {
                     }
                 }
 
-                Ok(())
+                Ok(response)
             }
             _ => Err(Error::UnexpectedMessage),
         }

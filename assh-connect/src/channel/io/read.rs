@@ -41,13 +41,34 @@ impl futures::AsyncRead for Read<'_> {
                     bytes_to_add,
                 }))
                 .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
+            self.channel
+                .window_size
+                .fetch_add(bytes_to_add, Ordering::Release);
+
+            tracing::debug!(
+                "Added {bytes_to_add} to window for %{}",
+                self.channel.recipient_channel
+            );
         }
 
-        // Process received messages as binary, ignoring any other message.
         let (msg, mut idx) = match self.buffer.take() {
             Some(buffer) => buffer,
             None => match self.channel.receiver.try_recv() {
-                Ok(msg) => (msg, 0),
+                Ok(msg) => {
+                    let size = match msg {
+                        Msg::Data(connect::ChannelData { ref data, .. }) => data.len(),
+                        Msg::ExtendedData(connect::ChannelExtendedData { ref data, .. }) => {
+                            data.len()
+                        }
+                        _ => 0,
+                    };
+
+                    self.channel
+                        .window_size
+                        .fetch_sub(size as u32, Ordering::AcqRel);
+
+                    (msg, 0)
+                }
                 Err(flume::TryRecvError::Empty) => {
                     cx.waker().wake_by_ref();
                     return task::Poll::Pending;
@@ -61,11 +82,12 @@ impl futures::AsyncRead for Read<'_> {
             },
         };
 
+        // Process received messages containing data, ignoring any other message.
         match (&msg, self.ext) {
             (Msg::Data(connect::ChannelData { data, .. }), None) => {
                 let readable = buf.len().min(data.len() - idx);
 
-                buf.copy_from_slice(&data[idx..idx + readable]);
+                buf[..readable].copy_from_slice(&data[idx..idx + readable]);
                 idx += readable;
 
                 if idx != data.len() {
@@ -84,7 +106,7 @@ impl futures::AsyncRead for Read<'_> {
             ) if *ext == target => {
                 let readable = buf.len().min(data.len() - idx);
 
-                buf.copy_from_slice(&data[idx..idx + readable]);
+                buf[..readable].copy_from_slice(&data[idx..idx + readable]);
                 idx += readable;
 
                 if idx != data.len() {

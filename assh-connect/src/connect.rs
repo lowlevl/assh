@@ -1,4 +1,11 @@
-use std::{collections::HashMap, convert::Infallible};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+};
 
 use assh::{
     layer::Layer,
@@ -9,10 +16,15 @@ use ssh_packet::connect;
 
 use crate::{channel, Error, Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
 
+struct ChannelDef {
+    sender: flume::Sender<channel::Msg>,
+    peer_window_size: Arc<AtomicU32>,
+}
+
 /// A wrapper around [`assh::session::Session`] to handle the connect layer.
 pub struct Connect<I, S, L> {
     session: Session<I, S, L>,
-    channels: HashMap<u32, flume::Sender<channel::Msg>>,
+    channels: HashMap<u32, ChannelDef>,
 
     sender: flume::Sender<channel::Msg>,
     receiver: flume::Receiver<channel::Msg>,
@@ -58,15 +70,23 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         }) = packet.to()
         {
             if recipient_channel == identifier {
+                let peer_window_size = Arc::new(AtomicU32::new(initial_window_size));
+
                 let (channel, sender) = channel::Channel::new(
                     sender_channel,
                     INITIAL_WINDOW_SIZE,
-                    initial_window_size,
+                    peer_window_size.clone(),
                     maximum_packet_size,
                     self.sender.clone(),
                 );
 
-                self.channels.insert(identifier, sender);
+                self.channels.insert(
+                    identifier,
+                    ChannelDef {
+                        sender,
+                        peer_window_size,
+                    },
+                );
 
                 Ok(channel)
             } else {
@@ -93,7 +113,10 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
     }
 
     /// Process incoming messages endlessly.
-    pub async fn process(mut self) -> Result<Infallible> {
+    pub async fn process(
+        mut self,
+        channel_handler: impl Fn(connect::ChannelOpenContext, channel::Channel) -> bool,
+    ) -> Result<Infallible> {
         loop {
             futures::select! {
                 msg = self.receiver.recv_async() => {
@@ -105,7 +128,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                 res = self.session.readable().fuse() => {
                     res?;
 
-                    self.rx().await?;
+                    self.rx(&channel_handler).await?;
                 }
             }
         }
@@ -117,7 +140,10 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         Ok(())
     }
 
-    async fn rx(&mut self) -> Result<()> {
+    async fn rx(
+        &mut self,
+        channel_handler: &impl Fn(connect::ChannelOpenContext, channel::Channel) -> bool,
+    ) -> Result<()> {
         let packet = self.session.recv().await?;
 
         if let Ok(connect::GlobalRequest { .. }) = packet.to() {
@@ -129,20 +155,27 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
             context,
         }) = packet.to()
         {
+            tracing::debug!("Peer requested to open channel %{sender_channel}: {context:?}");
+
             let identifier = self.channels.keys().max().unwrap_or(&0) + 1;
+            let peer_window_size = Arc::new(AtomicU32::new(initial_window_size));
 
             let (channel, sender) = channel::Channel::new(
                 sender_channel,
                 INITIAL_WINDOW_SIZE,
-                initial_window_size,
+                peer_window_size.clone(),
                 maximum_packet_size,
                 self.sender.clone(),
             );
 
-            let response = true;
-
-            if response {
-                self.channels.insert(identifier, sender);
+            if channel_handler(context, channel) {
+                self.channels.insert(
+                    identifier,
+                    ChannelDef {
+                        sender,
+                        peer_window_size,
+                    },
+                );
 
                 self.session
                     .send(&connect::ChannelOpenConfirmation {
@@ -152,6 +185,8 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                         maximum_packet_size: MAXIMUM_PACKET_SIZE,
                     })
                     .await?;
+
+                tracing::debug!("Channel opened as #{identifier}:%{sender_channel}");
             } else {
                 self.session
                     .send(&connect::ChannelOpenFailure {
@@ -161,19 +196,37 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                         language: todo!(),
                     })
                     .await?;
+
+                tracing::debug!("Channel open refused for %{sender_channel}");
             }
         } else if let Ok(connect::ChannelClose { recipient_channel }) = packet.to() {
+            tracing::debug!("Peer closed channel #{recipient_channel}");
+
             self.channels.remove(&recipient_channel);
+        } else if let Ok(connect::ChannelWindowAdjust {
+            recipient_channel,
+            bytes_to_add,
+        }) = packet.to()
+        {
+            tracing::debug!("Peer added {bytes_to_add} to window for #{recipient_channel}");
+
+            if let Some(channel) = self.channels.get(&recipient_channel) {
+                channel
+                    .peer_window_size
+                    .fetch_add(bytes_to_add, Ordering::AcqRel);
+            } else {
+                tracing::warn!("Received a message for closed channel #{recipient_channel}");
+            }
         } else if let Ok(msg) = packet.to::<channel::Msg>() {
-            if let Some(sender) = self.channels.get(msg.recipient_channel()) {
-                if let Err(err) = sender.send_async(msg).await {
+            if let Some(channel) = self.channels.get(msg.recipient_channel()) {
+                if let Err(err) = channel.sender.send_async(msg).await {
                     // If we failed to send the message to the channel,
                     // the receiver has been dropped, so treat it as such and report it as closed.
                     self.channels.remove(err.into_inner().recipient_channel());
                 }
             } else {
                 tracing::warn!(
-                    "Received a message for a closed channel (#{})",
+                    "Received a message for closed channel #{}",
                     msg.recipient_channel()
                 );
             }
