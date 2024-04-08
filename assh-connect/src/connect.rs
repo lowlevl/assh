@@ -18,7 +18,7 @@ use crate::{channel, Error, Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
 
 struct ChannelDef {
     sender: flume::Sender<channel::Msg>,
-    peer_window_size: Arc<AtomicU32>,
+    remote_window_size: Arc<AtomicU32>,
 }
 
 /// A wrapper around [`assh::session::Session`] to handle the connect layer.
@@ -49,7 +49,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         &mut self,
         context: connect::ChannelOpenContext,
     ) -> Result<channel::Channel> {
-        let identifier = self
+        let local_id = self
             .channels
             .keys()
             .max()
@@ -58,7 +58,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
 
         self.session
             .send(&connect::ChannelOpen {
-                sender_channel: identifier,
+                sender_channel: local_id,
                 initial_window_size: INITIAL_WINDOW_SIZE,
                 maximum_packet_size: MAXIMUM_PACKET_SIZE,
                 context,
@@ -68,28 +68,28 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         let packet = self.session.recv().await?;
 
         if let Ok(connect::ChannelOpenConfirmation {
-            sender_channel,
+            sender_channel: remote_id,
             recipient_channel,
             initial_window_size,
             maximum_packet_size,
         }) = packet.to()
         {
-            if recipient_channel == identifier {
-                let peer_window_size = Arc::new(AtomicU32::new(initial_window_size));
+            if recipient_channel == local_id {
+                let remote_window_size = Arc::new(AtomicU32::new(initial_window_size));
 
                 let (channel, sender) = channel::Channel::new(
-                    sender_channel,
+                    remote_id,
                     INITIAL_WINDOW_SIZE,
-                    peer_window_size.clone(),
+                    remote_window_size.clone(),
                     maximum_packet_size,
                     self.sender.clone(),
                 );
 
                 self.channels.insert(
-                    identifier,
+                    local_id,
                     ChannelDef {
                         sender,
-                        peer_window_size,
+                        remote_window_size,
                     },
                 );
 
@@ -104,7 +104,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
             ..
         }) = packet.to()
         {
-            if recipient_channel == identifier {
+            if recipient_channel == local_id {
                 Err(Error::ChannelOpenFailure {
                     reason,
                     message: description.into_string(),
@@ -148,60 +148,60 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         if let Ok(connect::GlobalRequest { .. }) = packet.to() {
             unimplemented!()
         } else if let Ok(connect::ChannelOpen {
-            sender_channel,
+            sender_channel: remote_id,
             initial_window_size,
             maximum_packet_size,
             context,
         }) = packet.to()
         {
-            tracing::debug!("Peer requested to open channel %{sender_channel}: {context:?}");
+            tracing::debug!("Peer requested to open channel %{remote_id}: {context:?}");
 
-            let identifier = self
+            let local_id = self
                 .channels
                 .keys()
                 .max()
                 .map(|x| x + 1)
                 .unwrap_or_default();
-            let peer_window_size = Arc::new(AtomicU32::new(initial_window_size));
+            let remote_window_size = Arc::new(AtomicU32::new(initial_window_size));
 
             let (channel, sender) = channel::Channel::new(
-                sender_channel,
+                remote_id,
                 INITIAL_WINDOW_SIZE,
-                peer_window_size.clone(),
+                remote_window_size.clone(),
                 maximum_packet_size,
                 self.sender.clone(),
             );
 
             if channel_handler(context, channel) {
                 self.channels.insert(
-                    identifier,
+                    local_id,
                     ChannelDef {
                         sender,
-                        peer_window_size,
+                        remote_window_size,
                     },
                 );
 
                 self.session
                     .send(&connect::ChannelOpenConfirmation {
-                        recipient_channel: sender_channel,
-                        sender_channel: identifier,
+                        recipient_channel: remote_id,
+                        sender_channel: local_id,
                         initial_window_size: INITIAL_WINDOW_SIZE,
                         maximum_packet_size: MAXIMUM_PACKET_SIZE,
                     })
                     .await?;
 
-                tracing::debug!("Channel opened as #{identifier}:%{sender_channel}");
+                tracing::debug!("Channel opened as #{local_id}:%{remote_id}");
             } else {
                 self.session
                     .send(&connect::ChannelOpenFailure {
-                        recipient_channel: sender_channel,
+                        recipient_channel: remote_id,
                         reason: todo!(),
                         description: todo!(),
                         language: todo!(),
                     })
                     .await?;
 
-                tracing::debug!("Channel open refused for %{sender_channel}");
+                tracing::debug!("Channel open refused for %{remote_id}");
             }
         } else if let Ok(connect::ChannelClose { recipient_channel }) = packet.to() {
             tracing::debug!("Peer closed channel #{recipient_channel}");
@@ -216,7 +216,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                 tracing::debug!("Peer added {bytes_to_add} to window for #{recipient_channel}");
 
                 channel
-                    .peer_window_size
+                    .remote_window_size
                     .fetch_add(bytes_to_add, Ordering::AcqRel);
             } else {
                 tracing::warn!("Received a message for closed channel #{recipient_channel}");

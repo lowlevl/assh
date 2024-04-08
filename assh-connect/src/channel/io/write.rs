@@ -15,7 +15,7 @@ impl<'a> Write<'a> {
         Self {
             channel,
             ext,
-            buffer: Vec::with_capacity(channel.peer_maximum_packet_size as usize),
+            buffer: Vec::with_capacity(channel.remote_maximum_packet_size as usize),
         }
     }
 }
@@ -28,13 +28,13 @@ impl futures::AsyncWrite for Write<'_> {
     ) -> task::Poll<io::Result<usize>> {
         let size: usize = self.buffer.len();
 
-        if size >= self.channel.peer_maximum_packet_size as usize {
+        if size >= self.channel.remote_maximum_packet_size as usize {
             futures::ready!(self.as_mut().poll_flush(cx)?);
         }
 
         let writable = buf
             .len()
-            .min(self.channel.peer_maximum_packet_size as usize - size);
+            .min(self.channel.remote_maximum_packet_size as usize - size);
 
         if writable > 0 {
             self.buffer.extend_from_slice(&buf[..writable]);
@@ -55,8 +55,8 @@ impl futures::AsyncWrite for Write<'_> {
         } else {
             let flushable = self
                 .channel
-                .peer_maximum_packet_size
-                .min(self.channel.peer_window_size.load(Ordering::Acquire))
+                .remote_maximum_packet_size
+                .min(self.channel.remote_window_size.load(Ordering::Acquire))
                 .min(self.buffer.len() as u32) as usize;
 
             if flushable > 0 {
@@ -66,24 +66,24 @@ impl futures::AsyncWrite for Write<'_> {
                 tracing::debug!(
                     "Flushing data of size {} bytes for channel %{}",
                     data.len(),
-                    self.channel.recipient_channel
+                    self.channel.remote_id
                 );
 
                 let data = data.into();
                 let msg = match self.ext {
                     None => Msg::Data(connect::ChannelData {
-                        recipient_channel: self.channel.recipient_channel,
+                        recipient_channel: self.channel.remote_id,
                         data,
                     }),
                     Some(ext) => Msg::ExtendedData(connect::ChannelExtendedData {
-                        recipient_channel: self.channel.recipient_channel,
+                        recipient_channel: self.channel.remote_id,
                         data_type: ext,
                         data,
                     }),
                 };
 
                 self.channel
-                    .peer_window_size
+                    .remote_window_size
                     .fetch_sub(flushable as u32, Ordering::AcqRel);
 
                 self.channel
@@ -108,7 +108,7 @@ impl futures::AsyncWrite for Write<'_> {
         self.channel
             .sender
             .send(Msg::Eof(connect::ChannelEof {
-                recipient_channel: self.channel.recipient_channel,
+                recipient_channel: self.channel.remote_id,
             }))
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 

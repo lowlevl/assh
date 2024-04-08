@@ -2,7 +2,7 @@ use std::{io, pin::Pin, sync::atomic::Ordering, task};
 
 use ssh_packet::connect;
 
-use crate::{INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
+use crate::{INITIAL_WINDOW_SIZE, WINDOW_ADJUST_THRESHOLD};
 
 use super::{Channel, Msg};
 
@@ -30,25 +30,25 @@ impl futures::AsyncRead for Read<'_> {
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
         // Replenish the window when reading.
-        let window_size = self.channel.window_size.load(Ordering::Acquire);
-        if window_size < MAXIMUM_PACKET_SIZE * 48 {
+        let window_size = self.channel.local_window_size.load(Ordering::Acquire);
+        if window_size <= WINDOW_ADJUST_THRESHOLD {
             let bytes_to_add = INITIAL_WINDOW_SIZE - window_size;
 
             self.channel
-                .window_size
+                .local_window_size
                 .fetch_add(bytes_to_add, Ordering::AcqRel);
 
             self.channel
                 .sender
                 .send(Msg::WindowAdjust(connect::ChannelWindowAdjust {
-                    recipient_channel: self.channel.recipient_channel,
+                    recipient_channel: self.channel.remote_id,
                     bytes_to_add,
                 }))
                 .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
             tracing::debug!(
                 "Added {bytes_to_add} to window for %{}",
-                self.channel.recipient_channel
+                self.channel.remote_id
             );
         }
 
@@ -65,7 +65,7 @@ impl futures::AsyncRead for Read<'_> {
                     };
 
                     self.channel
-                        .window_size
+                        .local_window_size
                         .fetch_sub(size as u32, Ordering::AcqRel);
 
                     (msg, 0)

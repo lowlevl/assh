@@ -25,11 +25,11 @@ pub enum RequestResponse {
 /// A reference to an opened channel in the session.
 #[derive(Debug)]
 pub struct Channel {
-    recipient_channel: u32,
+    remote_id: u32,
 
-    window_size: AtomicU32,
-    peer_window_size: Arc<AtomicU32>,
-    peer_maximum_packet_size: u32,
+    local_window_size: AtomicU32,
+    remote_window_size: Arc<AtomicU32>,
+    remote_maximum_packet_size: u32,
 
     sender: flume::Sender<Msg>,
     receiver: flume::Receiver<Msg>,
@@ -37,20 +37,20 @@ pub struct Channel {
 
 impl Channel {
     pub(super) fn new(
-        recipient_channel: u32,
-        window_size: u32,
-        peer_window_size: Arc<AtomicU32>,
-        peer_maximum_packet_size: u32,
+        remote_id: u32,
+        local_window_size: u32,
+        remote_window_size: Arc<AtomicU32>,
+        remote_maximum_packet_size: u32,
         sender: flume::Sender<Msg>,
     ) -> (Self, flume::Sender<Msg>) {
         let (tx, rx) = flume::unbounded();
 
         (
             Self {
-                recipient_channel,
-                window_size: window_size.into(),
-                peer_window_size,
-                peer_maximum_packet_size,
+                remote_id,
+                local_window_size: local_window_size.into(),
+                remote_window_size,
+                remote_maximum_packet_size,
                 receiver: rx,
                 sender,
             },
@@ -102,7 +102,7 @@ impl Channel {
     ) -> Result<RequestResponse> {
         self.sender
             .send_async(Msg::Request(connect::ChannelRequest {
-                recipient_channel: self.recipient_channel,
+                recipient_channel: self.remote_id,
                 want_reply: true.into(),
                 context,
             }))
@@ -140,7 +140,7 @@ impl Channel {
                         RequestResponse::Success => {
                             self.sender
                                 .send_async(Msg::Success(connect::ChannelSuccess {
-                                    recipient_channel: self.recipient_channel,
+                                    recipient_channel: self.remote_id,
                                 }))
                                 .await
                                 .map_err(|_| Error::ChannelClosed)?;
@@ -148,7 +148,7 @@ impl Channel {
                         RequestResponse::Failure => {
                             self.sender
                                 .send_async(Msg::Failure(connect::ChannelFailure {
-                                    recipient_channel: self.recipient_channel,
+                                    recipient_channel: self.remote_id,
                                 }))
                                 .await
                                 .map_err(|_| Error::ChannelClosed)?;
