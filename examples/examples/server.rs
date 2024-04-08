@@ -75,9 +75,9 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
                     if response == channel::RequestResponse::Success {
                         futures::io::copy(channel.as_reader(), &mut channel.as_writer()).await?;
 
-                        Ok(())
+                        panic!("I/O closed");
                     } else {
-                        panic!();
+                        panic!("channel closed");
                     }
                 });
 

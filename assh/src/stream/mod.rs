@@ -117,7 +117,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
                         .timeout(self.timeout)
                         .await??;
 
-                tracing::trace!("<-({}): {} bytes", self.rxseq, packet.payload.len());
+                tracing::trace!("<[rx]-({}): {} bytes", self.rxseq, packet.payload.len());
 
                 self.rxseq = self.rxseq.wrapping_add(1);
 
@@ -140,7 +140,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
             .await??;
         self.inner.flush().await?;
 
-        tracing::trace!("({})->: {} bytes", self.txseq, packet.payload.len());
+        tracing::trace!("({}) -[tx]>: {} bytes", self.txseq, packet.payload.len());
 
         self.txseq = self.txseq.wrapping_add(1);
 

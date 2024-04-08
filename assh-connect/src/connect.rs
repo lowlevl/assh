@@ -212,9 +212,9 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
             bytes_to_add,
         }) = packet.to()
         {
-            tracing::debug!("Peer added {bytes_to_add} to window for #{recipient_channel}");
-
             if let Some(channel) = self.channels.get(&recipient_channel) {
+                tracing::debug!("Peer added {bytes_to_add} to window for #{recipient_channel}");
+
                 channel
                     .peer_window_size
                     .fetch_add(bytes_to_add, Ordering::AcqRel);
