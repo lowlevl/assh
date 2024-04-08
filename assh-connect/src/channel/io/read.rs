@@ -2,7 +2,7 @@ use std::{io, pin::Pin, sync::atomic::Ordering, task};
 
 use ssh_packet::connect;
 
-use crate::INITIAL_WINDOW_SIZE;
+use crate::{INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
 
 use super::{Channel, Msg};
 
@@ -31,7 +31,7 @@ impl futures::AsyncRead for Read<'_> {
     ) -> task::Poll<io::Result<usize>> {
         // Replenish the window when reading.
         let window_size = self.channel.window_size.load(Ordering::Acquire);
-        if window_size < INITIAL_WINDOW_SIZE / 2 {
+        if window_size < MAXIMUM_PACKET_SIZE * 48 {
             let bytes_to_add = INITIAL_WINDOW_SIZE - window_size;
 
             self.channel
