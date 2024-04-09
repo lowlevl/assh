@@ -118,7 +118,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
     }
 
     /// Process incoming messages endlessly.
-    pub async fn run(
+    pub async fn start(
         mut self,
         channel_handler: impl Fn(connect::ChannelOpenContext, channel::Channel) -> bool,
     ) -> Result<Infallible> {

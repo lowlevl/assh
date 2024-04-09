@@ -28,7 +28,7 @@ mod connect;
 pub use connect::Connect;
 
 pub mod channel;
-pub mod request;
+pub mod global_request;
 
 mod error;
 pub use error::{Error, Result};
