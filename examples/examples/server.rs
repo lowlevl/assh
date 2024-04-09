@@ -1,8 +1,5 @@
 use assh::session::{server::Server, Session};
-use assh_auth::{
-    server::{password, publickey, Auth},
-    Method,
-};
+use assh_auth::server::{password, publickey, Auth};
 use assh_connect::{channel, Connect};
 
 use async_std::{
@@ -42,7 +39,7 @@ fn process(stream: TcpStream) -> impl futures::Future<Output = eyre::Result<()>>
         )
         .await?
         .add_layer(
-            Auth::new(Method::Password | Method::Publickey)
+            Auth::new()
                 .banner("Hi there !\r\n")
                 .password(|_, _, new: Option<String>| {
                     if let Some(new) = new {

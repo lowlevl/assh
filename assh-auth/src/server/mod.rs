@@ -16,7 +16,10 @@ use ssh_packet::{
     userauth,
 };
 
-use crate::{Method, CONNECTION_SERVICE_NAME, SERVICE_NAME};
+use crate::{CONNECTION_SERVICE_NAME, SERVICE_NAME};
+
+mod method;
+use method::Method;
 
 pub mod none;
 pub mod password;
@@ -43,19 +46,25 @@ pub struct Auth<N = (), P = (), PK = ()> {
     publickey: PK,
 }
 
-impl Auth {
-    /// Create an [`Auth`] layer from allowed [`Method`]s.
-    pub fn new(methods: impl Into<EnumSet<Method>>) -> Self {
+impl Default for Auth {
+    fn default() -> Self {
         Self {
             state: Default::default(),
 
             banner: Default::default(),
-            methods: methods.into() | Method::None, // always insert the `none` method
+            methods: Method::None.into(), // always insert the `none` method
 
             none: (),
             password: (),
             publickey: (),
         }
+    }
+}
+
+impl Auth {
+    /// Create an [`Auth`] layer, rejecting all authentication by default.
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -72,11 +81,13 @@ impl<N, P, PK> Auth<N, P, PK> {
         let Self {
             state,
             banner,
-            methods,
+            mut methods,
             none: _,
             password,
             publickey,
         } = self;
+
+        methods |= Method::None;
 
         Auth {
             state,
@@ -96,11 +107,13 @@ impl<N, P, PK> Auth<N, P, PK> {
         let Self {
             state,
             banner,
-            methods,
+            mut methods,
             none,
             password: _,
             publickey,
         } = self;
+
+        methods |= Method::Password;
 
         Auth {
             state,
@@ -120,11 +133,13 @@ impl<N, P, PK> Auth<N, P, PK> {
         let Self {
             state,
             banner,
-            methods,
+            mut methods,
             none,
             password,
             publickey: _,
         } = self;
+
+        methods |= Method::Publickey;
 
         Auth {
             state,
@@ -315,10 +330,10 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                         Action::Fetch
                     }
                     userauth::Method::Hostbased { .. } if self.is_available(&method) => {
-                        todo!()
+                        todo!("Server-side `hostbased` method is not implemented")
                     }
                     userauth::Method::KeyboardInteractive { .. } if self.is_available(&method) => {
-                        todo!()
+                        todo!("Server-side `keyboard-interactive` method is not implemented")
                     }
 
                     _ => Action::Disconnect {

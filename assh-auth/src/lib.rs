@@ -1,5 +1,5 @@
 #![doc = concat!(
-    "[![crates.io](https://img.shields.io/crates/", env!("CARGO_PKG_NAME"), ")](https://crates.io/crates/", env!("CARGO_PKG_NAME"), ")",
+    "[![crates.io](https://img.shields.io/crates/v/", env!("CARGO_PKG_NAME"), ")](https://crates.io/crates/", env!("CARGO_PKG_NAME"), ")",
     " ",
     "[![docs.rs](https://img.shields.io/docsrs/", env!("CARGO_PKG_NAME"), ")](https://docs.rs/", env!("CARGO_PKG_NAME"), ")",
     " ",
@@ -22,9 +22,6 @@
 
 const SERVICE_NAME: &str = "ssh-userauth";
 const CONNECTION_SERVICE_NAME: &str = "ssh-connection";
-
-mod method;
-pub use method::Method;
 
 pub mod client;
 pub mod server;
