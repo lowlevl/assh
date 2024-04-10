@@ -9,12 +9,14 @@ use assh::{
     Result,
 };
 use futures::{AsyncBufRead, AsyncWrite};
+use ssh_packet::arch::NameList;
 
 mod method;
 use method::Method;
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
+use ssh_packet::{cryptography::PublickeySignature, userauth};
 
 #[derive(Debug, Default)]
 enum State {
@@ -45,7 +47,7 @@ impl Auth {
         Self {
             state: Default::default(),
             username: username.into(),
-            methods: [Method::None].into_iter().collect(), // always attempt the `none` method
+            methods: Default::default(),
         }
     }
 
@@ -61,7 +63,7 @@ impl Auth {
     /// Attempt to authenticate with the `publickey` method.
     pub fn publickey(mut self, key: impl Into<PrivateKey>) -> Self {
         self.methods.replace(Method::Publickey {
-            key: Box::new(key.into()),
+            key: key.into().into(),
         });
 
         self
@@ -75,14 +77,109 @@ impl Layer<Client> for Auth {
     ) -> Result<()> {
         match self.state {
             State::Unauthorized => {
-                //
+                let mut attempt = Method::None;
 
-                self.state = State::Authorized;
+                loop {
+                    let response = match attempt {
+                        Method::None => {
+                            stream
+                                .send(&userauth::Request {
+                                    username: self.username.clone().into(),
+                                    service_name: crate::CONNECTION_SERVICE_NAME.into(),
+                                    method: userauth::Method::None,
+                                })
+                                .await?;
+
+                            stream.recv().await?
+                        }
+                        Method::Password { ref password } => {
+                            stream
+                                .send(&userauth::Request {
+                                    username: self.username.clone().into(),
+                                    service_name: crate::CONNECTION_SERVICE_NAME.into(),
+                                    method: userauth::Method::Password {
+                                        password: password.into(),
+                                        new: None,
+                                    },
+                                })
+                                .await?;
+
+                            stream.recv().await?
+                        }
+                        Method::Publickey { ref key } => {
+                            stream
+                                .send(&userauth::Request {
+                                    username: self.username.clone().into(),
+                                    service_name: crate::CONNECTION_SERVICE_NAME.into(),
+                                    method: userauth::Method::Publickey {
+                                        algorithm: key.algorithm().as_str().into(),
+                                        blob: key.public_key().to_bytes()?.into(),
+                                        signature: None,
+                                    },
+                                })
+                                .await?;
+
+                            let response = stream.recv().await?;
+                            if response.to::<userauth::PkOk>().is_err() {
+                                response
+                            } else {
+                                stream
+                                    .send(&userauth::Request {
+                                        username: self.username.clone().into(),
+                                        service_name: crate::CONNECTION_SERVICE_NAME.into(),
+                                        method: userauth::Method::Publickey {
+                                            algorithm: key.algorithm().as_str().into(),
+                                            blob: key.public_key().to_bytes()?.into(),
+                                            signature: Some(
+                                                PublickeySignature {
+                                                    session_id: &stream
+                                                        .session_id()
+                                                        .unwrap_or_default()
+                                                        .into(),
+                                                    username: &self.username.clone().into(),
+                                                    service_name: &crate::CONNECTION_SERVICE_NAME
+                                                        .into(),
+                                                    algorithm: &key.algorithm().as_str().into(),
+                                                    blob: &key.public_key().to_bytes()?.into(),
+                                                }
+                                                .sign(&**key)
+                                                .as_bytes()
+                                                .into(),
+                                            ),
+                                        },
+                                    })
+                                    .await?;
+
+                                stream.recv().await?
+                            }
+                        }
+                    };
+
+                    if let Ok(userauth::Success) = response.to() {
+                        self.state = State::Authorized;
+
+                        break Ok(());
+                    } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
+                        if let Some(method) = continue_with
+                            .into_iter()
+                            .flat_map(|name| self.methods.iter().find(|m| m.as_ref() == name))
+                            .next()
+                            .cloned()
+                        {
+                            self.methods.remove(&method);
+
+                            attempt = method;
+                            continue;
+                        } else {
+                            panic!("Methods exhausted");
+                        }
+                    } else {
+                        panic!("Unexpected packet in authentication context");
+                    }
+                }
             }
-            State::Authorized => {}
+            State::Authorized => Ok(()),
         }
-
-        Ok(())
     }
 
     async fn on_recv(
