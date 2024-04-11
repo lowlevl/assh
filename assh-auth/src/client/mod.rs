@@ -9,10 +9,12 @@ use assh::{
     Result,
 };
 use futures::{AsyncBufRead, AsyncWrite};
-use ssh_packet::arch::NameList;
 
 mod method;
 use method::Method;
+
+// TODO: Add hostbased authentication.
+// TODO: Add keyboard-interactive authentication.
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
@@ -160,6 +162,7 @@ impl Layer<Client> for Auth {
 
                         break Ok(());
                     } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
+                        // TODO: Improve the removal of method without cloning.
                         if let Some(method) = continue_with
                             .into_iter()
                             .flat_map(|name| self.methods.iter().find(|m| m.as_ref() == name))
@@ -171,9 +174,11 @@ impl Layer<Client> for Auth {
                             attempt = method;
                             continue;
                         } else {
+                            // TODO: Get rid of this panic.
                             panic!("Methods exhausted");
                         }
                     } else {
+                        // TODO: Get rid of this panic.
                         panic!("Unexpected packet in authentication context");
                     }
                 }

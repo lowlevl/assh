@@ -13,6 +13,8 @@ use futures::{
     TryFutureExt,
 };
 
+// TODO: Create a kind-of complete server-side example.
+
 /// An `assh` server example.
 #[derive(Debug, Parser)]
 pub struct Args {

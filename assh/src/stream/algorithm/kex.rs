@@ -27,6 +27,8 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Kex> {
         .map_err(|_| Error::UnsupportedAlgorithm)
 }
 
+// TODO: Implement the following legacy key-exchange methods (`diffie-hellman-group14-sha256`, `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`).
+
 /// SSH key-exchange algorithms.
 #[non_exhaustive]
 #[derive(Debug, PartialEq, EnumString, AsRefStr)]

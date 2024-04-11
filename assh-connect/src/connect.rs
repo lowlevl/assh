@@ -146,6 +146,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
         let packet = self.session.recv().await?;
 
         if let Ok(connect::GlobalRequest { .. }) = packet.to() {
+            // TODO: Implement global-requests.
             unimplemented!()
         } else if let Ok(connect::ChannelOpen {
             sender_channel: remote_id,
@@ -172,6 +173,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
                 self.sender.clone(),
             );
 
+            // TODO: Get rid of this bool in the channel handler.
             if channel_handler(context, channel) {
                 self.channels.insert(
                     local_id,
@@ -192,6 +194,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<
 
                 tracing::debug!("Channel opened as #{local_id}:%{remote_id}");
             } else {
+                // TODO: Handle failure mode correctly.
                 self.session
                     .send(&connect::ChannelOpenFailure {
                         recipient_channel: remote_id,

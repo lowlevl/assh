@@ -19,6 +19,8 @@ use crate::{
 #[doc(no_inline)]
 pub use ssh_packet::Id;
 
+// TODO: hostkey verification in client key-exchange.
+
 /// A _client_-side session configuration.
 #[derive(Debug)]
 pub struct Client {

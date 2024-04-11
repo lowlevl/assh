@@ -329,13 +329,17 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
 
                         Action::Fetch
                     }
-                    userauth::Method::Hostbased { .. } if self.is_available(&method) => {
-                        todo!("Server-side `hostbased` method is not implemented")
-                    }
-                    userauth::Method::KeyboardInteractive { .. } if self.is_available(&method) => {
-                        todo!("Server-side `keyboard-interactive` method is not implemented")
-                    }
+                    // TODO: Add hostbased authentication.
+                    // TODO: Add keyboard-interactive authentication.
+                    //
+                    // userauth::Method::Hostbased { .. } if self.is_available(&method) => {
+                    //     todo!("Server-side `hostbased` method is not implemented")
+                    // }
+                    // userauth::Method::KeyboardInteractive { .. } if self.is_available(&method) => {
+                    //     todo!("Server-side `keyboard-interactive` method is not implemented")
+                    // }
 
+                    //
                     _ => Action::Disconnect {
                         reason: DisconnectReason::NoMoreAuthMethodsAvailable,
                         description: "Authentication methods exhausted for the current session."

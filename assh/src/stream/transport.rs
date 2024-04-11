@@ -9,6 +9,8 @@ use crate::{
 
 use super::Keys;
 
+// TODO: Provide forward secrecy of keys with `zeroize`.
+
 #[derive(Debug, Default)]
 pub struct TransportPair {
     pub rx: Transport,

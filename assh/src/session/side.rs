@@ -50,6 +50,8 @@ pub trait Side: private::Sealed {
             let kexinit = self.kexinit();
             stream.send(&kexinit).await?;
 
+            // TODO: Take care of `KexInit::first_kex_packet_follows` being true.
+
             let peerkexinit = stream.recv().await?.to::<KexInit>()?;
 
             let transport = self.exchange(stream, kexinit, peerkexinit, peer_id).await?;

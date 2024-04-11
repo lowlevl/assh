@@ -22,6 +22,8 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Compress, 
     ))
 }
 
+// TODO: Fix compression algorithms, not working right now.
+
 /// SSH compression algorithms.
 #[non_exhaustive]
 #[derive(Debug, Default, PartialEq, EnumString, AsRefStr)]
