@@ -1,5 +1,4 @@
 use futures::{AsyncBufRead, AsyncWrite};
-use sha2::Sha256;
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
@@ -63,6 +62,8 @@ impl Kex {
 
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
+                type Hash = sha2::Sha256;
+
                 let e_c = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
                 let q_c = x25519_dalek::PublicKey::from(&e_c);
 
@@ -98,7 +99,7 @@ impl Kex {
                     q_s: &q_s.to_bytes().to_vec().into(),
                     k: &secret,
                 };
-                let hash = exchange.hash::<Sha256>();
+                let hash = exchange.hash::<Hash>();
 
                 Verifier::verify(&k_s, &hash, &Signature::try_from(&*ecdh.signature)?)?;
 
@@ -106,7 +107,7 @@ impl Kex {
 
                 Ok(TransportPair {
                     rx: Transport {
-                        chain: Keys::as_server::<Sha256>(
+                        chain: Keys::as_server::<Hash>(
                             &secret,
                             &hash,
                             session_id,
@@ -119,7 +120,7 @@ impl Kex {
                         compress: client_compress,
                     },
                     tx: Transport {
-                        chain: Keys::as_client::<Sha256>(
+                        chain: Keys::as_client::<Hash>(
                             &secret,
                             &hash,
                             session_id,
@@ -151,6 +152,8 @@ impl Kex {
 
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
+                type Hash = sha2::Sha256;
+
                 let ecdh: KexEcdhInit = stream.recv().await?.to()?;
 
                 let e_s = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
@@ -183,7 +186,7 @@ impl Kex {
                     q_s: &q_s,
                     k: &secret,
                 };
-                let hash = exchange.hash::<Sha256>();
+                let hash = exchange.hash::<Hash>();
 
                 let signature = Signer::sign(key, &hash);
                 stream
@@ -198,7 +201,7 @@ impl Kex {
 
                 Ok(TransportPair {
                     rx: Transport {
-                        chain: Keys::as_client::<Sha256>(
+                        chain: Keys::as_client::<Hash>(
                             &secret,
                             &hash,
                             session_id,
@@ -211,7 +214,7 @@ impl Kex {
                         compress: client_compress,
                     },
                     tx: Transport {
-                        chain: Keys::as_server::<Sha256>(
+                        chain: Keys::as_server::<Hash>(
                             &secret,
                             &hash,
                             session_id,
