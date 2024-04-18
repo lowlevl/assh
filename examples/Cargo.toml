@@ -23,7 +23,8 @@ ssh-packet.workspace = true
 ssh-key.workspace = true
 
 futures.workspace = true
-async-std = { version = "1.12.0", features = ["attributes", "unstable"] }
+tokio = { version = "1.37.0", features = ["rt-multi-thread", "net", "time", "macros", "io-util"] }
+
 color-eyre = "0.6.2"
 clap = { version = "4.5.1", features = ["derive"] }
 
@@ -34,3 +35,4 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
     "tracing-log",
 ] }
 rand = "0.8.5"
+tokio-util = { version = "0.7.10", features = ["compat"] }

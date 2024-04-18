@@ -70,6 +70,7 @@ impl Channel {
     /// Even though the interface allows having multiple _readers_,
     /// polling for a reader will discard other data types
     /// and polling concurrently for more than one reader may cause data integrity issues.
+    #[must_use]
     pub fn as_reader(&self) -> impl AsyncRead + '_ {
         io::Read::new(self, None)
     }
@@ -81,16 +82,19 @@ impl Channel {
     /// Even though the interface allows having multiple _readers_,
     /// polling for a reader will discard other data types
     /// and polling concurrently for more than one reader may cause data integrity issues.
+    #[must_use]
     pub fn as_reader_ext(&self, ext: connect::ChannelExtendedDataType) -> impl AsyncRead + '_ {
         io::Read::new(self, Some(ext))
     }
 
     /// Make a writer for current channel's _data_ stream.
+    #[must_use]
     pub fn as_writer(&self) -> impl AsyncWrite + '_ {
         io::Write::new(self, None)
     }
 
     /// Make a writer for current channel's _extended data_ stream.
+    #[must_use]
     pub fn as_writer_ext(&self, ext: connect::ChannelExtendedDataType) -> impl AsyncWrite + '_ {
         io::Write::new(self, Some(ext))
     }
