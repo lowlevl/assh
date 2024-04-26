@@ -23,6 +23,7 @@ pub trait Side: private::Sealed {
     /// Get the [`Id`] for this session.
     fn id(&self) -> &Id;
 
+    // TODO: Is a timeout really needed in SSH2 ?
     /// Get the _timeout_ for this session.
     fn timeout(&self) -> Duration;
 

@@ -89,8 +89,8 @@ async fn main() -> eyre::Result<()> {
                             let mut writer = channel.as_writer();
 
                             for frame in FRAMES.iter().cycle() {
-                                futures::io::copy(&mut CLEAR.as_bytes(), &mut writer).await?;
-                                futures::io::copy(&mut frame.as_bytes(), &mut writer).await?;
+                                writer.write_all(CLEAR.as_bytes()).await?;
+                                writer.write_all(frame.as_bytes()).await?;
                                 writer.flush().await?;
 
                                 tokio::time::sleep(DELAY).await;
