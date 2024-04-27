@@ -10,7 +10,7 @@ use enumset::EnumSet;
 use futures::{AsyncBufRead, AsyncWrite};
 use ssh_key::{public::PublicKey, Signature};
 use ssh_packet::{
-    arch::{NameList, StringUtf8},
+    arch::{NameList, StringAscii, StringUtf8},
     cryptography::PublickeySignature,
     trans::{DisconnectReason, ServiceAccept, ServiceRequest},
     userauth,
@@ -70,7 +70,7 @@ impl Auth {
     }
 }
 
-impl<N, P, PK> Auth<N, P, PK> {
+impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, PK> {
     /// Set the authentication banner text to be displayed upon authentication (the string should be `\r\n` terminated).
     pub fn banner(mut self, banner: impl Into<StringUtf8>) -> Self {
         self.banner = Some(banner.into());
@@ -174,13 +174,117 @@ impl<N, P, PK> Auth<N, P, PK> {
             .await
     }
 
-    fn consume_available(&mut self, method: impl Into<Method>) -> bool {
-        let method = method.into();
+    async fn handle(
+        &mut self,
+        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
+        username: StringUtf8,
+        method: userauth::Method,
+        service_name: &StringAscii,
+    ) -> Result<()> {
+        match method {
+            userauth::Method::None => {
+                tracing::debug!(
+                    "Attempt using method `none` for user `{}`",
+                    username.as_str()
+                );
 
-        self.methods
-            .contains(method)
-            .then(|| self.methods.remove(method))
-            .is_some()
+                match self.none.process(username.to_string()) {
+                    none::Response::Accept => self.success(stream).await?,
+                    none::Response::Reject => self.failure(stream).await?,
+                }
+            }
+
+            userauth::Method::Publickey {
+                algorithm,
+                blob,
+                signature,
+            } => {
+                tracing::debug!(
+                    "Attempt using method `publickey` (signed: {}, algorithm: {}) for user `{}`",
+                    signature.is_some(),
+                    std::str::from_utf8(&algorithm).unwrap_or("unknown"),
+                    username.as_str(),
+                );
+
+                let key = PublicKey::from_bytes(&blob);
+
+                match signature {
+                    Some(signature) => match key {
+                        Ok(key) if key.algorithm().as_str().as_bytes() == algorithm.as_ref() => {
+                            let message = PublickeySignature {
+                                session_id: &stream.session_id().unwrap_or_default().into(),
+                                username: &username,
+                                service_name,
+                                algorithm: &algorithm,
+                                blob: &blob,
+                            };
+
+                            if message
+                                .verify(&key, &Signature::try_from(signature.as_ref())?)
+                                .is_ok()
+                                && self.publickey.process(username.to_string(), key)
+                                    == publickey::Response::Accept
+                            {
+                                self.success(stream).await?;
+                            } else {
+                                // TODO: Does a faked signature needs to cause disconnection ?
+                                self.failure(stream).await?;
+                            }
+                        }
+                        _ => self.failure(stream).await?,
+                    },
+                    None => {
+                        // Authentication has not actually been attempted, so we allow it again.
+                        self.methods |= Method::Publickey;
+
+                        if key.is_ok() {
+                            stream.send(&userauth::PkOk { blob, algorithm }).await?;
+                        } else {
+                            self.failure(stream).await?;
+                        }
+                    }
+                }
+            }
+
+            userauth::Method::Password { password, new } => {
+                tracing::debug!(
+                    "Attempt using method `password` (update: {}) for user `{}`",
+                    new.is_some(),
+                    username.as_str()
+                );
+
+                match self.password.process(
+                    username.into_string(),
+                    password.into_string(),
+                    new.map(StringUtf8::into_string),
+                ) {
+                    password::Response::Accept => self.success(stream).await?,
+                    password::Response::PasswordExpired { prompt } => {
+                        self.methods |= Method::Password;
+
+                        stream
+                            .send(&userauth::PasswdChangereq {
+                                prompt: prompt.into(),
+                                ..Default::default()
+                            })
+                            .await?;
+                    }
+                    password::Response::Reject => self.failure(stream).await?,
+                }
+            }
+
+            userauth::Method::Hostbased { .. } => {
+                // TODO: Add hostbased authentication.
+                unimplemented!("Server-side `hostbased` method is not implemented")
+            }
+
+            userauth::Method::KeyboardInteractive { .. } => {
+                // TODO: Add keyboard-interactive authentication.
+                unimplemented!("Server-side `keyboard-interactive` method is not implemented")
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -224,130 +328,25 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                     username,
                     ref service_name,
                     method,
-                }) => match method {
-                    _ if service_name.as_str() != CONNECTION_SERVICE_NAME => Action::Disconnect {
-                        reason: DisconnectReason::ServiceNotAvailable,
-                        description: format!(
-                            "Unknown service `{}` in authentication request.",
-                            service_name.as_str()
-                        ),
-                    },
-
-                    userauth::Method::None if self.consume_available(&method) => {
-                        tracing::debug!(
-                            "Attempt using method `none` for user `{}`",
-                            username.as_str()
-                        );
-
-                        match self.none.process(username.to_string()) {
-                            none::Response::Accept => self.success(stream).await?,
-                            none::Response::Reject => self.failure(stream).await?,
+                }) => {
+                    if service_name.as_str() == CONNECTION_SERVICE_NAME {
+                        if self.methods.remove(*method.as_ref()) {
+                            self.handle(stream, username, method, service_name).await?;
+                        } else {
+                            self.failure(stream).await?;
                         }
 
                         Action::Fetch
-                    }
-                    userauth::Method::Publickey {
-                        algorithm,
-                        blob,
-                        signature,
-                    } if self.consume_available(&method) => {
-                        tracing::debug!(
-                            "Attempt using method `publickey` (signed: {}, algorithm: {}) for user `{}`",
-                            signature.is_some(),
-                            std::str::from_utf8(&algorithm).unwrap_or("unknown"),
-                            username.as_str(),
-                        );
-
-                        let key = PublicKey::from_bytes(&blob);
-
-                        match signature {
-                            Some(signature) => match key {
-                                Ok(key)
-                                    if key.algorithm().as_str().as_bytes()
-                                        == algorithm.as_ref() =>
-                                {
-                                    let message = PublickeySignature {
-                                        session_id: &stream.session_id().unwrap_or_default().into(),
-                                        username: &username,
-                                        service_name,
-                                        algorithm: &algorithm,
-                                        blob: &blob,
-                                    };
-
-                                    if message
-                                        .verify(&key, &Signature::try_from(signature.as_ref())?)
-                                        .is_ok()
-                                        && self.publickey.process(username.to_string(), key)
-                                            == publickey::Response::Accept
-                                    {
-                                        self.success(stream).await?;
-                                    } else {
-                                        // TODO: Does a faked signature needs to cause disconnection ?
-                                        self.failure(stream).await?;
-                                    }
-                                }
-                                _ => self.failure(stream).await?,
-                            },
-                            None => {
-                                // Authentication has not actually been attempted, so we allow it again.
-                                self.methods |= Method::Publickey;
-
-                                if key.is_ok() {
-                                    stream.send(&userauth::PkOk { blob, algorithm }).await?;
-                                } else {
-                                    self.failure(stream).await?;
-                                }
-                            }
+                    } else {
+                        Action::Disconnect {
+                            reason: DisconnectReason::ServiceNotAvailable,
+                            description: format!(
+                                "Unknown service `{}` in authentication request.",
+                                service_name.as_str()
+                            ),
                         }
-
-                        Action::Fetch
                     }
-                    userauth::Method::Password { password, new }
-                        if self.consume_available(&method) =>
-                    {
-                        tracing::debug!(
-                            "Attempt using method `password` (update: {}) for user `{}`",
-                            new.is_some(),
-                            username.as_str()
-                        );
-
-                        match self.password.process(
-                            username.into_string(),
-                            password.into_string(),
-                            new.map(StringUtf8::into_string),
-                        ) {
-                            password::Response::Accept => self.success(stream).await?,
-                            password::Response::PasswordExpired { prompt } => {
-                                self.methods |= Method::Password;
-
-                                stream
-                                    .send(&userauth::PasswdChangereq {
-                                        prompt: prompt.into(),
-                                        ..Default::default()
-                                    })
-                                    .await?;
-                            }
-                            password::Response::Reject => self.failure(stream).await?,
-                        }
-
-                        Action::Fetch
-                    }
-                    // TODO: Add hostbased authentication.
-                    // TODO: Add keyboard-interactive authentication.
-                    //
-                    // userauth::Method::Hostbased { .. } if self.is_available(&method) => {
-                    //     todo!("Server-side `hostbased` method is not implemented")
-                    // }
-                    // userauth::Method::KeyboardInteractive { .. } if self.is_available(&method) => {
-                    //     todo!("Server-side `keyboard-interactive` method is not implemented")
-                    // }
-
-                    //
-                    _ => {
-                        self.failure(stream).await?;
-                        Action::Fetch
-                    }
-                },
+                }
                 _ => Action::Disconnect {
                     reason: DisconnectReason::ProtocolError,
                     description: format!(

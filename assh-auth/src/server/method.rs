@@ -32,14 +32,14 @@ impl AsRef<str> for Method {
     }
 }
 
-impl From<&userauth::Method> for Method {
-    fn from(value: &userauth::Method) -> Self {
-        match value {
-            userauth::Method::None => Self::None,
-            userauth::Method::Publickey { .. } => Self::Publickey,
-            userauth::Method::Password { .. } => Self::Password,
-            userauth::Method::Hostbased { .. } => Self::Hostbased,
-            userauth::Method::KeyboardInteractive { .. } => Self::KeyboardInteractive,
+impl AsRef<Method> for userauth::Method {
+    fn as_ref(&self) -> &Method {
+        match self {
+            userauth::Method::None => &Method::None,
+            userauth::Method::Publickey { .. } => &Method::Publickey,
+            userauth::Method::Password { .. } => &Method::Password,
+            userauth::Method::Hostbased { .. } => &Method::Hostbased,
+            userauth::Method::KeyboardInteractive { .. } => &Method::KeyboardInteractive,
         }
     }
 }
