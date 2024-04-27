@@ -1,16 +1,14 @@
-use std::sync::Arc;
-
 use ssh_key::PrivateKey;
 use ssh_packet::userauth;
 
 /// Possible authentication methods in the SSH protocol.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Method {
     /// The SSH `none` authentication method.
     None,
 
     /// The SSH `publickey` authentication method.
-    Publickey { key: Arc<PrivateKey> },
+    Publickey { key: Box<PrivateKey> },
 
     /// The SSH `password` authentication method.
     Password { password: String },

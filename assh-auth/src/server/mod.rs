@@ -39,6 +39,8 @@ pub struct Auth<N = (), P = (), PK = ()> {
     state: State,
 
     banner: Option<StringUtf8>,
+    // TODO: Add a total attempts counter, to disconnect when exceeded.
+    // TODO: Retain methods per user-basis, because each user can attempt all the methods.
     methods: EnumSet<Method>,
 
     none: N,
@@ -172,7 +174,7 @@ impl<N, P, PK> Auth<N, P, PK> {
             .await
     }
 
-    fn is_available(&mut self, method: impl Into<Method>) -> bool {
+    fn consume_available(&mut self, method: impl Into<Method>) -> bool {
         let method = method.into();
 
         self.methods
@@ -209,7 +211,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                     }
 
                     self.state = State::Transient;
-
                     Action::Fetch
                 }
                 _ => Action::Disconnect {
@@ -232,7 +233,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                         ),
                     },
 
-                    userauth::Method::None if self.is_available(&method) => {
+                    userauth::Method::None if self.consume_available(&method) => {
                         tracing::debug!(
                             "Attempt using method `none` for user `{}`",
                             username.as_str()
@@ -249,7 +250,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                         algorithm,
                         blob,
                         signature,
-                    } if self.is_available(&method) => {
+                    } if self.consume_available(&method) => {
                         tracing::debug!(
                             "Attempt using method `publickey` (signed: {}, algorithm: {}) for user `{}`",
                             signature.is_some(),
@@ -301,7 +302,9 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
 
                         Action::Fetch
                     }
-                    userauth::Method::Password { password, new } if self.is_available(&method) => {
+                    userauth::Method::Password { password, new }
+                        if self.consume_available(&method) =>
+                    {
                         tracing::debug!(
                             "Attempt using method `password` (update: {}) for user `{}`",
                             new.is_some(),
@@ -340,11 +343,10 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Serve
                     // }
 
                     //
-                    _ => Action::Disconnect {
-                        reason: DisconnectReason::NoMoreAuthMethodsAvailable,
-                        description: "Authentication methods exhausted for the current session."
-                            .into(),
-                    },
+                    _ => {
+                        self.failure(stream).await?;
+                        Action::Fetch
+                    }
                 },
                 _ => Action::Disconnect {
                     reason: DisconnectReason::ProtocolError,

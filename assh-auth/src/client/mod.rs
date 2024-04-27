@@ -1,6 +1,6 @@
 //! Client-side authentication mechanics.
 
-use std::collections::HashSet;
+use hashbrown::HashSet;
 
 use assh::{
     layer::{Action, Layer},
@@ -18,12 +18,19 @@ use method::Method;
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
-use ssh_packet::{cryptography::PublickeySignature, userauth};
+use ssh_packet::{
+    cryptography::PublickeySignature,
+    trans::{DisconnectReason, ServiceAccept, ServiceRequest},
+    userauth,
+};
+
+use crate::SERVICE_NAME;
 
 #[derive(Debug, Default)]
 enum State {
     #[default]
     Unauthorized,
+    Transient,
     Authorized,
 }
 
@@ -70,6 +77,16 @@ impl Auth {
 
         self
     }
+
+    async fn attempt(&mut self, method: Method) -> Result<()> {
+        match method {
+            Method::None => todo!(),
+            Method::Publickey { key } => todo!(),
+            Method::Password { password } => todo!(),
+        }
+
+        Ok(())
+    }
 }
 
 impl Layer<Client> for Auth {
@@ -77,114 +94,13 @@ impl Layer<Client> for Auth {
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> Result<()> {
-        match self.state {
-            State::Unauthorized => {
-                let mut attempt = Method::None;
+        stream
+            .send(&ServiceRequest {
+                service_name: SERVICE_NAME.into(),
+            })
+            .await?;
 
-                loop {
-                    let response = match attempt {
-                        Method::None => {
-                            stream
-                                .send(&userauth::Request {
-                                    username: self.username.clone().into(),
-                                    service_name: crate::CONNECTION_SERVICE_NAME.into(),
-                                    method: userauth::Method::None,
-                                })
-                                .await?;
-
-                            stream.recv().await?
-                        }
-                        Method::Password { ref password } => {
-                            stream
-                                .send(&userauth::Request {
-                                    username: self.username.clone().into(),
-                                    service_name: crate::CONNECTION_SERVICE_NAME.into(),
-                                    method: userauth::Method::Password {
-                                        password: password.into(),
-                                        new: None,
-                                    },
-                                })
-                                .await?;
-
-                            stream.recv().await?
-                        }
-                        Method::Publickey { ref key } => {
-                            stream
-                                .send(&userauth::Request {
-                                    username: self.username.clone().into(),
-                                    service_name: crate::CONNECTION_SERVICE_NAME.into(),
-                                    method: userauth::Method::Publickey {
-                                        algorithm: key.algorithm().as_str().into(),
-                                        blob: key.public_key().to_bytes()?.into(),
-                                        signature: None,
-                                    },
-                                })
-                                .await?;
-
-                            let response = stream.recv().await?;
-                            if response.to::<userauth::PkOk>().is_err() {
-                                response
-                            } else {
-                                stream
-                                    .send(&userauth::Request {
-                                        username: self.username.clone().into(),
-                                        service_name: crate::CONNECTION_SERVICE_NAME.into(),
-                                        method: userauth::Method::Publickey {
-                                            algorithm: key.algorithm().as_str().into(),
-                                            blob: key.public_key().to_bytes()?.into(),
-                                            signature: Some(
-                                                PublickeySignature {
-                                                    session_id: &stream
-                                                        .session_id()
-                                                        .unwrap_or_default()
-                                                        .into(),
-                                                    username: &self.username.clone().into(),
-                                                    service_name: &crate::CONNECTION_SERVICE_NAME
-                                                        .into(),
-                                                    algorithm: &key.algorithm().as_str().into(),
-                                                    blob: &key.public_key().to_bytes()?.into(),
-                                                }
-                                                .sign(&**key)
-                                                .as_bytes()
-                                                .into(),
-                                            ),
-                                        },
-                                    })
-                                    .await?;
-
-                                stream.recv().await?
-                            }
-                        }
-                    };
-
-                    if let Ok(userauth::Success) = response.to() {
-                        self.state = State::Authorized;
-
-                        break Ok(());
-                    } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
-                        // TODO: Improve the removal of method without cloning.
-                        if let Some(method) = continue_with
-                            .into_iter()
-                            .flat_map(|name| self.methods.iter().find(|m| m.as_ref() == name))
-                            .next()
-                            .cloned()
-                        {
-                            self.methods.remove(&method);
-
-                            attempt = method;
-                            continue;
-                        } else {
-                            // TODO: Get rid of this panic.
-                            panic!("Methods exhausted");
-                        }
-                    } else {
-                        // TODO: Get rid of this panic.
-                        panic!("Unexpected packet in authentication context");
-                    }
-                }
-            }
-            State::Authorized => Ok(()),
-        }
+        Ok(())
     }
 
     async fn on_recv(
@@ -192,9 +108,53 @@ impl Layer<Client> for Auth {
         _stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
         packet: Packet,
     ) -> Result<Action> {
-        match self.state {
-            State::Unauthorized => unreachable!("Authentication has not yet been performed, while `on_kex` should be called before."),
-            State::Authorized => Ok(Action::Forward(packet)),
-        }
+        Ok(match self.state {
+            State::Unauthorized => match packet.to() {
+                Ok(ServiceAccept { service_name }) if service_name.as_str() == SERVICE_NAME => {
+                    self.attempt(Method::None).await?;
+
+                    self.state = State::Transient;
+                    Action::Fetch
+                }
+                _ => Action::Disconnect {
+                    reason: DisconnectReason::ProtocolError,
+                    description: format!(
+                        "Unexpected message in the context of the `{SERVICE_NAME}` service."
+                    ),
+                },
+            },
+            State::Transient => {
+                if let Ok(userauth::Success) = packet.to() {
+                    self.state = State::Authorized;
+                    Action::Fetch
+                } else if let Ok(userauth::Failure { continue_with, .. }) = packet.to() {
+                    if let Some(method) = self
+                        .methods
+                        .extract_if(|m| {
+                            continue_with.into_iter().any(|method| m.as_ref() == method)
+                        })
+                        .next()
+                    {
+                        self.attempt(method).await?;
+
+                        Action::Fetch
+                    } else {
+                        Action::Disconnect {
+                            reason: DisconnectReason::NoMoreAuthMethodsAvailable,
+                            description:
+                                "Authentication methods exhausted for the current session.".into(),
+                        }
+                    }
+                } else {
+                    Action::Disconnect {
+                        reason: DisconnectReason::ProtocolError,
+                        description: format!(
+                            "Unexpected message in the context of the `{SERVICE_NAME}` service."
+                        ),
+                    }
+                }
+            }
+            State::Authorized => Action::Forward(packet),
+        })
     }
 }

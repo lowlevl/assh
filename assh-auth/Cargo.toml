@@ -28,4 +28,5 @@ ssh-key.workspace = true
 
 tracing.workspace = true
 futures.workspace = true
+hashbrown = "0.14.3"
 enumset = "1.1.3"
