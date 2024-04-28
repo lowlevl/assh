@@ -49,7 +49,7 @@ pub enum Action {
 /// ```
 pub trait Layer<S: Side>: Send {
     /// A method called _after successful key-exchange_.
-    fn on_kex(
+    fn after_kex(
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> impl Future<Output = Result<()>> + Send {
@@ -58,7 +58,7 @@ pub trait Layer<S: Side>: Send {
         async { Ok(()) }
     }
 
-    /// A method called _before a message is received_.
+    /// A method called _when a packet is received_.
     fn on_recv(
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
@@ -73,12 +73,12 @@ pub trait Layer<S: Side>: Send {
 impl<S: Side> Layer<S> for () {}
 
 impl<S: Side, A: Layer<S>, B: Layer<S>> Layer<S> for (A, B) {
-    async fn on_kex(
+    async fn after_kex(
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> Result<()> {
-        self.0.on_kex(stream).await?;
-        self.1.on_kex(stream).await?;
+        self.0.after_kex(stream).await?;
+        self.1.after_kex(stream).await?;
 
         Ok(())
     }

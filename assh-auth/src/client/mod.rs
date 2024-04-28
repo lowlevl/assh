@@ -31,6 +31,7 @@ enum State {
     #[default]
     Unauthorized,
     Transient,
+    Exhausted,
     Authorized,
 }
 
@@ -90,7 +91,7 @@ impl Auth {
 }
 
 impl Layer<Client> for Auth {
-    async fn on_kex(
+    async fn after_kex(
         &mut self,
         stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
     ) -> Result<()> {
@@ -139,12 +140,10 @@ impl Layer<Client> for Auth {
 
                         Action::Fetch
                     } else {
-                        Action::Disconnect {
-                            reason: DisconnectReason::NoMoreAuthMethodsAvailable,
-                            description:
-                                "Authentication methods exhausted for the current session.".into(),
-                        }
+                        self.state = State::Exhausted;
+                        Action::Fetch
                     }
+                    // TODO: Take care of special messages (AuthChangePasswdReq, etc.)
                 } else {
                     Action::Disconnect {
                         reason: DisconnectReason::ProtocolError,
@@ -154,7 +153,7 @@ impl Layer<Client> for Auth {
                     }
                 }
             }
-            State::Authorized => Action::Forward(packet),
+            State::Exhausted | State::Authorized => Action::Forward(packet),
         })
     }
 }

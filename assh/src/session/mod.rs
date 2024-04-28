@@ -101,7 +101,7 @@ where
 
             if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
                 self.config.kex(stream, &self.peer_id).await?;
-                self.layers.on_kex(stream).await?;
+                self.layers.after_kex(stream).await?;
 
                 continue;
             }
@@ -160,7 +160,7 @@ where
             || (stream.is_readable().await? && stream.peek().await?.to::<KexInit>().is_ok())
         {
             self.config.kex(stream, &self.peer_id).await?;
-            self.layers.on_kex(stream).await?;
+            self.layers.after_kex(stream).await?;
         }
 
         stream.send(message).await
