@@ -47,7 +47,7 @@ pub struct Stream<S> {
 }
 
 impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
-    pub(crate) fn new(stream: S, timeout: Duration) -> Self {
+    pub fn new(stream: S, timeout: Duration) -> Self {
         Self {
             inner: IoCounter::new(stream),
             timeout,
@@ -59,20 +59,20 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         }
     }
 
-    pub(crate) fn is_rekeyable(&self) -> bool {
+    pub fn is_rekeyable(&self) -> bool {
         self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
 
-    pub(crate) fn with_transport(&mut self, transport: TransportPair) {
+    pub fn with_transport(&mut self, transport: TransportPair) {
         self.transport = transport;
         self.inner.reset();
     }
 
-    pub(crate) fn with_session(&mut self, session: &[u8]) -> &[u8] {
+    pub fn with_session(&mut self, session: &[u8]) -> &[u8] {
         self.session.get_or_insert_with(|| session.to_vec())
     }
 
-    pub(crate) async fn fill_buf(&mut self) -> Result<()> {
+    pub async fn fill_buf(&mut self) -> Result<()> {
         self.inner.fill_buf().await?;
 
         Ok(())
@@ -86,7 +86,7 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
 
                 Ok(true)
             }
-            _ = futures_time::task::sleep(Duration::from_millis(1)).fuse() => {
+            _ = futures::future::ready(()).fuse() => {
                 Ok(false)
             }
         }
@@ -145,10 +145,5 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         self.txseq = self.txseq.wrapping_add(1);
 
         Ok(())
-    }
-
-    /// Access the session id of this stream, issued by the initial key-exchange.
-    pub fn session_id(&self) -> Option<&[u8]> {
-        self.session.as_deref()
     }
 }

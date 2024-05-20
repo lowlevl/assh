@@ -39,6 +39,7 @@
 mod error;
 pub use error::{Error, Result};
 
-pub mod layer;
+mod stream;
+pub use stream::algorithm;
+
 pub mod session;
-pub mod stream;

@@ -1,4 +1,4 @@
-//! Session-based transport handling, with support for extensions.
+//! Session-based transport handling, wrapping an I/O stream.
 
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
@@ -15,13 +15,10 @@ pub use side::Side;
 pub mod client;
 pub mod server;
 
-use crate::layer::{Action, Layer};
-
-/// A session wrapping a [`Stream`] to handle **key-exchange** and **[`SSH-TRANS`]** messages.
-pub struct Session<I, S, L = ()> {
+/// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
+pub struct Session<I, S> {
     stream: Option<Stream<I>>,
     config: S,
-    layers: L,
 
     peer_id: Id,
 }
@@ -48,33 +45,13 @@ where
         Ok(Self {
             stream: Some(stream),
             config,
-            layers: (),
             peer_id,
         })
     }
-}
 
-impl<I, S, L> Session<I, S, L>
-where
-    I: AsyncBufRead + AsyncWrite + Unpin + Send,
-    S: Side,
-    L: Layer<S>,
-{
-    /// Extend [`Session`]'s protocol handling capabilities with a [`Layer`].
-    pub fn add_layer<N: Layer<S>>(self, layer: N) -> Session<I, S, impl Layer<S>> {
-        let Self {
-            stream,
-            config,
-            layers,
-            peer_id,
-        } = self;
-
-        Session {
-            stream,
-            config,
-            layers: (layers, layer),
-            peer_id,
-        }
+    /// Access SSH [`Id`] of the connected peer.
+    pub fn peer_id(&self) -> &Id {
+        &self.peer_id
     }
 
     /// Waits until the [`Session`] becomes readable,
@@ -101,7 +78,6 @@ where
 
             if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
                 self.config.kex(stream, &self.peer_id).await?;
-                self.layers.after_kex(stream).await?;
 
                 continue;
             }
@@ -124,24 +100,7 @@ where
             } else if let Ok(Debug { message, .. }) = packet.to() {
                 tracing::debug!("Received a 'debug' message: {}", &*message);
             } else {
-                match self.layers.on_recv(stream, packet).await? {
-                    Action::Fetch => continue,
-                    Action::Forward(packet) => break Ok(packet),
-                    Action::Disconnect {
-                        reason,
-                        description,
-                    } => {
-                        stream
-                            .send(&Disconnect {
-                                reason,
-                                description: description.into(),
-                                language: Default::default(),
-                            })
-                            .await?;
-
-                        drop(self.stream.take());
-                    }
-                }
+                break Ok(packet);
             }
         }
     }
@@ -160,15 +119,9 @@ where
             || (stream.is_readable().await? && stream.peek().await?.to::<KexInit>().is_ok())
         {
             self.config.kex(stream, &self.peer_id).await?;
-            self.layers.after_kex(stream).await?;
         }
 
         stream.send(message).await
-    }
-
-    /// Access [`Id`] of the connected peer.
-    pub fn peer_id(&self) -> &Id {
-        &self.peer_id
     }
 }
 

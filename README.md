@@ -21,7 +21,6 @@ These crates use the _[ssh-packet](https://docs.rs/ssh-packet)_ crate as it's bi
 ### Goals
 
 - Provide a documented, readable and maintainable code for the SSH protocol in Rust.
-- Modularity and expandability to allow developers to choose to handles (or not) the different layers of the protocol.
 - Protocol safety, including a safe & tested protocol implementation, some sort of forward secrecy and implementation of the safest ciphers and key-exchanges available.
 
 ### Non-goals
