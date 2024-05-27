@@ -5,7 +5,7 @@ use hashbrown::HashSet;
 use assh::{
     service::Request,
     session::{Session, Side},
-    Result,
+    Error, Result,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 use ssh_packet::{cryptography::PublickeySignature, Packet};
@@ -184,6 +184,8 @@ impl<R: Request> Request for Auth<R> {
                         ),
                     )
                     .await?;
+
+                break Err(Error::UnexpectedMessage);
             }
         }
     }

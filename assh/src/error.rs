@@ -28,9 +28,13 @@ pub enum Error {
     #[error(transparent)]
     Signature(#[from] signature::Error),
 
-    /// A protocol error has occured.
-    #[error("Protocol error occured: {0}")]
-    Protocol(&'static str),
+    /// The message received was unexpected in the current context.
+    #[error("Peer sent a message that made no sense in the current context")]
+    UnexpectedMessage,
+
+    /// The service requested by the peer was unknown to us.
+    #[error("Peer requested an unknown service and has been disconnected")]
+    UnknownService,
 
     /// Error while encrypting or decrypting messages.
     #[error("The cipher ended up in an error")]

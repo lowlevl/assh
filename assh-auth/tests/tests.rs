@@ -41,9 +41,19 @@ mod cookie {
 async fn test() -> Result<(), Box<dyn std::error::Error>> {
     let duplex = tokio::io::duplex(ssh_packet::PACKET_MAX_SIZE * 16);
 
+    let server = Server {
+        keys: vec![ssh_key::private::PrivateKey::random(
+            &mut rand::thread_rng(),
+            ssh_key::Algorithm::Ed25519,
+        )
+        .unwrap()],
+        ..Server::default()
+    };
+    let client = Client::default();
+
     let (mut server, mut client) = tokio::try_join!(
-        session::Session::new(BufStream::new(duplex.0).compat(), Server::default()),
-        session::Session::new(BufStream::new(duplex.1).compat(), Client::default()),
+        session::Session::new(BufStream::new(duplex.0).compat(), server),
+        session::Session::new(BufStream::new(duplex.1).compat(), client),
     )?;
 
     let cookie = cookie::Cookie::default();

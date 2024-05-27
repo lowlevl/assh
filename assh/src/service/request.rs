@@ -8,7 +8,7 @@ use crate::{
 
 /// A service request in the transport protocol.
 pub trait Request {
-    /// Name of the service.
+    /// Name of the requested service.
     const SERVICE_NAME: &'static str;
 
     /// Proceed with the accepted service from the peer.
@@ -29,15 +29,28 @@ pub async fn request<R: Request>(
         })
         .await?;
 
-    if &*session
-        .recv()
-        .await?
-        .to::<trans::ServiceAccept>()?
-        .service_name
-        == R::SERVICE_NAME
-    {
-        requester.proceed(session).await
+    let packet = session.recv().await?;
+    if let Ok(trans::ServiceAccept { service_name }) = packet.to() {
+        if &*service_name == R::SERVICE_NAME {
+            requester.proceed(session).await
+        } else {
+            session
+                .disconnect(
+                    trans::DisconnectReason::ServiceNotAvailable,
+                    "Accepted service is unknown, aborting.",
+                )
+                .await?;
+
+            Err(Error::UnknownService)
+        }
     } else {
-        Err(Error::Protocol("Unexpected service in accept message"))
+        session
+            .disconnect(
+                trans::DisconnectReason::ProtocolError,
+                "Unexpected message outside of a service response, aborting.",
+            )
+            .await?;
+
+        Err(Error::UnexpectedMessage)
     }
 }
