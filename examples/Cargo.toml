@@ -23,7 +23,13 @@ ssh-packet.workspace = true
 ssh-key.workspace = true
 
 futures.workspace = true
-tokio = { version = "1.37.0", features = ["rt-multi-thread", "net", "time", "macros", "io-util"] }
+tokio = { version = "1.37.0", features = [
+    "rt-multi-thread",
+    "net",
+    "time",
+    "macros",
+    "io-util",
+] }
 
 color-eyre = "0.6.2"
 clap = { version = "4.5.1", features = ["derive"] }

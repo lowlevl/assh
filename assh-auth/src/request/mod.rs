@@ -1,0 +1,190 @@
+//! Authentication _request_ mechanics.
+
+use hashbrown::HashSet;
+
+use assh::{
+    service::Request,
+    session::{Session, Side},
+    Result,
+};
+use futures::{AsyncBufRead, AsyncWrite};
+use ssh_packet::{cryptography::PublickeySignature, Packet};
+
+mod method;
+use method::Method;
+
+// TODO: Add hostbased authentication.
+// TODO: Add keyboard-interactive authentication.
+
+#[doc(no_inline)]
+pub use ssh_key::PrivateKey;
+use ssh_packet::{
+    arch::{self, StringUtf8},
+    trans::DisconnectReason,
+    userauth,
+};
+
+/// The authentication service [`Request`] for sessions.
+#[derive(Debug)]
+pub struct Auth<R> {
+    username: StringUtf8,
+    service: R,
+
+    methods: HashSet<Method>,
+}
+
+impl<R: Request> Auth<R> {
+    /// Create an [`Auth`] layer for the provided _username_, to access the provided _service_.
+    ///
+    /// # Note
+    /// 1. The layer always starts with the `none` authentication method
+    /// to discover the methods available on the server.
+    /// 2. While the `publickey` method allows for multiple keys,
+    /// the `password` method will only keep the last one provided to [`Self::password`].
+    pub fn new(username: impl Into<StringUtf8>, service: R) -> Self {
+        Self {
+            username: username.into(),
+            service,
+
+            methods: Default::default(),
+        }
+    }
+
+    /// Attempt to authenticate with the `password` method.
+    pub fn password(mut self, password: impl Into<String>) -> Self {
+        self.methods.replace(Method::Password {
+            password: password.into(),
+        });
+
+        self
+    }
+
+    /// Attempt to authenticate with the `publickey` method.
+    pub fn publickey(mut self, key: impl Into<PrivateKey>) -> Self {
+        self.methods.replace(Method::Publickey {
+            key: key.into().into(),
+        });
+
+        self
+    }
+
+    fn next_method(&mut self, continue_with: &arch::NameList) -> Option<Method> {
+        self.methods
+            .extract_if(|m| continue_with.into_iter().any(|method| m.as_ref() == method))
+            .next()
+    }
+
+    async fn attempt_method<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+        &mut self,
+        session: &mut Session<I, S>,
+        method: &Method,
+    ) -> Result<Packet> {
+        let build = |method| userauth::Request {
+            username: self.username.clone(),
+            service_name: R::SERVICE_NAME.into(),
+            method,
+        };
+
+        match method {
+            Method::None => {
+                session.send(&build(userauth::Method::None)).await?;
+
+                session.recv().await
+            }
+            Method::Publickey { key } => {
+                // Probe the server to know if this algorithm is implemented.
+                session
+                    .send(&build(userauth::Method::Publickey {
+                        algorithm: key.algorithm().as_str().into(),
+                        blob: key.public_key().to_bytes()?.into(),
+                        signature: None,
+                    }))
+                    .await?;
+
+                let response = session.recv().await?;
+                if let Ok(userauth::PkOk { algorithm, blob }) = response.to() {
+                    // Actually sign the message with the key to perform real authentication.
+                    let signature = PublickeySignature {
+                        session_id: &session.session_id().unwrap_or_default().into(),
+                        username: &self.username,
+                        service_name: &R::SERVICE_NAME.into(),
+                        algorithm: &algorithm,
+                        blob: &blob,
+                    }
+                    .sign(&**key)
+                    .as_bytes()
+                    .into();
+
+                    session
+                        .send(&build(userauth::Method::Publickey {
+                            algorithm,
+                            blob,
+                            signature: Some(signature),
+                        }))
+                        .await?;
+
+                    session.recv().await
+                } else {
+                    Ok(response)
+                }
+            }
+            Method::Password { password } => {
+                session
+                    .send(&build(userauth::Method::Password {
+                        password: password.into(),
+                        new: None,
+                    }))
+                    .await?;
+
+                let response = session.recv().await?;
+                if let Ok(userauth::PasswdChangereq { prompt, .. }) = response.to() {
+                    unimplemented!() // TODO: Handle the change request case
+                } else {
+                    Ok(response)
+                }
+            }
+        }
+    }
+}
+
+impl<R: Request> Request for Auth<R> {
+    const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
+
+    async fn proceed(
+        &mut self,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+    ) -> Result<()> {
+        let mut method = Method::None;
+
+        loop {
+            let response = self.attempt_method(session, &method).await?;
+
+            if response.to::<userauth::Success>().is_ok() {
+                break self.service.proceed(session).await;
+            } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
+                // TODO: Take care of partial success
+
+                if let Some(next) = self.next_method(&continue_with) {
+                    method = next;
+                } else {
+                    session
+                        .disconnect(
+                            DisconnectReason::NoMoreAuthMethodsAvailable,
+                            "Exhausted available authentication methods.",
+                        )
+                        .await?;
+                };
+            } else {
+                session
+                    .disconnect(
+                        DisconnectReason::ProtocolError,
+                        format!(
+                            "Unexpected message in the context of the `{}` service.",
+                            Self::SERVICE_NAME
+                        ),
+                    )
+                    .await?;
+            }
+        }
+    }
+}

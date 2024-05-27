@@ -50,9 +50,14 @@ where
         })
     }
 
-    /// Access SSH [`Id`] of the connected peer.
+    /// Access the [`Id`] of the connected peer.
     pub fn peer_id(&self) -> &Id {
         &self.peer_id
+    }
+
+    /// Access initial exchange hash.
+    pub fn session_id(&self) -> Option<&[u8]> {
+        self.stream.as_ref().and_then(Stream::session_id)
     }
 
     /// Waits until the [`Session`] becomes readable,

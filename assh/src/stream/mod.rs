@@ -72,6 +72,10 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
         self.session.get_or_insert_with(|| session.to_vec())
     }
 
+    pub fn session_id(&self) -> Option<&[u8]> {
+        self.session.as_deref()
+    }
+
     pub async fn fill_buf(&mut self) -> Result<()> {
         self.inner.fill_buf().await?;
 

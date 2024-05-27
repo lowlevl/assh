@@ -18,4 +18,9 @@ pub trait Handler {
 }
 
 /// Handle _services_ from the peer.
-pub fn handle() {}
+pub async fn handle<H: Handler>(
+    session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+    mut handler: H,
+) -> Result<()> {
+    Ok(())
+}

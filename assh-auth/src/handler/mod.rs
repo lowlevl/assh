@@ -2,7 +2,7 @@
 
 use assh::{
     service::Handler,
-    session::{server::Server, Session, Side},
+    session::{Session, Side},
     Result,
 };
 use enumset::EnumSet;
@@ -14,8 +14,6 @@ use ssh_packet::{
     trans::{DisconnectReason, ServiceAccept, ServiceRequest},
     userauth,
 };
-
-use crate::{CONNECTION_SERVICE_NAME, SERVICE_NAME};
 
 mod method;
 use method::Method;
@@ -274,68 +272,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Handler for
         &mut self,
         session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> Result<()> {
-        let action = match self.state {
-            State::Unauthorized => match packet.to() {
-                Ok(ServiceRequest { service_name }) if service_name.as_str() == SERVICE_NAME => {
-                    tracing::debug!("Received authentication request from peer");
-
-                    stream.send(&ServiceAccept { service_name }).await?;
-
-                    if let Some(message) = self.banner.take() {
-                        tracing::debug!("Sending authentication banner to peer");
-
-                        stream
-                            .send(&userauth::Banner {
-                                message,
-                                ..Default::default()
-                            })
-                            .await?;
-                    }
-
-                    self.state = State::Transient;
-                    Action::Fetch
-                }
-                _ => Action::Disconnect {
-                    reason: DisconnectReason::ByApplication,
-                    description: "This server requires authentication.".into(),
-                },
-            },
-
-            State::Transient => match packet.to() {
-                Ok(userauth::Request {
-                    username,
-                    ref service_name,
-                    method,
-                }) => {
-                    if service_name.as_str() == CONNECTION_SERVICE_NAME {
-                        if self.methods.remove(*method.as_ref()) {
-                            self.handle(stream, username, method, service_name).await?;
-                        } else {
-                            self.failure(stream).await?;
-                        }
-
-                        Action::Fetch
-                    } else {
-                        Action::Disconnect {
-                            reason: DisconnectReason::ServiceNotAvailable,
-                            description: format!(
-                                "Unknown service `{}` in authentication request.",
-                                service_name.as_str()
-                            ),
-                        }
-                    }
-                }
-                _ => Action::Disconnect {
-                    reason: DisconnectReason::ProtocolError,
-                    description: format!(
-                        "Unexpected message in the context of the `{SERVICE_NAME}` service."
-                    ),
-                },
-            },
-
-            State::Authorized => Action::Forward(packet),
-        };
-
-        Ok(action)
+        unimplemented!()
     }
 }
