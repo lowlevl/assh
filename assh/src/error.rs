@@ -28,6 +28,10 @@ pub enum Error {
     #[error(transparent)]
     Signature(#[from] signature::Error),
 
+    /// A protocol error has occured.
+    #[error("Protocol error occured: {0}")]
+    Protocol(&'static str),
+
     /// Error while encrypting or decrypting messages.
     #[error("The cipher ended up in an error")]
     Cipher,

@@ -3,9 +3,8 @@
 use hashbrown::HashSet;
 
 use assh::{
-    layer::{Action, Layer},
-    session::client::Client,
-    stream::{Packet, Stream},
+    service::Request,
+    session::{Session, Side},
     Result,
 };
 use futures::{AsyncBufRead, AsyncWrite};
@@ -18,33 +17,18 @@ use method::Method;
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
-use ssh_packet::{
-    cryptography::PublickeySignature,
-    trans::{DisconnectReason, ServiceAccept, ServiceRequest},
-    userauth,
-};
+use ssh_packet::{arch, trans::DisconnectReason, userauth};
 
-use crate::SERVICE_NAME;
-
-#[derive(Debug, Default)]
-enum State {
-    #[default]
-    Unauthorized,
-    Transient,
-    Exhausted,
-    Authorized,
-}
-
-/// The authentication [`Layer`] for client-side sessions.
+/// The authentication service [`Request`] for sessions.
 #[derive(Debug)]
-pub struct Auth {
-    state: State,
-
+pub struct Auth<R> {
     username: String,
+    service: R,
+
     methods: HashSet<Method>,
 }
 
-impl Auth {
+impl<R> Auth<R> {
     /// Create an [`Auth`] layer for the provided _username_.
     ///
     /// # Note
@@ -53,10 +37,11 @@ impl Auth {
     ///
     /// Also while the `publickey` method allows for multiple tries,
     /// the `password` method will only keep the last one provided to [`Self::password`].
-    pub fn new(username: impl Into<String>) -> Self {
+    pub fn new(username: impl Into<String>, service: R) -> Self {
         Self {
-            state: Default::default(),
             username: username.into(),
+            service,
+
             methods: Default::default(),
         }
     }
@@ -79,7 +64,14 @@ impl Auth {
         self
     }
 
-    async fn attempt(&mut self, method: Method) -> Result<()> {
+    fn next_method(&mut self, continue_with: &arch::NameList) -> Option<Method> {
+        self.methods
+            .extract_if(|m| continue_with.into_iter().any(|method| m.as_ref() == method))
+            .next()
+    }
+
+    async fn attempt_method(&mut self, method: Method) -> Result<()> {
+        // TODO: Implement methods
         match method {
             Method::None => todo!(),
             Method::Publickey { key } => todo!(),
@@ -90,70 +82,46 @@ impl Auth {
     }
 }
 
-impl Layer<Client> for Auth {
-    async fn after_kex(
+impl<R: Request> Request for Auth<R> {
+    const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
+
+    async fn proceed(
         &mut self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
     ) -> Result<()> {
-        stream
-            .send(&ServiceRequest {
-                service_name: SERVICE_NAME.into(),
-            })
-            .await?;
+        self.attempt_method(Method::None).await?;
 
-        Ok(())
-    }
+        loop {
+            let response = session.recv().await?;
 
-    async fn on_recv(
-        &mut self,
-        _stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
-        packet: Packet,
-    ) -> Result<Action> {
-        Ok(match self.state {
-            State::Unauthorized => match packet.to() {
-                Ok(ServiceAccept { service_name }) if service_name.as_str() == SERVICE_NAME => {
-                    self.attempt(Method::None).await?;
+            if response.to::<userauth::Success>().is_ok() {
+                break self.service.proceed(session).await;
+            } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
+                // TODO: Take care of partial success
 
-                    self.state = State::Transient;
-                    Action::Fetch
-                }
-                _ => Action::Disconnect {
-                    reason: DisconnectReason::ProtocolError,
-                    description: format!(
-                        "Unexpected message in the context of the `{SERVICE_NAME}` service."
-                    ),
-                },
-            },
-            State::Transient => {
-                if let Ok(userauth::Success) = packet.to() {
-                    self.state = State::Authorized;
-                    Action::Fetch
-                } else if let Ok(userauth::Failure { continue_with, .. }) = packet.to() {
-                    if let Some(method) = self
-                        .methods
-                        .extract_if(|m| {
-                            continue_with.into_iter().any(|method| m.as_ref() == method)
-                        })
-                        .next()
-                    {
-                        self.attempt(method).await?;
-
-                        Action::Fetch
-                    } else {
-                        self.state = State::Exhausted;
-                        Action::Fetch
-                    }
-                    // TODO: Take care of special messages (AuthChangePasswdReq, etc.)
+                if let Some(method) = self.next_method(&continue_with) {
+                    self.attempt_method(method).await?;
                 } else {
-                    Action::Disconnect {
-                        reason: DisconnectReason::ProtocolError,
-                        description: format!(
-                            "Unexpected message in the context of the `{SERVICE_NAME}` service."
+                    session
+                        .disconnect(
+                            DisconnectReason::NoMoreAuthMethodsAvailable,
+                            "Exhausted available authentication methods.",
+                        )
+                        .await?;
+                };
+            } else {
+                // TODO: Take care of special messages (AuthChangePasswdReq, etc.)
+
+                session
+                    .disconnect(
+                        DisconnectReason::ProtocolError,
+                        format!(
+                            "Unexpected message in the context of the `{}` service.",
+                            Self::SERVICE_NAME
                         ),
-                    }
-                }
+                    )
+                    .await?;
             }
-            State::Exhausted | State::Authorized => Action::Forward(packet),
-        })
+        }
     }
 }

@@ -1,9 +1,10 @@
-//! Session-based transport handling, wrapping an I/O stream.
+//! Session transport handling facilities.
 
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
-    trans::{Debug, Disconnect, Ignore, KexInit, Unimplemented},
+    arch::StringUtf8,
+    trans::{Debug, Disconnect, DisconnectReason, Ignore, KexInit, Unimplemented},
     Id, Packet, ToPacket,
 };
 
@@ -106,10 +107,6 @@ where
     }
 
     /// Send a _packet_ to the connected peer.
-    ///
-    /// # Cancel safety
-    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
-    /// some data may be partially written.
     pub async fn send(&mut self, message: &impl ToPacket) -> Result<()> {
         let Some(ref mut stream) = self.stream else {
             return Err(Error::Disconnected);
@@ -122,6 +119,24 @@ where
         }
 
         stream.send(message).await
+    }
+
+    /// Send a _disconnect message_ to the peer and shutdown the session.
+    pub async fn disconnect(
+        &mut self,
+        reason: DisconnectReason,
+        description: impl Into<StringUtf8>,
+    ) -> Result<()> {
+        self.send(&Disconnect {
+            reason,
+            description: description.into(),
+            language: Default::default(),
+        })
+        .await?;
+
+        drop(self.stream.take());
+
+        Ok(())
     }
 }
 

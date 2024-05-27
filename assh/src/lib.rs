@@ -10,18 +10,18 @@
 //!
 //! ### Supported algorithms
 //!
-//! #### Key-exchange:
+//! ##### Key-exchange:
 //! see [`stream::algorithm::Kex`].
 //!
-//! #### Encryption:
+//! ##### Encryption:
 //!
 //! see [`stream::algorithm::Cipher`].
 //!
-//! #### MACs
+//! ##### MACs
 //!
 //! see [`stream::algorithm::Hmac`].
 //!
-//! #### Compression:
+//! ##### Compression:
 //!
 //! see [`stream::algorithm::Compress`].
 
@@ -42,4 +42,5 @@ pub use error::{Error, Result};
 mod stream;
 pub use stream::algorithm;
 
+pub mod service;
 pub mod session;

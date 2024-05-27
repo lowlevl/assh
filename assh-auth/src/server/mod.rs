@@ -1,9 +1,8 @@
 //! Server-side authentication mechanics.
 
 use assh::{
-    layer::{Action, Layer},
-    session::server::Server,
-    stream::{Packet, Stream},
+    service::Handler,
+    session::{server::Server, Session, Side},
     Result,
 };
 use enumset::EnumSet;
@@ -25,19 +24,9 @@ pub mod none;
 pub mod password;
 pub mod publickey;
 
-#[derive(Debug, Default)]
-enum State {
-    #[default]
-    Unauthorized,
-    Transient,
-    Authorized,
-}
-
-/// The authentication [`Layer`] for server-side sessions.
+/// The authentication service [`Handler`] for sessions.
 #[derive(Debug)]
 pub struct Auth<N = (), P = (), PK = ()> {
-    state: State,
-
     banner: Option<StringUtf8>,
     // TODO: Add a total attempts counter, to disconnect when exceeded.
     // TODO: Retain methods per user-basis, because each user can attempt all the methods.
@@ -51,8 +40,6 @@ pub struct Auth<N = (), P = (), PK = ()> {
 impl Default for Auth {
     fn default() -> Self {
         Self {
-            state: Default::default(),
-
             banner: Default::default(),
             methods: Method::None.into(), // always insert the `none` method
 
@@ -81,7 +68,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
     /// Set the authentication handler for the `none` method.
     pub fn none(self, none: impl none::None) -> Auth<impl none::None, P, PK> {
         let Self {
-            state,
             banner,
             mut methods,
             none: _,
@@ -92,7 +78,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         methods |= Method::None;
 
         Auth {
-            state,
             banner,
             methods,
             none,
@@ -107,7 +92,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         password: impl password::Password,
     ) -> Auth<N, impl password::Password, PK> {
         let Self {
-            state,
             banner,
             mut methods,
             none,
@@ -118,7 +102,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         methods |= Method::Password;
 
         Auth {
-            state,
             banner,
             methods,
             none,
@@ -133,7 +116,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         publickey: impl publickey::Publickey,
     ) -> Auth<N, P, impl publickey::Publickey> {
         let Self {
-            state,
             banner,
             mut methods,
             none,
@@ -144,7 +126,6 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         methods |= Method::Publickey;
 
         Auth {
-            state,
             banner,
             methods,
             none,
@@ -155,18 +136,16 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
 
     async fn success(
         &mut self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
     ) -> Result<()> {
-        self.state = State::Authorized;
-
-        stream.send(&userauth::Success).await
+        session.send(&userauth::Success).await
     }
 
     async fn failure(
         &self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
     ) -> Result<()> {
-        stream
+        session
             .send(&userauth::Failure {
                 continue_with: NameList::new(self.methods),
                 partial_success: false.into(),
@@ -176,7 +155,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
 
     async fn handle(
         &mut self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
         username: StringUtf8,
         method: userauth::Method,
         service_name: &StringAscii,
@@ -189,8 +168,8 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                 );
 
                 match self.none.process(username.to_string()) {
-                    none::Response::Accept => self.success(stream).await?,
-                    none::Response::Reject => self.failure(stream).await?,
+                    none::Response::Accept => self.success(session).await?,
+                    none::Response::Reject => self.failure(session).await?,
                 }
             }
 
@@ -212,7 +191,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                     Some(signature) => match key {
                         Ok(key) if key.algorithm().as_str().as_bytes() == algorithm.as_ref() => {
                             let message = PublickeySignature {
-                                session_id: &stream.session_id().unwrap_or_default().into(),
+                                session_id: &session.session_id().unwrap_or_default().into(),
                                 username: &username,
                                 service_name,
                                 algorithm: &algorithm,
@@ -225,22 +204,22 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                                 && self.publickey.process(username.to_string(), key)
                                     == publickey::Response::Accept
                             {
-                                self.success(stream).await?;
+                                self.success(session).await?;
                             } else {
                                 // TODO: Does a faked signature needs to cause disconnection ?
-                                self.failure(stream).await?;
+                                self.failure(session).await?;
                             }
                         }
-                        _ => self.failure(stream).await?,
+                        _ => self.failure(session).await?,
                     },
                     None => {
                         // Authentication has not actually been attempted, so we allow it again.
                         self.methods |= Method::Publickey;
 
                         if key.is_ok() {
-                            stream.send(&userauth::PkOk { blob, algorithm }).await?;
+                            session.send(&userauth::PkOk { blob, algorithm }).await?;
                         } else {
-                            self.failure(stream).await?;
+                            self.failure(session).await?;
                         }
                     }
                 }
@@ -258,18 +237,18 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                     password.into_string(),
                     new.map(StringUtf8::into_string),
                 ) {
-                    password::Response::Accept => self.success(stream).await?,
+                    password::Response::Accept => self.success(session).await?,
                     password::Response::PasswordExpired { prompt } => {
                         self.methods |= Method::Password;
 
-                        stream
+                        session
                             .send(&userauth::PasswdChangereq {
                                 prompt: prompt.into(),
                                 ..Default::default()
                             })
                             .await?;
                     }
-                    password::Response::Reject => self.failure(stream).await?,
+                    password::Response::Reject => self.failure(session).await?,
                 }
             }
 
@@ -288,14 +267,13 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
     }
 }
 
-impl<N: none::None, P: password::Password, PK: publickey::Publickey> Layer<Server>
-    for Auth<N, P, PK>
-{
-    async fn on_recv(
+impl<N: none::None, P: password::Password, PK: publickey::Publickey> Handler for Auth<N, P, PK> {
+    const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
+
+    async fn proceed(
         &mut self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin + Send>,
-        packet: Packet,
-    ) -> Result<Action> {
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+    ) -> Result<()> {
         let action = match self.state {
             State::Unauthorized => match packet.to() {
                 Ok(ServiceRequest { service_name }) if service_name.as_str() == SERVICE_NAME => {

@@ -93,10 +93,6 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
     }
 
     /// Receive and decrypt a _packet_ from the peer without removing it from the queue.
-    ///
-    /// # Cancel safety
-    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
-    /// some data may be partially received.
     pub async fn peek(&mut self) -> Result<&Packet> {
         let packet = self.recv().await?;
 
@@ -104,10 +100,6 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
     }
 
     /// Receive and decrypt a _packet_ from the peer.
-    ///
-    /// # Cancel safety
-    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
-    /// some data may be partially received.
     pub async fn recv(&mut self) -> Result<Packet> {
         match self.buffer.take() {
             Some(packet) => Ok(packet),
@@ -127,10 +119,6 @@ impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
     }
 
     /// Encrypt and send a _packet_ to the peer.
-    ///
-    /// # Cancel safety
-    /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
-    /// some data may be partially written.
     pub async fn send(&mut self, packet: &impl ToPacket) -> Result<()> {
         let packet = packet.to_packet()?;
 
