@@ -24,11 +24,11 @@ const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
 const INITIAL_WINDOW_SIZE: u32 = 64 * MAXIMUM_PACKET_SIZE;
 const WINDOW_ADJUST_THRESHOLD: u32 = INITIAL_WINDOW_SIZE / 2;
 
-mod connect;
-pub use connect::Connect;
+// mod connect;
+// pub use connect::Connect;
 
-pub mod channel;
-pub mod global_request;
+// pub mod channel;
+// pub mod global_request;
 
 mod error;
 pub use error::{Error, Result};

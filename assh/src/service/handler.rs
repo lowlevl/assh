@@ -13,7 +13,7 @@ pub trait Handler {
     /// Proceed with the service request from the peer.
     fn proceed(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> impl Future<Output = Result<()>>;
 }
 

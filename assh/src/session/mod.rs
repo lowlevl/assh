@@ -26,7 +26,7 @@ pub struct Session<I, S> {
 
 impl<I, S> Session<I, S>
 where
-    I: AsyncBufRead + AsyncWrite + Unpin + Send,
+    I: AsyncBufRead + AsyncWrite + Unpin,
     S: Side,
 {
     /// Create a new [`Session`] from a [`AsyncBufRead`] + [`AsyncWrite`] stream,

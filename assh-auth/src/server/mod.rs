@@ -136,14 +136,14 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
 
     async fn success(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> Result<()> {
         session.send(&userauth::Success).await
     }
 
     async fn failure(
         &self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> Result<()> {
         session
             .send(&userauth::Failure {
@@ -155,7 +155,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
 
     async fn handle(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
         username: StringUtf8,
         method: userauth::Method,
         service_name: &StringAscii,
@@ -272,7 +272,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Handler for
 
     async fn proceed(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> Result<()> {
         let action = match self.state {
             State::Unauthorized => match packet.to() {

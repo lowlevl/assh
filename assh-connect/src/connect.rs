@@ -30,7 +30,7 @@ pub struct Connect<I, S, L> {
     receiver: flume::Receiver<channel::Msg>,
 }
 
-impl<I: AsyncBufRead + AsyncWrite + Unpin + Send, S: Side, L: Layer<S>> Connect<I, S, L> {
+impl<I: AsyncBufRead + AsyncWrite + Unpin, S: Side, L: Layer<S>> Connect<I, S, L> {
     /// Create a wrapper around the `session` to handle the connect layer.
     pub fn new(session: Session<I, S, L>) -> Self {
         let (sender, receiver) = flume::unbounded();

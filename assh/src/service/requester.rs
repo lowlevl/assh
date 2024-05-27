@@ -14,13 +14,13 @@ pub trait Request {
     /// Proceed with the accepted service from the peer.
     fn proceed(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> impl Future<Output = Result<()>>;
 }
 
 /// Request a _service_ from the peer.
 pub async fn request<R: Request>(
-    session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+    session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     mut requester: R,
 ) -> Result<()> {
     session

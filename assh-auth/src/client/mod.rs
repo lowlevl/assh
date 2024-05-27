@@ -87,7 +87,7 @@ impl<R: Request> Request for Auth<R> {
 
     async fn proceed(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin + Send, impl Side>,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> Result<()> {
         self.attempt_method(Method::None).await?;
 
