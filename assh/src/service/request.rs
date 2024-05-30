@@ -31,7 +31,7 @@ pub async fn request<R: Request>(
 
     let packet = session.recv().await?;
     if let Ok(trans::ServiceAccept { service_name }) = packet.to() {
-        if &*service_name == R::SERVICE_NAME {
+        if &*service_name == R::SERVICE_NAME.as_bytes() {
             requester.proceed(session).await
         } else {
             session

@@ -8,13 +8,15 @@ use futures::{AsyncBufRead, AsyncWrite};
 use tokio::io::BufStream;
 
 mod cookie {
-    use std::sync::{atomic::AtomicBool, Arc};
+    const SERVICE_NAME: &'static str = "dummy-service@assh.rs";
+
+    use std::{rc::Rc, sync::atomic::AtomicBool};
 
     use super::*;
 
     #[derive(Debug, Default, Clone)]
     pub struct Cookie {
-        flag: Arc<AtomicBool>,
+        flag: Rc<AtomicBool>,
     }
 
     impl Cookie {
@@ -24,7 +26,20 @@ mod cookie {
     }
 
     impl assh::service::Request for Cookie {
-        const SERVICE_NAME: &'static str = "ssh-connection";
+        const SERVICE_NAME: &'static str = SERVICE_NAME;
+
+        async fn proceed(
+            &mut self,
+            _session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+        ) -> Result<()> {
+            self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
+
+            Ok(())
+        }
+    }
+
+    impl assh::service::Handler for Cookie {
+        const SERVICE_NAME: &'static str = SERVICE_NAME;
 
         async fn proceed(
             &mut self,
@@ -56,14 +71,25 @@ async fn test() -> Result<(), Box<dyn std::error::Error>> {
         session::Session::new(BufStream::new(duplex.1).compat(), client),
     )?;
 
-    let cookie = cookie::Cookie::default();
+    let cookie0 = cookie::Cookie::default();
+    let cookie1 = cookie::Cookie::default();
 
     tokio::try_join!(
-        assh::service::handle(&mut server, handler::Auth::new()),
-        assh::service::request(&mut client, request::Auth::new("foobar", cookie.clone())),
+        assh::service::handle(
+            &mut server,
+            handler::Auth::new(cookie0.clone()).none(|_| handler::none::Response::Accept)
+        ),
+        assh::service::request(&mut client, request::Auth::new("user", cookie1.clone())),
     )?;
 
-    assert!(cookie.is_flagged(), "Authentication did not succeed");
+    assert!(
+        cookie0.is_flagged(),
+        "Authentication handling did not succeed"
+    );
+    assert!(
+        cookie1.is_flagged(),
+        "Authentication request did not succeed"
+    );
 
     Ok(())
 }

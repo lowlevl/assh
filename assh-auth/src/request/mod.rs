@@ -137,7 +137,7 @@ impl<R: Request> Auth<R> {
                     .await?;
 
                 let response = session.recv().await?;
-                if let Ok(userauth::PasswdChangereq { prompt, .. }) = response.to() {
+                if let Ok(userauth::PasswdChangereq { prompt: _, .. }) = response.to() {
                     unimplemented!() // TODO: Handle the change request case
                 } else {
                     Ok(response)
@@ -173,13 +173,15 @@ impl<R: Request> Request for Auth<R> {
                             "Exhausted available authentication methods.",
                         )
                         .await?;
+
+                    break Err(Error::Disconnected);
                 };
             } else {
                 session
                     .disconnect(
                         DisconnectReason::ProtocolError,
                         format!(
-                            "Unexpected message in the context of the `{}` service.",
+                            "Unexpected message in the context of the `{}` service request.",
                             Self::SERVICE_NAME
                         ),
                     )

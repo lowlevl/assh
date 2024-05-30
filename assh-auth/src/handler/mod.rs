@@ -1,9 +1,9 @@
-//! Server-side authentication mechanics.
+//! Authentication _handling_ mechanics.
 
 use assh::{
-    service::Handler,
+    service::{Handler, Handlers},
     session::{Session, Side},
-    Result,
+    Error, Result,
 };
 use enumset::EnumSet;
 use futures::{AsyncBufRead, AsyncWrite};
@@ -11,7 +11,7 @@ use ssh_key::{public::PublicKey, Signature};
 use ssh_packet::{
     arch::{NameList, StringAscii, StringUtf8},
     cryptography::PublickeySignature,
-    trans::{DisconnectReason, ServiceAccept, ServiceRequest},
+    trans::DisconnectReason,
     userauth,
 };
 
@@ -22,24 +22,37 @@ pub mod none;
 pub mod password;
 pub mod publickey;
 
+#[derive(Debug, PartialEq)]
+enum Attempt {
+    Success,
+    Partial,
+    Failure,
+    Continue,
+}
+
 /// The authentication service [`Handler`] for sessions.
 #[derive(Debug)]
-pub struct Auth<N = (), P = (), PK = ()> {
+pub struct Auth<H, N = (), P = (), PK = ()> {
     banner: Option<StringUtf8>,
     // TODO: Add a total attempts counter, to disconnect when exceeded.
     // TODO: Retain methods per user-basis, because each user can attempt all the methods.
     methods: EnumSet<Method>,
+
+    handlers: H,
 
     none: N,
     password: P,
     publickey: PK,
 }
 
-impl Default for Auth {
-    fn default() -> Self {
+impl<H: Handlers> Auth<H> {
+    /// Create an [`Auth`] layer, rejecting all authentication by default.
+    pub fn new(services: H) -> Self {
         Self {
             banner: Default::default(),
             methods: Method::None.into(), // always insert the `none` method
+
+            handlers: services,
 
             none: (),
             password: (),
@@ -48,14 +61,9 @@ impl Default for Auth {
     }
 }
 
-impl Auth {
-    /// Create an [`Auth`] layer, rejecting all authentication by default.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, PK> {
+impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey>
+    Auth<H, N, P, PK>
+{
     /// Set the authentication banner text to be displayed upon authentication (the string should be `\r\n` terminated).
     pub fn banner(mut self, banner: impl Into<StringUtf8>) -> Self {
         self.banner = Some(banner.into());
@@ -64,10 +72,11 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
     }
 
     /// Set the authentication handler for the `none` method.
-    pub fn none(self, none: impl none::None) -> Auth<impl none::None, P, PK> {
+    pub fn none(self, none: impl none::None) -> Auth<H, impl none::None, P, PK> {
         let Self {
             banner,
             mut methods,
+            handlers,
             none: _,
             password,
             publickey,
@@ -78,6 +87,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         Auth {
             banner,
             methods,
+            handlers,
             none,
             password,
             publickey,
@@ -88,10 +98,11 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
     pub fn password(
         self,
         password: impl password::Password,
-    ) -> Auth<N, impl password::Password, PK> {
+    ) -> Auth<H, N, impl password::Password, PK> {
         let Self {
             banner,
             mut methods,
+            handlers,
             none,
             password: _,
             publickey,
@@ -102,6 +113,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         Auth {
             banner,
             methods,
+            handlers,
             none,
             password,
             publickey,
@@ -112,10 +124,11 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
     pub fn publickey(
         self,
         publickey: impl publickey::Publickey,
-    ) -> Auth<N, P, impl publickey::Publickey> {
+    ) -> Auth<H, N, P, impl publickey::Publickey> {
         let Self {
             banner,
             mut methods,
+            handlers,
             none,
             password,
             publickey: _,
@@ -126,39 +139,21 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
         Auth {
             banner,
             methods,
+            handlers,
             none,
             password,
             publickey,
         }
     }
 
-    async fn success(
-        &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
-    ) -> Result<()> {
-        session.send(&userauth::Success).await
-    }
-
-    async fn failure(
-        &self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
-    ) -> Result<()> {
-        session
-            .send(&userauth::Failure {
-                continue_with: NameList::new(self.methods),
-                partial_success: false.into(),
-            })
-            .await
-    }
-
-    async fn handle(
+    async fn handle_attempt(
         &mut self,
         session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
         username: StringUtf8,
         method: userauth::Method,
         service_name: &StringAscii,
-    ) -> Result<()> {
-        match method {
+    ) -> Result<Attempt> {
+        Ok(match method {
             userauth::Method::None => {
                 tracing::debug!(
                     "Attempt using method `none` for user `{}`",
@@ -166,8 +161,8 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                 );
 
                 match self.none.process(username.to_string()) {
-                    none::Response::Accept => self.success(session).await?,
-                    none::Response::Reject => self.failure(session).await?,
+                    none::Response::Accept => Attempt::Success,
+                    none::Response::Reject => Attempt::Failure,
                 }
             }
 
@@ -202,13 +197,13 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                                 && self.publickey.process(username.to_string(), key)
                                     == publickey::Response::Accept
                             {
-                                self.success(session).await?;
+                                Attempt::Success
                             } else {
                                 // TODO: Does a faked signature needs to cause disconnection ?
-                                self.failure(session).await?;
+                                Attempt::Failure
                             }
                         }
-                        _ => self.failure(session).await?,
+                        _ => Attempt::Failure,
                     },
                     None => {
                         // Authentication has not actually been attempted, so we allow it again.
@@ -216,8 +211,10 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
 
                         if key.is_ok() {
                             session.send(&userauth::PkOk { blob, algorithm }).await?;
+
+                            Attempt::Continue
                         } else {
-                            self.failure(session).await?;
+                            Attempt::Failure
                         }
                     }
                 }
@@ -235,7 +232,7 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                     password.into_string(),
                     new.map(StringUtf8::into_string),
                 ) {
-                    password::Response::Accept => self.success(session).await?,
+                    password::Response::Accept => Attempt::Success,
                     password::Response::PasswordExpired { prompt } => {
                         self.methods |= Method::Password;
 
@@ -245,8 +242,10 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                                 ..Default::default()
                             })
                             .await?;
+
+                        Attempt::Continue
                     }
-                    password::Response::Reject => self.failure(session).await?,
+                    password::Response::Reject => Attempt::Failure,
                 }
             }
 
@@ -259,19 +258,79 @@ impl<N: none::None, P: password::Password, PK: publickey::Publickey> Auth<N, P, 
                 // TODO: Add keyboard-interactive authentication.
                 unimplemented!("Server-side `keyboard-interactive` method is not implemented")
             }
-        }
-
-        Ok(())
+        })
     }
 }
 
-impl<N: none::None, P: password::Password, PK: publickey::Publickey> Handler for Auth<N, P, PK> {
+impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey> Handler
+    for Auth<H, N, P, PK>
+{
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
     async fn proceed(
         &mut self,
         session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
     ) -> Result<()> {
-        unimplemented!()
+        if let Some(message) = self.banner.take() {
+            session
+                .send(&userauth::Banner {
+                    message,
+                    ..Default::default()
+                })
+                .await?;
+        }
+
+        loop {
+            if let Ok(userauth::Request {
+                username,
+                service_name,
+                method,
+            }) = session.recv().await?.to()
+            {
+                if self.methods.remove(*method.as_ref()) {
+                    match self
+                        .handle_attempt(session, username, method, &service_name)
+                        .await?
+                    {
+                        Attempt::Success => {
+                            session.send(&userauth::Success).await?;
+
+                            break self
+                                .handlers
+                                .handle(session, service_name.into_string().into_bytes().into())
+                                .await;
+                        }
+                        attempt @ Attempt::Failure | attempt @ Attempt::Partial => {
+                            session
+                                .send(&userauth::Failure {
+                                    continue_with: NameList::new(self.methods),
+                                    partial_success: (attempt == Attempt::Partial).into(),
+                                })
+                                .await?;
+                        }
+                        Attempt::Continue => (),
+                    }
+                } else {
+                    session
+                        .send(&userauth::Failure {
+                            continue_with: NameList::new(self.methods),
+                            partial_success: false.into(),
+                        })
+                        .await?;
+                }
+            } else {
+                session
+                    .disconnect(
+                        DisconnectReason::ProtocolError,
+                        format!(
+                            "Unexpected message in the context of the `{}` service request.",
+                            Self::SERVICE_NAME
+                        ),
+                    )
+                    .await?;
+
+                break Err(Error::UnexpectedMessage);
+            }
+        }
     }
 }
