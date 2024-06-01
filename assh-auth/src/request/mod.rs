@@ -150,9 +150,9 @@ impl<R: Request> Auth<R> {
 impl<R: Request> Request for Auth<R> {
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn proceed(
+    async fn request<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+        session: &mut Session<I, S>,
     ) -> Result<()> {
         let mut method = Method::None;
 
@@ -160,7 +160,7 @@ impl<R: Request> Request for Auth<R> {
             let response = self.attempt_method(session, &method).await?;
 
             if response.to::<userauth::Success>().is_ok() {
-                break self.service.proceed(session).await;
+                break self.service.request(session).await;
             } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
                 // TODO: Take care of partial success
 

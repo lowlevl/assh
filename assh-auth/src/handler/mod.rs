@@ -146,9 +146,9 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
         }
     }
 
-    async fn handle_attempt(
+    async fn handle_attempt<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+        session: &mut Session<I, S>,
         username: StringUtf8,
         method: userauth::Method,
         service_name: &StringAscii,
@@ -267,9 +267,9 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
 {
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn proceed(
+    async fn handle<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+        session: &mut Session<I, S>,
     ) -> Result<()> {
         if let Some(message) = self.banner.take() {
             session
@@ -297,7 +297,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
 
                             break self
                                 .handlers
-                                .handle(session, service_name.into_string().into_bytes().into())
+                                .proceed(session, service_name.into_string().into_bytes().into())
                                 .await;
                         }
                         attempt @ Attempt::Failure | attempt @ Attempt::Partial => {

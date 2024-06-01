@@ -28,9 +28,9 @@ mod cookie {
     impl assh::service::Request for Cookie {
         const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-        async fn proceed(
+        async fn request<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
             &mut self,
-            _session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+            _: &mut Session<I, S>,
         ) -> Result<()> {
             self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
 
@@ -41,9 +41,9 @@ mod cookie {
     impl assh::service::Handler for Cookie {
         const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-        async fn proceed(
+        async fn handle<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
             &mut self,
-            _session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+            _: &mut Session<I, S>,
         ) -> Result<()> {
             self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
 

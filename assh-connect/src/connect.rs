@@ -29,7 +29,7 @@ pub struct Connect<'s, I, S> {
 
 impl<'s, I: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, I, S> {
     /// Create a wrapper around the `session` to handle the connect layer.
-    fn new(session: &'s mut Session<I, S>) -> Self {
+    pub(super) fn new(session: &'s mut Session<I, S>) -> Self {
         let (sender, receiver) = flume::unbounded();
 
         Self {

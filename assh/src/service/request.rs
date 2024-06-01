@@ -12,15 +12,15 @@ pub trait Request {
     const SERVICE_NAME: &'static str;
 
     /// Proceed with the accepted service from the peer.
-    fn proceed(
+    fn request<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
         &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+        session: &mut Session<I, S>,
     ) -> impl Future<Output = Result<()>>;
 }
 
 /// Request a _service_ from the peer.
-pub async fn request<R: Request>(
-    session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+pub async fn request<I: AsyncBufRead + AsyncWrite + Unpin, S: Side, R: Request>(
+    session: &mut Session<I, S>,
     mut requester: R,
 ) -> Result<()> {
     session
@@ -32,7 +32,7 @@ pub async fn request<R: Request>(
     let packet = session.recv().await?;
     if let Ok(trans::ServiceAccept { service_name }) = packet.to() {
         if &*service_name == R::SERVICE_NAME.as_bytes() {
-            requester.proceed(session).await
+            requester.request(session).await
         } else {
             session
                 .disconnect(
