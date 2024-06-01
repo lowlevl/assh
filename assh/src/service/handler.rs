@@ -34,22 +34,6 @@ impl Handlers for () {
     }
 }
 
-impl<H: Handler> Handlers for H {
-    async fn handle(
-        &mut self,
-        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
-        service_name: arch::Bytes,
-    ) -> Result<()> {
-        if &*service_name == H::SERVICE_NAME.as_bytes() {
-            session.send(&trans::ServiceAccept { service_name }).await?;
-
-            self.proceed(session).await
-        } else {
-            Err(Error::UnknownService)
-        }
-    }
-}
-
 impl<H0: Handlers, H1: Handlers> Handlers for (H0, H1) {
     async fn handle(
         &mut self,
@@ -105,5 +89,21 @@ pub async fn handle<H: Handlers>(
             .await?;
 
         Err(Error::UnexpectedMessage)
+    }
+}
+
+impl<H: Handler> Handlers for H {
+    async fn handle(
+        &mut self,
+        session: &mut Session<impl AsyncBufRead + AsyncWrite + Unpin, impl Side>,
+        service_name: arch::Bytes,
+    ) -> Result<()> {
+        if &*service_name == H::SERVICE_NAME.as_bytes() {
+            session.send(&trans::ServiceAccept { service_name }).await?;
+
+            self.proceed(session).await
+        } else {
+            Err(Error::UnknownService)
+        }
     }
 }

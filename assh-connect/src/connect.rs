@@ -7,10 +7,7 @@ use std::{
     },
 };
 
-use assh::{
-    layer::Layer,
-    session::{Session, Side},
-};
+use assh::session::{Session, Side};
 use futures::{AsyncBufRead, AsyncWrite, FutureExt};
 use ssh_packet::connect;
 
@@ -22,17 +19,17 @@ struct ChannelDef {
 }
 
 /// A wrapper around [`assh::session::Session`] to handle the connect layer.
-pub struct Connect<I, S, L> {
-    session: Session<I, S, L>,
+pub struct Connect<'s, I, S> {
+    session: &'s mut Session<I, S>,
     channels: HashMap<u32, ChannelDef>,
 
     sender: flume::Sender<channel::Msg>,
     receiver: flume::Receiver<channel::Msg>,
 }
 
-impl<I: AsyncBufRead + AsyncWrite + Unpin, S: Side, L: Layer<S>> Connect<I, S, L> {
+impl<'s, I: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, I, S> {
     /// Create a wrapper around the `session` to handle the connect layer.
-    pub fn new(session: Session<I, S, L>) -> Self {
+    fn new(session: &'s mut Session<I, S>) -> Self {
         let (sender, receiver) = flume::unbounded();
 
         Self {
@@ -118,7 +115,7 @@ impl<I: AsyncBufRead + AsyncWrite + Unpin, S: Side, L: Layer<S>> Connect<I, S, L
     }
 
     /// Process incoming messages endlessly.
-    pub async fn run(
+    pub async fn handle(
         mut self,
         channel_handler: impl Fn(connect::ChannelOpenContext, channel::Channel) -> bool,
     ) -> Result<Infallible> {

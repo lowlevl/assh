@@ -8,7 +8,7 @@ use futures::{AsyncBufRead, AsyncWrite};
 use tokio::io::BufStream;
 
 mod cookie {
-    const SERVICE_NAME: &'static str = "dummy-service@assh.rs";
+    const SERVICE_NAME: &str = "dummy-service@assh.rs";
 
     use std::{rc::Rc, sync::atomic::AtomicBool};
 

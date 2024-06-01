@@ -5,9 +5,9 @@ use thiserror::Error;
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Protocol error.
+    /// Transport error.
     #[error(transparent)]
-    Protocol(#[from] assh::Error),
+    Transport(#[from] assh::Error),
 
     /// Received an unexpected message.
     #[error("Channel received an unexpected message in this context")]
