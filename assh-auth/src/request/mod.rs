@@ -138,7 +138,7 @@ impl<R: Request> Auth<R> {
 
                 let response = session.recv().await?;
                 if let Ok(userauth::PasswdChangereq { prompt: _, .. }) = response.to() {
-                    unimplemented!() // TODO: Handle the change request case
+                    todo!() // TODO: Handle the change request case
                 } else {
                     Ok(response)
                 }
@@ -150,10 +150,11 @@ impl<R: Request> Auth<R> {
 impl<R: Request> Request for Auth<R> {
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn request<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
-        &mut self,
-        session: &mut Session<I, S>,
-    ) -> Result<()> {
+    async fn request<I, S>(&mut self, session: &mut Session<I, S>) -> Result<()>
+    where
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side,
+    {
         let mut method = Method::None;
 
         loop {

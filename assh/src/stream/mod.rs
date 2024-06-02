@@ -46,7 +46,10 @@ pub struct Stream<S> {
     buffer: Option<Packet>,
 }
 
-impl<S: AsyncBufRead + AsyncWrite + Unpin> Stream<S> {
+impl<S> Stream<S>
+where
+    S: AsyncBufRead + AsyncWrite + Unpin,
+{
     pub fn new(stream: S, timeout: Duration) -> Self {
         Self {
             inner: IoCounter::new(stream),

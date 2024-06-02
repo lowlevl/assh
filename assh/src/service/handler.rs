@@ -10,36 +10,43 @@ mod private {
     pub trait Sealed {}
 
     impl Sealed for () {}
-    impl<T: super::Handler> Sealed for T {}
-    impl<T0: super::Handlers, T1: super::Handlers> Sealed for (T0, T1) {}
+    impl<H: super::Handler> Sealed for H {}
+    impl<H0: super::Handlers, H1: super::Handlers> Sealed for (H0, H1) {}
 }
 
 /// One or more service handlers, combinable with tuples.
 pub trait Handlers: private::Sealed {
     /// Proceed with the service request from the peer, if the service name matches.
-    fn proceed<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+    fn proceed<I, S>(
         &mut self,
         session: &mut Session<I, S>,
         service_name: arch::Bytes,
-    ) -> impl Future<Output = Result<()>>;
+    ) -> impl Future<Output = Result<()>>
+    where
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side;
 }
 
 impl Handlers for () {
-    async fn proceed<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
-        &mut self,
-        _: &mut Session<I, S>,
-        _: arch::Bytes,
-    ) -> Result<()> {
+    async fn proceed<I, S>(&mut self, _: &mut Session<I, S>, _: arch::Bytes) -> Result<()>
+    where
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side,
+    {
         Err(Error::UnknownService)
     }
 }
 
 impl<H0: Handlers, H1: Handlers> Handlers for (H0, H1) {
-    async fn proceed<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+    async fn proceed<I, S>(
         &mut self,
         session: &mut Session<I, S>,
         service_name: arch::Bytes,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side,
+    {
         match self.0.proceed(session, service_name.clone()).await {
             Err(Error::UnknownService) => self.1.proceed(session, service_name).await,
             other => other,
@@ -53,18 +60,22 @@ pub trait Handler {
     const SERVICE_NAME: &'static str;
 
     /// Proceed with the service request from the peer.
-    fn handle<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
-        &mut self,
-        session: &mut Session<I, S>,
-    ) -> impl Future<Output = Result<()>>;
+    fn handle<I, S>(&mut self, session: &mut Session<I, S>) -> impl Future<Output = Result<()>>
+    where
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side;
 }
 
 impl<H: Handler> Handlers for H {
-    async fn proceed<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+    async fn proceed<I, S>(
         &mut self,
         session: &mut Session<I, S>,
         service_name: arch::Bytes,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side,
+    {
         if &*service_name == H::SERVICE_NAME.as_bytes() {
             session.send(&trans::ServiceAccept { service_name }).await?;
 
@@ -76,10 +87,12 @@ impl<H: Handler> Handlers for H {
 }
 
 /// Handle _services_ from the peer.
-pub async fn handle<I: AsyncBufRead + AsyncWrite + Unpin, S: Side, H: Handlers>(
-    session: &mut Session<I, S>,
-    mut handlers: H,
-) -> Result<()> {
+pub async fn handle<I, S, H>(session: &mut Session<I, S>, mut handlers: H) -> Result<()>
+where
+    I: AsyncBufRead + AsyncWrite + Unpin,
+    S: Side,
+    H: Handlers,
+{
     let packet = session.recv().await?;
 
     if let Ok(trans::ServiceRequest { service_name }) = packet.to() {

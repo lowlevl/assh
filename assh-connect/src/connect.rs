@@ -144,7 +144,7 @@ impl<'s, I: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, I, S> {
 
         if let Ok(connect::GlobalRequest { .. }) = packet.to() {
             // TODO: Implement global-requests.
-            unimplemented!()
+            todo!()
         } else if let Ok(connect::ChannelOpen {
             sender_channel: remote_id,
             initial_window_size,

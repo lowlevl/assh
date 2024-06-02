@@ -251,12 +251,12 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
 
             userauth::Method::Hostbased { .. } => {
                 // TODO: Add hostbased authentication.
-                unimplemented!("Server-side `hostbased` method is not implemented")
+                todo!("Server-side `hostbased` method is not implemented")
             }
 
             userauth::Method::KeyboardInteractive { .. } => {
                 // TODO: Add keyboard-interactive authentication.
-                unimplemented!("Server-side `keyboard-interactive` method is not implemented")
+                todo!("Server-side `keyboard-interactive` method is not implemented")
             }
         })
     }
@@ -267,10 +267,11 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
 {
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn handle<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
-        &mut self,
-        session: &mut Session<I, S>,
-    ) -> Result<()> {
+    async fn handle<I, S>(&mut self, session: &mut Session<I, S>) -> Result<()>
+    where
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side,
+    {
         if let Some(message) = self.banner.take() {
             session
                 .send(&userauth::Banner {
