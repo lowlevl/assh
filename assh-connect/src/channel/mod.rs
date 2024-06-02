@@ -121,7 +121,7 @@ impl Channel {
         {
             Msg::Success(_) => Ok(RequestResponse::Success),
             Msg::Failure(_) => Ok(RequestResponse::Failure),
-            _ => Err(Error::UnexpectedMessage),
+            _ => Err(assh::Error::UnexpectedMessage.into()),
         }
     }
 
@@ -162,7 +162,7 @@ impl Channel {
 
                 Ok(response)
             }
-            _ => Err(Error::UnexpectedMessage),
+            _ => Err(assh::Error::UnexpectedMessage.into()),
         }
     }
 }

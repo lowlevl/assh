@@ -35,11 +35,16 @@ pub mod global_request;
 mod error;
 pub use error::{Error, Result};
 
-/// An implementation of [`assh::service::Handler`] and [`assh::service::Request`]
-/// that returns a [`Connect`].
+use assh::{
+    service::{Handler, Request},
+    session::{Session, Side},
+};
+use futures::{AsyncBufRead, AsyncWrite};
+
+/// An implementation of [`Handler`] and [`Request`] that yields a [`Connect`] instance.
 pub struct Service;
 
-impl assh::service::Handler for Service {
+impl Handler for Service {
     type Err = assh::Error;
     type Ok<'s, I: 's, S: 's> = Connect<'s, I, S>;
 
@@ -47,17 +52,17 @@ impl assh::service::Handler for Service {
 
     async fn on_request<'s, I, S>(
         &mut self,
-        session: &'s mut assh::session::Session<I, S>,
+        session: &'s mut Session<I, S>,
     ) -> Result<Self::Ok<'s, I, S>, Self::Err>
     where
-        I: futures::AsyncBufRead + futures::AsyncWrite + Unpin,
-        S: assh::session::Side,
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side,
     {
         Ok(Connect::new(session))
     }
 }
 
-impl assh::service::Request for Service {
+impl Request for Service {
     type Err = assh::Error;
     type Ok<'s, I: 's, S: 's> = Connect<'s, I, S>;
 
@@ -65,11 +70,11 @@ impl assh::service::Request for Service {
 
     async fn on_accept<'s, I, S>(
         &mut self,
-        session: &'s mut assh::session::Session<I, S>,
+        session: &'s mut Session<I, S>,
     ) -> Result<Self::Ok<'s, I, S>, Self::Err>
     where
-        I: futures::AsyncBufRead + futures::AsyncWrite + Unpin,
-        S: assh::session::Side,
+        I: AsyncBufRead + AsyncWrite + Unpin,
+        S: Side,
     {
         Ok(Connect::new(session))
     }

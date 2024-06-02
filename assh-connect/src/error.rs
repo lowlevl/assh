@@ -9,10 +9,6 @@ pub enum Error {
     #[error(transparent)]
     Transport(#[from] assh::Error),
 
-    /// Received an unexpected message.
-    #[error("Channel received an unexpected message in this context")]
-    UnexpectedMessage,
-
     /// The peer refused to open the channel.
     #[error("Peer refused the opening of the channel: {message} ({reason:?})")]
     ChannelOpenFailure {

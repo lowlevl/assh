@@ -18,7 +18,7 @@ struct ChannelDef {
     remote_window_size: Arc<AtomicU32>,
 }
 
-/// A wrapper around [`assh::session::Session`] to handle the connect layer.
+/// A wrapper around a [`Session`] to interract with the connect layer.
 pub struct Connect<'s, I, S> {
     session: &'s mut Session<I, S>,
     channels: HashMap<u32, ChannelDef>,
@@ -92,7 +92,7 @@ impl<'s, I: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, I, S> {
 
                 Ok(channel)
             } else {
-                Err(Error::UnexpectedMessage)
+                Err(assh::Error::UnexpectedMessage.into())
             }
         } else if let Ok(connect::ChannelOpenFailure {
             recipient_channel,
@@ -107,10 +107,10 @@ impl<'s, I: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, I, S> {
                     message: description.into_string(),
                 })
             } else {
-                Err(Error::UnexpectedMessage)
+                Err(assh::Error::UnexpectedMessage.into())
             }
         } else {
-            Err(Error::UnexpectedMessage)
+            Err(assh::Error::UnexpectedMessage.into())
         }
     }
 
