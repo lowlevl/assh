@@ -34,3 +34,23 @@ pub mod global_request;
 
 mod error;
 pub use error::{Error, Result};
+
+pub struct Service;
+
+impl assh::service::Request for Service {
+    type Err = assh::Error;
+    type Ok<'s, I: 's, S: 's> = Connect<'s, I, S>;
+
+    const SERVICE_NAME: &'static str = SERVICE_NAME;
+
+    async fn on_accept<'s, I, S>(
+        &mut self,
+        session: &'s mut assh::session::Session<I, S>,
+    ) -> Result<Self::Ok<'s, I, S>, Self::Err>
+    where
+        I: futures::AsyncBufRead + futures::AsyncWrite + Unpin,
+        S: assh::session::Side,
+    {
+        Ok(Connect::new(session))
+    }
+}

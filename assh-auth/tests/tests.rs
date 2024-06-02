@@ -28,7 +28,13 @@ mod cookie {
     impl assh::service::Request for Cookie {
         const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-        async fn request<I, S>(&mut self, _: &mut Session<I, S>) -> Result<()>
+        type Err = assh::Error;
+        type Ok<'s, I: 's, S: 's> = ();
+
+        async fn on_accept<'s, I, S>(
+            &mut self,
+            _: &'s mut Session<I, S>,
+        ) -> Result<Self::Ok<'s, I, S>, Self::Err>
         where
             I: AsyncBufRead + AsyncWrite + Unpin,
             S: Side,
@@ -42,7 +48,7 @@ mod cookie {
     impl assh::service::Handler for Cookie {
         const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-        async fn handle<I, S>(&mut self, _: &mut Session<I, S>) -> Result<()>
+        async fn on_request<I, S>(&mut self, _: &mut Session<I, S>) -> Result<()>
         where
             I: AsyncBufRead + AsyncWrite + Unpin,
             S: Side,

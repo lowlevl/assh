@@ -148,9 +148,15 @@ impl<R: Request> Auth<R> {
 }
 
 impl<R: Request> Request for Auth<R> {
+    type Err = R::Err;
+    type Ok<'s, I: 's, S: 's> = R::Ok<'s, I, S>;
+
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn request<I, S>(&mut self, session: &mut Session<I, S>) -> Result<()>
+    async fn on_accept<'s, I, S>(
+        &mut self,
+        session: &'s mut Session<I, S>,
+    ) -> Result<Self::Ok<'s, I, S>, Self::Err>
     where
         I: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
@@ -161,7 +167,7 @@ impl<R: Request> Request for Auth<R> {
             let response = self.attempt_method(session, &method).await?;
 
             if response.to::<userauth::Success>().is_ok() {
-                break self.service.request(session).await;
+                break self.service.on_accept(session).await;
             } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
                 // TODO: Take care of partial success
 
@@ -175,7 +181,7 @@ impl<R: Request> Request for Auth<R> {
                         )
                         .await?;
 
-                    break Err(Error::Disconnected);
+                    break Err(Error::Disconnected.into());
                 };
             } else {
                 session
@@ -188,7 +194,7 @@ impl<R: Request> Request for Auth<R> {
                     )
                     .await?;
 
-                break Err(Error::UnexpectedMessage);
+                break Err(Error::UnexpectedMessage.into());
             }
         }
     }

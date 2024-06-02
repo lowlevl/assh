@@ -267,7 +267,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
 {
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn handle<I, S>(&mut self, session: &mut Session<I, S>) -> Result<()>
+    async fn on_request<I, S>(&mut self, session: &mut Session<I, S>) -> Result<()>
     where
         I: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,

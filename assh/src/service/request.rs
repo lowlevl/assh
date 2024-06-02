@@ -3,23 +3,34 @@ use ssh_packet::trans;
 
 use crate::{
     session::{Session, Side},
-    Error, Result,
+    Error,
 };
 
 /// A service request in the transport protocol.
 pub trait Request {
-    /// Name of the requested service.
+    /// The errorneous outcome of the [`Request`].
+    type Err: From<crate::Error>;
+    /// The successful outcome of the [`Request`].
+    type Ok<'s, I: 's, S: 's>;
+
+    /// The requested service _identifier_.
     const SERVICE_NAME: &'static str;
 
-    /// Proceed with the accepted service from the peer.
-    fn request<I, S>(&mut self, session: &mut Session<I, S>) -> impl Future<Output = Result<()>>
+    /// The service callback, this is called when the peer accepted the service request.
+    fn on_accept<'s, I, S>(
+        &mut self,
+        session: &'s mut Session<I, S>,
+    ) -> impl Future<Output = Result<Self::Ok<'s, I, S>, Self::Err>>
     where
         I: AsyncBufRead + AsyncWrite + Unpin,
         S: Side;
 }
 
 /// Request a _service_ from the peer.
-pub async fn request<I, S, R>(session: &mut Session<I, S>, mut requester: R) -> Result<()>
+pub async fn request<I, S, R>(
+    session: &mut Session<I, S>,
+    mut requester: R,
+) -> Result<R::Ok<'_, I, S>, R::Err>
 where
     I: AsyncBufRead + AsyncWrite + Unpin,
     S: Side,
@@ -34,7 +45,7 @@ where
     let packet = session.recv().await?;
     if let Ok(trans::ServiceAccept { service_name }) = packet.to() {
         if &*service_name == R::SERVICE_NAME.as_bytes() {
-            requester.request(session).await
+            requester.on_accept(session).await
         } else {
             session
                 .disconnect(
@@ -43,7 +54,7 @@ where
                 )
                 .await?;
 
-            Err(Error::UnknownService)
+            Err(Error::UnknownService.into())
         }
     } else {
         session
@@ -53,6 +64,6 @@ where
             )
             .await?;
 
-        Err(Error::UnexpectedMessage)
+        Err(Error::UnexpectedMessage.into())
     }
 }
