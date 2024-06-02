@@ -4,7 +4,7 @@
 use crate::session;
 
 mod handler;
-pub use handler::{handle, Handler, Handlers};
+pub use handler::{handle, Handler};
 
 mod request;
 pub use request::{request, Request};

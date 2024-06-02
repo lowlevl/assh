@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use assh::session::{server::Server, Session};
-// use assh_auth::server::{none, Auth};
-// use assh_connect::{channel, Connect};
+use assh_auth::handler::{none, Auth};
+use assh_connect::channel;
 
 use clap::Parser;
 use color_eyre::eyre;
@@ -62,7 +62,7 @@ async fn main() -> eyre::Result<()> {
         task::spawn(async move {
             let stream = BufReader::new(BufWriter::new(stream.compat()));
 
-            let session = Session::new(
+            let mut session = Session::new(
                 stream,
                 Server {
                     keys,
@@ -73,33 +73,41 @@ async fn main() -> eyre::Result<()> {
 
             tracing::info!("Successfully connected to `{}`", session.peer_id());
 
-            // Connect::new(session)
-            //     .run(|_ctx, channel| {
-            //         task::spawn(async move {
-            //             let response = channel
-            //                 .on_request(|_ctx| channel::RequestResponse::Success)
-            //                 .await?;
+            let connect = assh::service::handle(
+                &mut session,
+                Auth::new(assh_connect::Service)
+                    .banner("Welcome, and get parrot'd\r\n")
+                    .none(|_| none::Response::Accept),
+            )
+            .await?;
 
-            //             if response == channel::RequestResponse::Success {
-            //                 let mut writer = channel.as_writer();
+            connect
+                .handle(|_ctx, channel| {
+                    task::spawn(async move {
+                        let response = channel
+                            .on_request(|_ctx| channel::RequestResponse::Success)
+                            .await?;
 
-            //                 for frame in FRAMES.iter().cycle() {
-            //                     writer.write_all(CLEAR.as_bytes()).await?;
-            //                     writer.write_all(frame.as_bytes()).await?;
-            //                     writer.flush().await?;
+                        if response == channel::RequestResponse::Success {
+                            let mut writer = channel.as_writer();
 
-            //                     tokio::time::sleep(DELAY).await;
-            //                 }
-            //             } else {
-            //                 panic!("channel closed");
-            //             }
+                            for frame in FRAMES.iter().cycle() {
+                                writer.write_all(CLEAR.as_bytes()).await?;
+                                writer.write_all(frame.as_bytes()).await?;
+                                writer.flush().await?;
 
-            //             Ok::<_, eyre::Error>(())
-            //         });
+                                tokio::time::sleep(DELAY).await;
+                            }
+                        } else {
+                            panic!("channel closed");
+                        }
 
-            //         true
-            //     })
-            //     .await?;
+                        Ok::<_, eyre::Error>(())
+                    });
+
+                    true
+                })
+                .await?;
 
             Ok::<_, eyre::Error>(())
         });

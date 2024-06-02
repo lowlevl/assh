@@ -29,7 +29,7 @@ pub trait Request {
 /// Request a _service_ from the peer.
 pub async fn request<I, S, R>(
     session: &mut Session<I, S>,
-    mut requester: R,
+    mut service: R,
 ) -> Result<R::Ok<'_, I, S>, R::Err>
 where
     I: AsyncBufRead + AsyncWrite + Unpin,
@@ -45,7 +45,7 @@ where
     let packet = session.recv().await?;
     if let Ok(trans::ServiceAccept { service_name }) = packet.to() {
         if &*service_name == R::SERVICE_NAME.as_bytes() {
-            requester.on_accept(session).await
+            service.on_accept(session).await
         } else {
             session
                 .disconnect(

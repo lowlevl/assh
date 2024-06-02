@@ -1,7 +1,7 @@
 //! Authentication _handling_ mechanics.
 
 use assh::{
-    service::{Handler, Handlers},
+    service::Handler,
     session::{Session, Side},
     Error, Result,
 };
@@ -38,21 +38,21 @@ pub struct Auth<H, N = (), P = (), PK = ()> {
     // TODO: Retain methods per user-basis, because each user can attempt all the methods.
     methods: EnumSet<Method>,
 
-    handlers: H,
+    handler: H,
 
     none: N,
     password: P,
     publickey: PK,
 }
 
-impl<H: Handlers> Auth<H> {
+impl<H: Handler> Auth<H> {
     /// Create an [`Auth`] layer, rejecting all authentication by default.
-    pub fn new(services: H) -> Self {
+    pub fn new(service: H) -> Self {
         Self {
             banner: Default::default(),
             methods: Method::None.into(), // always insert the `none` method
 
-            handlers: services,
+            handler: service,
 
             none: (),
             password: (),
@@ -61,9 +61,7 @@ impl<H: Handlers> Auth<H> {
     }
 }
 
-impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey>
-    Auth<H, N, P, PK>
-{
+impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey> Auth<H, N, P, PK> {
     /// Set the authentication banner text to be displayed upon authentication (the string should be `\r\n` terminated).
     pub fn banner(mut self, banner: impl Into<StringUtf8>) -> Self {
         self.banner = Some(banner.into());
@@ -76,7 +74,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
         let Self {
             banner,
             mut methods,
-            handlers,
+            handler,
             none: _,
             password,
             publickey,
@@ -87,7 +85,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
         Auth {
             banner,
             methods,
-            handlers,
+            handler,
             none,
             password,
             publickey,
@@ -102,7 +100,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
         let Self {
             banner,
             mut methods,
-            handlers,
+            handler,
             none,
             password: _,
             publickey,
@@ -113,7 +111,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
         Auth {
             banner,
             methods,
-            handlers,
+            handler,
             none,
             password,
             publickey,
@@ -128,7 +126,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
         let Self {
             banner,
             mut methods,
-            handlers,
+            handler,
             none,
             password,
             publickey: _,
@@ -139,7 +137,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
         Auth {
             banner,
             methods,
-            handlers,
+            handler,
             none,
             password,
             publickey,
@@ -262,12 +260,18 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
     }
 }
 
-impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey> Handler
+impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey> Handler
     for Auth<H, N, P, PK>
 {
+    type Err = H::Err;
+    type Ok<'s, I: 's, S: 's> = H::Ok<'s, I, S>;
+
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn on_request<I, S>(&mut self, session: &mut Session<I, S>) -> Result<()>
+    async fn on_request<'s, I, S>(
+        &mut self,
+        session: &'s mut Session<I, S>,
+    ) -> Result<Self::Ok<'s, I, S>, Self::Err>
     where
         I: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
@@ -294,12 +298,20 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
                         .await?
                     {
                         Attempt::Success => {
-                            session.send(&userauth::Success).await?;
+                            break if &*service_name == H::SERVICE_NAME {
+                                session.send(&userauth::Success).await?;
 
-                            break self
-                                .handlers
-                                .proceed(session, service_name.into_string().into_bytes().into())
-                                .await;
+                                self.handler.on_request(session).await
+                            } else {
+                                session
+                                    .disconnect(
+                                        DisconnectReason::ServiceNotAvailable,
+                                        "Requested service is unknown, aborting.",
+                                    )
+                                    .await?;
+
+                                Err(Error::UnknownService.into())
+                            }
                         }
                         attempt @ Attempt::Failure | attempt @ Attempt::Partial => {
                             session
@@ -330,7 +342,7 @@ impl<H: Handlers, N: none::None, P: password::Password, PK: publickey::Publickey
                     )
                     .await?;
 
-                break Err(Error::UnexpectedMessage);
+                break Err(Error::UnexpectedMessage.into());
             }
         }
     }

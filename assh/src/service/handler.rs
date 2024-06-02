@@ -1,113 +1,59 @@
 use futures::{AsyncBufRead, AsyncWrite, Future};
-use ssh_packet::{arch, trans};
+use ssh_packet::trans;
 
 use crate::{
     session::{Session, Side},
-    Error, Result,
+    Error,
 };
 
-mod private {
-    pub trait Sealed {}
-
-    impl Sealed for () {}
-    impl<H: super::Handler> Sealed for H {}
-    impl<H0: super::Handlers, H1: super::Handlers> Sealed for (H0, H1) {}
-}
-
-/// One or more service handlers, combinable with tuples.
-pub trait Handlers: private::Sealed {
-    /// Proceed with the service request from the peer, if the service name matches.
-    fn proceed<I, S>(
-        &mut self,
-        session: &mut Session<I, S>,
-        service_name: arch::Bytes,
-    ) -> impl Future<Output = Result<()>>
-    where
-        I: AsyncBufRead + AsyncWrite + Unpin,
-        S: Side;
-}
-
-impl Handlers for () {
-    async fn proceed<I, S>(&mut self, _: &mut Session<I, S>, _: arch::Bytes) -> Result<()>
-    where
-        I: AsyncBufRead + AsyncWrite + Unpin,
-        S: Side,
-    {
-        Err(Error::UnknownService)
-    }
-}
-
-impl<H0: Handlers, H1: Handlers> Handlers for (H0, H1) {
-    async fn proceed<I, S>(
-        &mut self,
-        session: &mut Session<I, S>,
-        service_name: arch::Bytes,
-    ) -> Result<()>
-    where
-        I: AsyncBufRead + AsyncWrite + Unpin,
-        S: Side,
-    {
-        match self.0.proceed(session, service_name.clone()).await {
-            Err(Error::UnknownService) => self.1.proceed(session, service_name).await,
-            other => other,
-        }
-    }
-}
+// TODO: Handle multiple services at once ?
 
 /// A service handler in the transport protocol.
 pub trait Handler {
-    /// Name of the handled service.
+    /// The errorneous outcome of the [`Handler`].
+    type Err: From<crate::Error>;
+    /// The successful outcome of the [`Handler`].
+    type Ok<'s, I: 's, S: 's>;
+
+    /// The handled service _identifier_.
     const SERVICE_NAME: &'static str;
 
-    /// Proceed with the service request from the peer.
-    fn handle<I, S>(&mut self, session: &mut Session<I, S>) -> impl Future<Output = Result<()>>
+    /// The service callback, this is called when we receive a service request from the peer.
+    fn on_request<'s, I, S>(
+        &mut self,
+        session: &'s mut Session<I, S>,
+    ) -> impl Future<Output = Result<Self::Ok<'s, I, S>, Self::Err>>
     where
         I: AsyncBufRead + AsyncWrite + Unpin,
         S: Side;
 }
 
-impl<H: Handler> Handlers for H {
-    async fn proceed<I, S>(
-        &mut self,
-        session: &mut Session<I, S>,
-        service_name: arch::Bytes,
-    ) -> Result<()>
-    where
-        I: AsyncBufRead + AsyncWrite + Unpin,
-        S: Side,
-    {
-        if &*service_name == H::SERVICE_NAME.as_bytes() {
-            session.send(&trans::ServiceAccept { service_name }).await?;
-
-            self.handle(session).await
-        } else {
-            Err(Error::UnknownService)
-        }
-    }
-}
-
 /// Handle _services_ from the peer.
-pub async fn handle<I, S, H>(session: &mut Session<I, S>, mut handlers: H) -> Result<()>
+pub async fn handle<I, S, H>(
+    session: &mut Session<I, S>,
+    mut service: H,
+) -> Result<H::Ok<'_, I, S>, H::Err>
 where
     I: AsyncBufRead + AsyncWrite + Unpin,
     S: Side,
-    H: Handlers,
+    H: Handler,
 {
     let packet = session.recv().await?;
 
     if let Ok(trans::ServiceRequest { service_name }) = packet.to() {
-        match handlers.proceed(session, service_name).await {
-            err @ Err(Error::UnknownService) => {
-                session
-                    .disconnect(
-                        trans::DisconnectReason::ServiceNotAvailable,
-                        "Requested service is unknown, aborting.",
-                    )
-                    .await?;
+        if &*service_name == H::SERVICE_NAME.as_bytes() {
+            session.send(&trans::ServiceAccept { service_name }).await?;
 
-                err
-            }
-            other => other,
+            service.on_request(session).await
+        } else {
+            session
+                .disconnect(
+                    trans::DisconnectReason::ServiceNotAvailable,
+                    "Requested service is unknown, aborting.",
+                )
+                .await?;
+
+            Err(Error::UnknownService.into())
         }
     } else {
         session
@@ -117,6 +63,6 @@ where
             )
             .await?;
 
-        Err(Error::UnexpectedMessage)
+        Err(Error::UnexpectedMessage.into())
     }
 }
