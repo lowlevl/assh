@@ -1,99 +1,46 @@
 use assh::{
-    session::{self, client::Client, server::Server, Session, Side},
+    session::{self, client::Client, server::Server},
     Result,
 };
 use assh_auth::{handler, request};
 use async_compat::CompatExt;
-use futures::{AsyncBufRead, AsyncWrite};
 use tokio::io::BufStream;
 
-mod cookie {
-    const SERVICE_NAME: &str = "dummy-service@assh.rs";
-
-    use std::{rc::Rc, sync::atomic::AtomicBool};
-
-    use super::*;
-
-    #[derive(Debug, Default, Clone)]
-    pub struct Cookie {
-        flag: Rc<AtomicBool>,
-    }
-
-    impl Cookie {
-        pub fn is_flagged(&self) -> bool {
-            self.flag.load(std::sync::atomic::Ordering::Relaxed)
-        }
-    }
-
-    impl assh::service::Request for Cookie {
-        const SERVICE_NAME: &'static str = SERVICE_NAME;
-
-        type Err = assh::Error;
-        type Ok<'s, I: 's, S: 's> = ();
-
-        async fn on_accept<'s, I, S>(
-            &mut self,
-            _: &'s mut Session<I, S>,
-        ) -> Result<Self::Ok<'s, I, S>, Self::Err>
-        where
-            I: AsyncBufRead + AsyncWrite + Unpin,
-            S: Side,
-        {
-            self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
-
-            Ok(())
-        }
-    }
-
-    impl assh::service::Handler for Cookie {
-        type Err = assh::Error;
-        type Ok<'s, I: 's, S: 's> = ();
-
-        const SERVICE_NAME: &'static str = SERVICE_NAME;
-
-        async fn on_request<'s, I, S>(
-            &mut self,
-            _: &'s mut Session<I, S>,
-        ) -> Result<Self::Ok<'s, I, S>, Self::Err>
-        where
-            I: AsyncBufRead + AsyncWrite + Unpin,
-            S: Side,
-        {
-            self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
-
-            Ok(())
-        }
-    }
-}
+mod cookie;
 
 #[tokio::test]
-async fn test() -> Result<(), Box<dyn std::error::Error>> {
+async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
     let duplex = tokio::io::duplex(ssh_packet::PACKET_MAX_SIZE * 16);
-
-    let server = Server {
-        keys: vec![ssh_key::private::PrivateKey::random(
-            &mut rand::thread_rng(),
-            ssh_key::Algorithm::Ed25519,
-        )
-        .unwrap()],
-        ..Server::default()
-    };
-    let client = Client::default();
-
-    let (mut server, mut client) = tokio::try_join!(
-        session::Session::new(BufStream::new(duplex.0).compat(), server),
-        session::Session::new(BufStream::new(duplex.1).compat(), client),
-    )?;
 
     let cookie0 = cookie::Cookie::default();
     let cookie1 = cookie::Cookie::default();
 
     tokio::try_join!(
-        assh::service::handle(
-            &mut server,
-            handler::Auth::new(cookie0.clone()).none(|_| handler::none::Response::Accept)
-        ),
-        assh::service::request(&mut client, request::Auth::new("user", cookie1.clone())),
+        async {
+            let server = Server {
+                keys: vec![ssh_key::private::PrivateKey::random(
+                    &mut rand::thread_rng(),
+                    ssh_key::Algorithm::Ed25519,
+                )
+                .unwrap()],
+                ..Default::default()
+            };
+            let mut server =
+                session::Session::new(BufStream::new(duplex.0).compat(), server).await?;
+
+            assh::service::handle(
+                &mut server,
+                handler::Auth::new(cookie0.clone()).none(|_| handler::none::Response::Accept),
+            )
+            .await
+        },
+        async {
+            let client = Client::default();
+            let mut client =
+                session::Session::new(BufStream::new(duplex.1).compat(), client).await?;
+
+            assh::service::request(&mut client, request::Auth::new("user", cookie1.clone())).await
+        },
     )?;
 
     assert!(
