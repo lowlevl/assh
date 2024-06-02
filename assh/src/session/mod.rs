@@ -16,6 +16,8 @@ pub use side::Side;
 pub mod client;
 pub mod server;
 
+// TODO: Handle extension negotiation described in RFC8308
+
 /// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
 pub struct Session<I, S> {
     stream: Option<Stream<I>>,
