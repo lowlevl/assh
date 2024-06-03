@@ -1,4 +1,4 @@
-//! Service handling facilities on [`session::Session`].
+//! Service handling facilities for [`session::Session`].
 
 #[cfg(doc)]
 use crate::session;

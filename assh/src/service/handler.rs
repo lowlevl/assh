@@ -28,7 +28,7 @@ pub trait Handler {
         S: Side;
 }
 
-/// Handle _services_ from the peer.
+/// Handle service for the peer.
 pub async fn handle<I, S, H>(
     session: &mut Session<I, S>,
     mut service: H,

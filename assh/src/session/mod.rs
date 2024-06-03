@@ -1,4 +1,4 @@
-//! Session transport handling facilities.
+//! Session transport layer handling facilities.
 
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;

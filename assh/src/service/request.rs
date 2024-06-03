@@ -26,7 +26,7 @@ pub trait Request {
         S: Side;
 }
 
-/// Request a _service_ from the peer.
+/// Request service from the peer.
 pub async fn request<I, S, R>(
     session: &mut Session<I, S>,
     mut service: R,
