@@ -28,18 +28,20 @@ async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
             let mut server =
                 session::Session::new(BufStream::new(duplex.0).compat(), server).await?;
 
-            assh::service::handle(
-                &mut server,
-                handler::Auth::new(cookie0.clone()).none(|_| handler::none::Response::Accept),
-            )
-            .await
+            server
+                .handle(
+                    handler::Auth::new(cookie0.clone()).none(|_| handler::none::Response::Accept),
+                )
+                .await
         },
         async {
             let client = Client::default();
             let mut client =
                 session::Session::new(BufStream::new(duplex.1).compat(), client).await?;
 
-            assh::service::request(&mut client, request::Auth::new("user", cookie1.clone())).await
+            client
+                .request(request::Auth::new("user", cookie1.clone()))
+                .await
         },
     )?;
 

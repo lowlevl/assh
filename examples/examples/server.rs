@@ -73,13 +73,13 @@ async fn main() -> eyre::Result<()> {
 
             tracing::info!("Successfully connected to `{}`", session.peer_id());
 
-            let connect = assh::service::handle(
-                &mut session,
-                Auth::new(assh_connect::Service)
-                    .banner("Welcome, and get parrot'd\r\n")
-                    .none(|_| none::Response::Accept),
-            )
-            .await?;
+            let connect = session
+                .handle(
+                    Auth::new(assh_connect::Service)
+                        .banner("Welcome, and get parrot'd\r\n")
+                        .none(|_| none::Response::Accept),
+                )
+                .await?;
 
             connect
                 .handle(|_ctx, channel| {

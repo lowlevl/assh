@@ -4,11 +4,14 @@ use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
     arch::StringUtf8,
-    trans::{Debug, Disconnect, DisconnectReason, Ignore, KexInit, Unimplemented},
+    trans::{
+        Debug, Disconnect, DisconnectReason, Ignore, KexInit, ServiceAccept, ServiceRequest,
+        Unimplemented,
+    },
     Id, Packet, ToPacket,
 };
 
-use crate::{stream::Stream, Error, Result};
+use crate::{service, stream::Stream, Error, Result};
 
 mod side;
 pub use side::Side;
@@ -144,6 +147,72 @@ where
         drop(self.stream.take());
 
         Ok(())
+    }
+
+    /// Handle a _service_ for the peer.
+    pub async fn handle<H>(&mut self, mut service: H) -> Result<H::Ok<'_, I, S>, H::Err>
+    where
+        H: service::Handler,
+    {
+        let packet = self.recv().await?;
+
+        if let Ok(ServiceRequest { service_name }) = packet.to() {
+            if &*service_name == H::SERVICE_NAME.as_bytes() {
+                self.send(&ServiceAccept { service_name }).await?;
+
+                service.on_request(self).await
+            } else {
+                self.disconnect(
+                    DisconnectReason::ServiceNotAvailable,
+                    "Requested service is unknown, aborting.",
+                )
+                .await?;
+
+                Err(Error::UnknownService.into())
+            }
+        } else {
+            self.disconnect(
+                DisconnectReason::ProtocolError,
+                "Unexpected message outside of a service request, aborting.",
+            )
+            .await?;
+
+            Err(Error::UnexpectedMessage.into())
+        }
+    }
+
+    /// Request a _service_ from the peer.
+    pub async fn request<R>(&mut self, mut service: R) -> Result<R::Ok<'_, I, S>, R::Err>
+    where
+        R: service::Request,
+    {
+        self.send(&ServiceRequest {
+            service_name: R::SERVICE_NAME.into(),
+        })
+        .await?;
+
+        let packet = self.recv().await?;
+        if let Ok(ServiceAccept { service_name }) = packet.to() {
+            if &*service_name == R::SERVICE_NAME.as_bytes() {
+                service.on_accept(self).await
+            } else {
+                self.disconnect(
+                    DisconnectReason::ServiceNotAvailable,
+                    "Accepted service is unknown, aborting.",
+                )
+                .await?;
+
+                Err(Error::UnknownService.into())
+            }
+        } else {
+            self.disconnect(
+                DisconnectReason::ProtocolError,
+                "Unexpected message outside of a service response, aborting.",
+            )
+            .await?;
+
+            Err(Error::UnexpectedMessage.into())
+        }
     }
 }
 
