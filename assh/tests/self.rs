@@ -5,11 +5,8 @@ use futures::io::BufReader;
 use rstest::rstest;
 
 use assh::{
-    session::{
-        client::{Algorithms, Client},
-        Session,
-    },
-    Error, Result,
+    side::client::{Algorithms, Client},
+    Error, Result, Session,
 };
 use ssh_packet::{
     connect::{ChannelOpen, ChannelOpenContext},

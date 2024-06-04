@@ -8,22 +8,9 @@
 #![doc = ""]
 #![doc = env!("CARGO_PKG_DESCRIPTION")]
 //!
-//! ### Supported algorithms
+//! #### Supported algorithms
 //!
-//! ##### Key-exchange:
-//! see [`stream::algorithm::Kex`].
-//!
-//! ##### Encryption:
-//!
-//! see [`stream::algorithm::Cipher`].
-//!
-//! ##### MACs
-//!
-//! see [`stream::algorithm::Hmac`].
-//!
-//! ##### Compression:
-//!
-//! see [`stream::algorithm::Compress`].
+//! _See the [`algorithm`] module for more informations._
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(
@@ -36,11 +23,14 @@
 )]
 #![forbid(unsafe_code)]
 
+mod stream;
+
+pub mod algorithm;
+pub mod service;
+pub mod side;
+
 mod error;
 pub use error::{Error, Result};
 
-mod stream;
-pub use stream::algorithm;
-
-pub mod service;
-pub mod session;
+mod session;
+pub use session::Session;

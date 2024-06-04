@@ -1,4 +1,4 @@
-//! Algorithm implementations for **compression**, **encryption**, **integrity** and **key-exchange**.
+//! Supported algorithms for **compression**, **encryption**, **integrity** and **key-exchange**.
 
 // TODO: Gate insecure algorithms behind an `insecure` feature flag.
 

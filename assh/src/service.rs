@@ -1,11 +1,8 @@
-//! Service handling facilities for [`session::Session`].
+//! Service handling and requesting facilities.
 
 use futures::{AsyncBufRead, AsyncWrite, Future};
 
-use crate::session::{Session, Side};
-
-#[cfg(doc)]
-use crate::session;
+use crate::{side::Side, Session};
 
 // TODO: Handle multiple services at once ?
 

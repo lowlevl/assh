@@ -1,5 +1,3 @@
-//! Session transport layer handling facilities.
-
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
@@ -11,13 +9,7 @@ use ssh_packet::{
     Id, Packet, ToPacket,
 };
 
-use crate::{service, stream::Stream, Error, Result};
-
-mod side;
-pub use side::Side;
-
-pub mod client;
-pub mod server;
+use crate::{service, side::Side, stream::Stream, Error, Result};
 
 // TODO: Handle extension negotiation described in RFC8308
 
@@ -221,20 +213,21 @@ mod tests {
     use async_std::net::TcpStream;
 
     use super::*;
+    use crate::side::{client::Client, server::Server};
 
     #[test]
     fn assert_session_is_send() {
         fn is_send<T: Send>() {}
 
-        is_send::<Session<TcpStream, client::Client>>();
-        is_send::<Session<TcpStream, server::Server>>();
+        is_send::<Session<TcpStream, Client>>();
+        is_send::<Session<TcpStream, Server>>();
     }
 
     #[test]
     fn assert_session_is_sync() {
         fn is_sync<T: Sync>() {}
 
-        is_sync::<Session<TcpStream, client::Client>>();
-        is_sync::<Session<TcpStream, server::Server>>();
+        is_sync::<Session<TcpStream, Client>>();
+        is_sync::<Session<TcpStream, Server>>();
     }
 }

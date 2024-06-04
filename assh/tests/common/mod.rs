@@ -3,10 +3,7 @@ use std::net::SocketAddr;
 use async_std::{net::TcpListener, stream::StreamExt};
 use futures::io::BufReader;
 
-use assh::{
-    session::{server::Server, Session},
-    Result,
-};
+use assh::{side::server::Server, Result, Session};
 use ssh_packet::{
     connect::ChannelOpenConfirmation,
     trans::{Ignore, ServiceAccept},

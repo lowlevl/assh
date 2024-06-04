@@ -2,11 +2,7 @@
 
 use hashbrown::HashSet;
 
-use assh::{
-    service::Request,
-    session::{Session, Side},
-    Error, Result,
-};
+use assh::{service::Request, side::Side, Error, Result, Session};
 use futures::{AsyncBufRead, AsyncWrite};
 use ssh_packet::{cryptography::PublickeySignature, Packet};
 

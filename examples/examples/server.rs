@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use assh::session::{server::Server, Session};
+use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
 use assh_connect::channel;
 

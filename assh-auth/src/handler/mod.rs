@@ -1,10 +1,6 @@
 //! Authentication _handling_ mechanics.
 
-use assh::{
-    service::Handler,
-    session::{Session, Side},
-    Error, Result,
-};
+use assh::{service::Handler, side::Side, Error, Result, Session};
 use enumset::EnumSet;
 use futures::{AsyncBufRead, AsyncWrite};
 use ssh_key::{public::PublicKey, Signature};

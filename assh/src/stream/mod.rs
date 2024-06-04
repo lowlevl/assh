@@ -5,18 +5,16 @@ use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, FutureEx
 use futures_time::{future::FutureExt as _, time::Duration};
 use ssh_packet::ToPacket;
 
-use crate::Result;
+use crate::{algorithm, Result};
 
 mod counter;
 use counter::IoCounter;
-
-pub mod algorithm;
 
 mod transport;
 pub(super) use transport::{Transport, TransportPair};
 
 mod keys;
-use keys::Keys;
+pub(super) use keys::Keys;
 
 #[doc(no_inline)]
 pub use ssh_packet::Packet;

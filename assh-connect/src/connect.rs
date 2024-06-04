@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use assh::session::{Session, Side};
+use assh::{side::Side, Session};
 use futures::{AsyncBufRead, AsyncWrite, FutureExt};
 use ssh_packet::connect;
 

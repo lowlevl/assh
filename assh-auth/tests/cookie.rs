@@ -1,9 +1,6 @@
 //! A dummy subservice to test for authentication success.
 
-use assh::{
-    session::{Session, Side},
-    Result,
-};
+use assh::{side::Side, Result, Session};
 use futures::{AsyncBufRead, AsyncWrite};
 
 const SERVICE_NAME: &str = "dummy-service@assh.rs";

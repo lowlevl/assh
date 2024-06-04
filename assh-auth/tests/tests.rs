@@ -1,5 +1,5 @@
 use assh::{
-    session::{self, client::Client, server::Server},
+    side::{client::Client, server::Server},
     Result,
 };
 use assh_auth::{handler, request};
@@ -25,8 +25,7 @@ async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap()],
                 ..Default::default()
             };
-            let mut server =
-                session::Session::new(BufStream::new(duplex.0).compat(), server).await?;
+            let mut server = assh::Session::new(BufStream::new(duplex.0).compat(), server).await?;
 
             server
                 .handle(
@@ -36,8 +35,7 @@ async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
         },
         async {
             let client = Client::default();
-            let mut client =
-                session::Session::new(BufStream::new(duplex.1).compat(), client).await?;
+            let mut client = assh::Session::new(BufStream::new(duplex.1).compat(), client).await?;
 
             client
                 .request(request::Auth::new("user", cookie1.clone()))

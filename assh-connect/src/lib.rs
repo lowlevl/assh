@@ -37,7 +37,8 @@ pub use error::{Error, Result};
 
 use assh::{
     service::{Handler, Request},
-    session::{Session, Side},
+    side::Side,
+    Session,
 };
 use futures::{AsyncBufRead, AsyncWrite};
 

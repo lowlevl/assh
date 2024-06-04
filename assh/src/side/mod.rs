@@ -1,3 +1,5 @@
+//! Session's [`Side`]s, either [`Client`] or [`Server`].
+
 use futures::{AsyncBufRead, AsyncWrite, Future};
 use futures_time::time::Duration;
 use ssh_packet::{
@@ -5,11 +7,16 @@ use ssh_packet::{
     Id,
 };
 
-use super::{client::Client, server::Server};
 use crate::{
     stream::{Stream, TransportPair},
     Result,
 };
+
+pub mod client;
+use client::Client;
+
+pub mod server;
+use server::Server;
 
 mod private {
     pub trait Sealed {}

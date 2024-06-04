@@ -1,4 +1,4 @@
-//! Client-[`Side`] implementation of the _session_.
+//! Server-[`Side`] implementation of the _session_.
 
 use std::time::Duration;
 
@@ -9,56 +9,55 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::Side;
 use crate::{
-    stream::{
-        algorithm::{kex, Cipher, Compress, Hmac, Kex, Key},
-        Stream, TransportPair,
-    },
+    algorithm::{kex, key, Cipher, Compress, Hmac, Kex},
+    stream::{Stream, TransportPair},
     Result,
 };
 
 #[doc(no_inline)]
+pub use ssh_key::PrivateKey;
+#[doc(no_inline)]
 pub use ssh_packet::Id;
 
-// TODO: hostkey verification in client key-exchange.
-
-/// A _client_-side session configuration.
+/// A _server_-side session configuration.
 #[derive(Debug)]
-pub struct Client {
-    /// [`Id`] for this _client_ session.
+pub struct Server {
+    /// [`Id`] for this _server_ session.
     pub id: Id,
 
     /// Timeout for sending and receiving packets.
     pub timeout: Duration,
 
-    /// The algorithms enabled for this _client_ session.
+    /// Server keys for key-exchange signature.
+    pub keys: Vec<PrivateKey>,
+
+    /// The algorithms enabled for this _server_ session.
     pub algorithms: Algorithms,
 }
 
-impl Default for Client {
+impl Default for Server {
     fn default() -> Self {
         Self {
             id: Id::v2(
                 concat!(
                     env!("CARGO_PKG_NAME"),
-                    "@client:",
+                    "@server:",
                     env!("CARGO_PKG_VERSION")
                 ),
                 None::<&str>,
             ),
             timeout: Duration::from_secs(120),
+            keys: Default::default(),
             algorithms: Default::default(),
         }
     }
 }
 
-/// Algorithms for a _client_-side session.
+/// Algorithms for a _server_-side session.
 #[derive(Debug)]
 pub struct Algorithms {
     /// Enabled algorithms for _key-exchange_.
     pub kexs: Vec<Kex>,
-
-    /// Enabled algorithms for _server key signature_.
-    pub keys: Vec<Key>,
 
     /// Enabled algorithms for _encryption & decryption_.
     pub ciphers: Vec<Cipher>,
@@ -72,40 +71,33 @@ pub struct Algorithms {
 
 impl Default for Algorithms {
     fn default() -> Self {
-        let super::server::Algorithms {
-            kexs,
-            ciphers,
-            macs,
-            compressions,
-        } = Default::default();
-
         Self {
-            kexs,
-            keys: vec![
-                Key::Ed25519,
-                Key::Ecdsa {
-                    curve: ssh_key::EcdsaCurve::NistP384,
-                },
-                Key::Ecdsa {
-                    curve: ssh_key::EcdsaCurve::NistP256,
-                },
-                Key::Rsa {
-                    hash: Some(ssh_key::HashAlg::Sha512),
-                },
-                Key::Rsa {
-                    hash: Some(ssh_key::HashAlg::Sha256),
-                },
-                Key::Rsa { hash: None },
-                Key::Dsa,
+            kexs: vec![Kex::Curve25519Sha256, Kex::Curve25519Sha256Libssh],
+            ciphers: vec![
+                Cipher::Aes256Ctr,
+                Cipher::Aes192Ctr,
+                Cipher::Aes128Ctr,
+                Cipher::Aes256Cbc,
+                Cipher::Aes192Cbc,
+                Cipher::Aes128Cbc,
+                Cipher::TDesCbc,
             ],
-            ciphers,
-            macs,
-            compressions,
+            macs: vec![
+                Hmac::HmacSha512ETM,
+                Hmac::HmacSha256ETM,
+                Hmac::HmacSha512,
+                Hmac::HmacSha256,
+                Hmac::HmacSha1ETM,
+                Hmac::HmacSha1,
+                Hmac::HmacMd5ETM,
+                Hmac::HmacMd5,
+            ],
+            compressions: vec![Compress::ZlibOpenssh, Compress::Zlib, Compress::None],
         }
     }
 }
 
-impl Side for Client {
+impl Side for Server {
     fn id(&self) -> &Id {
         &self.id
     }
@@ -121,7 +113,7 @@ impl Side for Client {
         KexInit {
             cookie,
             kex_algorithms: NameList::new(&self.algorithms.kexs),
-            server_host_key_algorithms: NameList::new(&self.algorithms.keys),
+            server_host_key_algorithms: NameList::new(self.keys.iter().map(PrivateKey::algorithm)),
             encryption_algorithms_client_to_server: NameList::new(&self.algorithms.ciphers),
             encryption_algorithms_server_to_client: NameList::new(&self.algorithms.ciphers),
             mac_algorithms_client_to_server: NameList::new(&self.algorithms.macs),
@@ -141,8 +133,15 @@ impl Side for Client {
         peerkexinit: KexInit,
         peer_id: &Id,
     ) -> Result<TransportPair> {
-        kex::negociate(&kexinit, &peerkexinit)?
-            .init(stream, self.id(), peer_id, kexinit, peerkexinit)
+        let keyalg = key::negociate(&peerkexinit, &kexinit)?;
+        let key = self
+            .keys
+            .iter()
+            .find(|key| key.algorithm() == keyalg)
+            .expect("Did our KexInit lie to the client ?");
+
+        kex::negociate(&peerkexinit, &kexinit)?
+            .reply(stream, peer_id, self.id(), peerkexinit, kexinit, key)
             .await
     }
 }
