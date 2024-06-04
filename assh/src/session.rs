@@ -14,21 +14,21 @@ use crate::{service, side::Side, stream::Stream, Error, Result};
 // TODO: Handle extension negotiation described in RFC8308
 
 /// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
-pub struct Session<I, S> {
-    stream: Option<Stream<I>>,
+pub struct Session<IO, S> {
+    stream: Option<Stream<IO>>,
     config: S,
 
     peer_id: Id,
 }
 
-impl<I, S> Session<I, S>
+impl<IO, S> Session<IO, S>
 where
-    I: AsyncBufRead + AsyncWrite + Unpin,
+    IO: AsyncBufRead + AsyncWrite + Unpin,
     S: Side,
 {
     /// Create a new [`Session`] from a [`AsyncBufRead`] + [`AsyncWrite`] stream,
     /// and some configuration.
-    pub async fn new(mut stream: I, config: S) -> Result<Self> {
+    pub async fn new(mut stream: IO, config: S) -> Result<Self> {
         config.id().to_async_writer(&mut stream).await?;
         stream.flush().await?;
 
@@ -142,7 +142,7 @@ where
     }
 
     /// Handle a _service_ for the peer.
-    pub async fn handle<H>(&mut self, mut service: H) -> Result<H::Ok<'_, I, S>, H::Err>
+    pub async fn handle<H>(&mut self, mut service: H) -> Result<H::Ok<'_, IO, S>, H::Err>
     where
         H: service::Handler,
     {
@@ -174,7 +174,7 @@ where
     }
 
     /// Request a _service_ from the peer.
-    pub async fn request<R>(&mut self, mut service: R) -> Result<R::Ok<'_, I, S>, R::Err>
+    pub async fn request<R>(&mut self, mut service: R) -> Result<R::Ok<'_, IO, S>, R::Err>
     where
         R: service::Request,
     {

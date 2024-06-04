@@ -140,9 +140,9 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
         }
     }
 
-    async fn handle_attempt<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+    async fn handle_attempt<IO: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
         &mut self,
-        session: &mut Session<I, S>,
+        session: &mut Session<IO, S>,
         username: StringUtf8,
         method: userauth::Method,
         service_name: &StringAscii,
@@ -260,16 +260,16 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
     for Auth<H, N, P, PK>
 {
     type Err = H::Err;
-    type Ok<'s, I: 's, S: 's> = H::Ok<'s, I, S>;
+    type Ok<'s, IO: 's, S: 's> = H::Ok<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn on_request<'s, I, S>(
+    async fn on_request<'s, IO, S>(
         &mut self,
-        session: &'s mut Session<I, S>,
-    ) -> Result<Self::Ok<'s, I, S>, Self::Err>
+        session: &'s mut Session<IO, S>,
+    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        I: AsyncBufRead + AsyncWrite + Unpin,
+        IO: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
     {
         if let Some(message) = self.banner.take() {

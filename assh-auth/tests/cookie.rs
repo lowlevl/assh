@@ -22,14 +22,14 @@ impl assh::service::Request for Cookie {
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
     type Err = assh::Error;
-    type Ok<'s, I: 's, S: 's> = ();
+    type Ok<'s, IO: 's, S: 's> = ();
 
-    async fn on_accept<'s, I, S>(
+    async fn on_accept<'s, IO, S>(
         &mut self,
-        _: &'s mut Session<I, S>,
-    ) -> Result<Self::Ok<'s, I, S>, Self::Err>
+        _: &'s mut Session<IO, S>,
+    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        I: AsyncBufRead + AsyncWrite + Unpin,
+        IO: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
     {
         self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -40,16 +40,16 @@ impl assh::service::Request for Cookie {
 
 impl assh::service::Handler for Cookie {
     type Err = assh::Error;
-    type Ok<'s, I: 's, S: 's> = ();
+    type Ok<'s, IO: 's, S: 's> = ();
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-    async fn on_request<'s, I, S>(
+    async fn on_request<'s, IO, S>(
         &mut self,
-        _: &'s mut Session<I, S>,
-    ) -> Result<Self::Ok<'s, I, S>, Self::Err>
+        _: &'s mut Session<IO, S>,
+    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        I: AsyncBufRead + AsyncWrite + Unpin,
+        IO: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
     {
         self.flag.store(true, std::sync::atomic::Ordering::Relaxed);

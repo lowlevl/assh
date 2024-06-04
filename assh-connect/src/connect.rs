@@ -19,17 +19,17 @@ struct ChannelDef {
 }
 
 /// A wrapper around a [`Session`] to interract with the connect layer.
-pub struct Connect<'s, I, S> {
-    session: &'s mut Session<I, S>,
+pub struct Connect<'s, IO, S> {
+    session: &'s mut Session<IO, S>,
     channels: HashMap<u32, ChannelDef>,
 
     sender: flume::Sender<channel::Msg>,
     receiver: flume::Receiver<channel::Msg>,
 }
 
-impl<'s, I: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, I, S> {
+impl<'s, IO: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, IO, S> {
     /// Create a wrapper around the `session` to handle the connect layer.
-    pub(super) fn new(session: &'s mut Session<I, S>) -> Self {
+    pub(super) fn new(session: &'s mut Session<IO, S>) -> Self {
         let (sender, receiver) = flume::unbounded();
 
         Self {

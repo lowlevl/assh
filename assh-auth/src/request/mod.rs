@@ -70,9 +70,9 @@ impl<R: Request> Auth<R> {
             .next()
     }
 
-    async fn attempt_method<I: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+    async fn attempt_method<IO: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
         &mut self,
-        session: &mut Session<I, S>,
+        session: &mut Session<IO, S>,
         method: &Method,
     ) -> Result<Packet> {
         let build = |method| userauth::Request {
@@ -145,16 +145,16 @@ impl<R: Request> Auth<R> {
 
 impl<R: Request> Request for Auth<R> {
     type Err = R::Err;
-    type Ok<'s, I: 's, S: 's> = R::Ok<'s, I, S>;
+    type Ok<'s, IO: 's, S: 's> = R::Ok<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn on_accept<'s, I, S>(
+    async fn on_accept<'s, IO, S>(
         &mut self,
-        session: &'s mut Session<I, S>,
-    ) -> Result<Self::Ok<'s, I, S>, Self::Err>
+        session: &'s mut Session<IO, S>,
+    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        I: AsyncBufRead + AsyncWrite + Unpin,
+        IO: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
     {
         let mut method = Method::None;
