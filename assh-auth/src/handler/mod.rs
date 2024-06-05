@@ -41,7 +41,10 @@ pub struct Auth<H, N = (), P = (), PK = ()> {
     publickey: PK,
 }
 
-impl<H: Handler> Auth<H> {
+impl<H> Auth<H>
+where
+    H: Handler,
+{
     /// Create an [`Auth`] layer, rejecting all authentication by default.
     pub fn new(service: H) -> Self {
         Self {
@@ -57,7 +60,13 @@ impl<H: Handler> Auth<H> {
     }
 }
 
-impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey> Auth<H, N, P, PK> {
+impl<H, N, P, PK> Auth<H, N, P, PK>
+where
+    H: Handler,
+    N: none::None,
+    P: password::Password,
+    PK: publickey::Publickey,
+{
     /// Set the authentication banner text to be displayed upon authentication (the string should be `\r\n` terminated).
     pub fn banner(mut self, banner: impl Into<StringUtf8>) -> Self {
         self.banner = Some(banner.into());

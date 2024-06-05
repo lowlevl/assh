@@ -4,7 +4,12 @@ use hashbrown::HashSet;
 
 use assh::{service::Request, side::Side, Error, Result, Session};
 use futures::{AsyncBufRead, AsyncWrite};
-use ssh_packet::{cryptography::PublickeySignature, Packet};
+use ssh_packet::{
+    arch::{self, StringUtf8},
+    cryptography::PublickeySignature,
+    trans::DisconnectReason,
+    userauth, Packet,
+};
 
 mod method;
 use method::Method;
@@ -14,11 +19,6 @@ use method::Method;
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
-use ssh_packet::{
-    arch::{self, StringUtf8},
-    trans::DisconnectReason,
-    userauth,
-};
 
 /// The authentication service [`Request`] for sessions.
 #[derive(Debug)]

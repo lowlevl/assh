@@ -82,31 +82,28 @@ async fn main() -> eyre::Result<()> {
                 .await?;
 
             connect
-                .handle(|_ctx, channel| {
+                .on_channel_open(|_, channel: channel::Channel| {
                     task::spawn(async move {
-                        let response = channel
-                            .on_request(|_ctx| channel::RequestResponse::Success)
+                        channel
+                            .on_request(|_ctx| channel::ReqResponse::Success)
                             .await?;
 
-                        if response == channel::RequestResponse::Success {
-                            let mut writer = channel.as_writer();
+                        let mut writer = channel.as_writer();
 
-                            for frame in FRAMES.iter().cycle() {
-                                writer.write_all(CLEAR.as_bytes()).await?;
-                                writer.write_all(frame.as_bytes()).await?;
-                                writer.flush().await?;
+                        for frame in FRAMES.iter().cycle() {
+                            writer.write_all(CLEAR.as_bytes()).await?;
+                            writer.write_all(frame.as_bytes()).await?;
+                            writer.flush().await?;
 
-                                tokio::time::sleep(DELAY).await;
-                            }
-                        } else {
-                            panic!("channel closed");
+                            tokio::time::sleep(DELAY).await;
                         }
 
                         Ok::<_, eyre::Error>(())
                     });
 
-                    true
+                    channel::Response::Accept
                 })
+                .spin()
                 .await?;
 
             Ok::<_, eyre::Error>(())

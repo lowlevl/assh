@@ -11,7 +11,7 @@ use assh::{side::Side, Session};
 use futures::{AsyncBufRead, AsyncWrite, FutureExt};
 use ssh_packet::connect;
 
-use crate::{channel, Error, Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
+use crate::{channel, global_request, Error, Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
 
 struct ChannelDef {
     sender: flume::Sender<channel::Msg>,
@@ -19,15 +19,18 @@ struct ChannelDef {
 }
 
 /// A wrapper around a [`Session`] to interract with the connect layer.
-pub struct Connect<'s, IO, S> {
+pub struct Connect<'s, IO, S, G = (), C = ()> {
     session: &'s mut Session<IO, S>,
     channels: HashMap<u32, ChannelDef>,
+
+    on_global_request: G,
+    on_channel_open: C,
 
     sender: flume::Sender<channel::Msg>,
     receiver: flume::Receiver<channel::Msg>,
 }
 
-impl<'s, IO: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, IO, S> {
+impl<'s, IO, S> Connect<'s, IO, S> {
     /// Create a wrapper around the `session` to handle the connect layer.
     pub(super) fn new(session: &'s mut Session<IO, S>) -> Self {
         let (sender, receiver) = flume::unbounded();
@@ -36,12 +39,62 @@ impl<'s, IO: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, IO, S> {
             session,
             channels: Default::default(),
 
+            on_global_request: (),
+            on_channel_open: (),
+
+            sender,
+            receiver,
+        }
+    }
+}
+
+impl<'s, IO, S, G, C> Connect<'s, IO, S, G, C>
+where
+    IO: AsyncBufRead + AsyncWrite + Unpin,
+    S: Side,
+    G: global_request::Hook,
+    C: channel::Hook,
+{
+    /// Make a _global request_ with the provided `context`.
+    pub async fn global_request(&mut self, context: connect::GlobalRequestContext) -> Result<()> {
+        todo!()
+    }
+
+    /// Register the handler for _global requests_.
+    ///
+    /// # Note:
+    ///
+    /// Blocking the hook will block the main [`Self::spin`] loop,
+    /// which will cause new global requests and channels to stop
+    /// being processed, as well as interrupt channel I/O.
+    pub fn on_global_request(
+        self,
+        hook: impl global_request::Hook,
+    ) -> Connect<'s, IO, S, impl global_request::Hook, C> {
+        let Self {
+            session,
+            channels,
+
+            on_channel_open: on_channel,
+            on_global_request: _,
+
+            sender,
+            receiver,
+        } = self;
+
+        Connect {
+            session,
+            channels,
+
+            on_channel_open: on_channel,
+            on_global_request: hook,
+
             sender,
             receiver,
         }
     }
 
-    /// Ask the peer to open a [`channel::Channel`] from the provided `context`.
+    /// Request a new _channel_ with the provided `context`.
     pub async fn channel(
         &mut self,
         context: connect::ChannelOpenContext,
@@ -114,11 +167,43 @@ impl<'s, IO: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, IO, S> {
         }
     }
 
-    /// Process incoming messages endlessly.
-    pub async fn handle(
-        mut self,
-        channel_handler: impl Fn(connect::ChannelOpenContext, channel::Channel) -> bool,
-    ) -> Result<Infallible> {
+    /// Register the handler for _channel open requests_.
+    ///
+    /// # Note:
+    ///
+    /// Blocking the hook will block the main [`Self::spin`] loop,
+    /// which will cause new global requests and channels to stop
+    /// being processed, as well as interrupt channel I/O.
+    pub fn on_channel_open(
+        self,
+        hook: impl channel::Hook,
+    ) -> Connect<'s, IO, S, G, impl channel::Hook> {
+        let Self {
+            session,
+            channels,
+
+            on_channel_open: _,
+            on_global_request,
+
+            sender,
+            receiver,
+        } = self;
+
+        Connect {
+            session,
+            channels,
+
+            on_channel_open: hook,
+            on_global_request,
+
+            sender,
+            receiver,
+        }
+    }
+
+    /// Spin up the connect protocol handling, with the registered hooks
+    /// to fuel channel I/O and hooks with messages.
+    pub async fn spin(mut self) -> Result<Infallible> {
         loop {
             futures::select! {
                 msg = self.receiver.recv_async() => {
@@ -130,16 +215,13 @@ impl<'s, IO: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, IO, S> {
                 res = self.session.readable().fuse() => {
                     res?;
 
-                    self.rx(&channel_handler).await?;
+                    self.rx().await?;
                 }
             }
         }
     }
 
-    async fn rx(
-        &mut self,
-        channel_handler: &impl Fn(connect::ChannelOpenContext, channel::Channel) -> bool,
-    ) -> Result<()> {
+    async fn rx(&mut self) -> Result<()> {
         let packet = self.session.recv().await?;
 
         if let Ok(connect::GlobalRequest { .. }) = packet.to() {
@@ -170,38 +252,42 @@ impl<'s, IO: AsyncBufRead + AsyncWrite + Unpin, S: Side> Connect<'s, IO, S> {
                 self.sender.clone(),
             );
 
-            // TODO: Get rid of this bool in the channel handler.
-            if channel_handler(context, channel) {
-                self.channels.insert(
-                    local_id,
-                    ChannelDef {
-                        sender,
-                        remote_window_size,
-                    },
-                );
+            match self.on_channel_open.process(context, channel) {
+                channel::Response::Accept => {
+                    self.channels.insert(
+                        local_id,
+                        ChannelDef {
+                            sender,
+                            remote_window_size,
+                        },
+                    );
 
-                self.session
-                    .send(&connect::ChannelOpenConfirmation {
-                        recipient_channel: remote_id,
-                        sender_channel: local_id,
-                        initial_window_size: INITIAL_WINDOW_SIZE,
-                        maximum_packet_size: MAXIMUM_PACKET_SIZE,
-                    })
-                    .await?;
+                    self.session
+                        .send(&connect::ChannelOpenConfirmation {
+                            recipient_channel: remote_id,
+                            sender_channel: local_id,
+                            initial_window_size: INITIAL_WINDOW_SIZE,
+                            maximum_packet_size: MAXIMUM_PACKET_SIZE,
+                        })
+                        .await?;
 
-                tracing::debug!("Channel opened as #{local_id}:%{remote_id}");
-            } else {
-                // TODO: Handle failure mode correctly.
-                self.session
-                    .send(&connect::ChannelOpenFailure {
-                        recipient_channel: remote_id,
-                        reason: todo!(),
-                        description: todo!(),
-                        language: todo!(),
-                    })
-                    .await?;
+                    tracing::debug!("Channel opened as #{local_id}:%{remote_id}");
+                }
+                channel::Response::Reject {
+                    reason,
+                    description,
+                } => {
+                    self.session
+                        .send(&connect::ChannelOpenFailure {
+                            recipient_channel: remote_id,
+                            reason,
+                            description,
+                            language: Default::default(),
+                        })
+                        .await?;
 
-                tracing::debug!("Channel open refused for %{remote_id}");
+                    tracing::debug!("Channel open refused for %{remote_id}");
+                }
             }
         } else if let Ok(connect::ChannelClose { recipient_channel }) = packet.to() {
             tracing::debug!("Peer closed channel #{recipient_channel}");
