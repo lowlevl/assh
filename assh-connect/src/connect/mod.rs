@@ -18,6 +18,9 @@ use crate::{
     Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE,
 };
 
+#[doc(no_inline)]
+pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestContext};
+
 pub mod channel;
 pub mod global_request;
 
@@ -43,7 +46,7 @@ pub enum ChannelOpen {
     /// _Rejected_ the channel open request.
     Rejected {
         /// The reason for failure.
-        reason: connect::ChannelOpenFailureReason,
+        reason: ChannelOpenFailureReason,
 
         /// A textual message to acompany the reason.
         message: String,
@@ -93,11 +96,8 @@ where
     C: channel::Hook,
 {
     /// Make a _global request_ with the provided `context`.
-    pub async fn global_request(
-        &mut self,
-        context: connect::GlobalRequestContext,
-    ) -> Result<GlobalRequest> {
-        let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+    pub async fn global_request(&mut self, context: GlobalRequestContext) -> Result<GlobalRequest> {
+        let with_port = matches!(context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
         self.session
             .send(&connect::GlobalRequest {
@@ -157,10 +157,7 @@ where
     }
 
     /// Request a new _channel_ with the provided `context`.
-    pub async fn channel_open(
-        &mut self,
-        context: connect::ChannelOpenContext,
-    ) -> Result<ChannelOpen> {
+    pub async fn channel_open(&mut self, context: ChannelOpenContext) -> Result<ChannelOpen> {
         let local_id = self
             .channels
             .keys()
@@ -291,7 +288,7 @@ where
             context,
         }) = packet.to()
         {
-            let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+            let with_port = matches!(context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
             let outcome = self.on_global_request.on_request(context);
 
             if *want_reply {

@@ -7,6 +7,9 @@ use ssh_packet::connect;
 
 use crate::{Error, Result};
 
+#[doc(no_inline)]
+pub use connect::{ChannelExtendedDataType, ChannelRequestContext};
+
 mod io;
 
 mod msg;
@@ -83,7 +86,7 @@ impl Channel {
     /// polling for a reader will discard other data types
     /// and polling concurrently for more than one reader may cause data integrity issues.
     #[must_use]
-    pub fn as_reader_ext(&self, ext: connect::ChannelExtendedDataType) -> impl AsyncRead + '_ {
+    pub fn as_reader_ext(&self, ext: ChannelExtendedDataType) -> impl AsyncRead + '_ {
         io::Read::new(self, Some(ext))
     }
 
@@ -95,12 +98,12 @@ impl Channel {
 
     /// Make a writer for current channel's _extended data_ stream.
     #[must_use]
-    pub fn as_writer_ext(&self, ext: connect::ChannelExtendedDataType) -> impl AsyncWrite + '_ {
+    pub fn as_writer_ext(&self, ext: ChannelExtendedDataType) -> impl AsyncWrite + '_ {
         io::Write::new(self, Some(ext))
     }
 
     /// Send a request on the current channel.
-    pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<Response> {
+    pub async fn request(&self, context: ChannelRequestContext) -> Result<Response> {
         self.sender
             .send_async(Msg::Request(connect::ChannelRequest {
                 recipient_channel: self.remote_id,
@@ -125,7 +128,7 @@ impl Channel {
     /// Receive and handle a request on the current channel.
     pub async fn on_request(
         &self,
-        mut handler: impl FnMut(connect::ChannelRequestContext) -> Response,
+        mut handler: impl FnMut(ChannelRequestContext) -> Response,
     ) -> Result<Response> {
         match self
             .receiver
