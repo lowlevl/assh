@@ -26,28 +26,21 @@ const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
 const INITIAL_WINDOW_SIZE: u32 = 64 * MAXIMUM_PACKET_SIZE;
 const WINDOW_ADJUST_THRESHOLD: u32 = INITIAL_WINDOW_SIZE / 2;
 
-mod connect;
-pub use connect::Connect;
-
 pub mod channel;
-pub mod global_request;
+pub mod connect;
 
 mod error;
 pub use error::{Error, Result};
 
-use assh::{
-    service::{Handler, Request},
-    side::Side,
-    Session,
-};
+use assh::{service, side::Side, Session};
 use futures::{AsyncBufRead, AsyncWrite};
 
-/// An implementation of [`Handler`] and [`Request`] that yields a [`Connect`] instance.
+/// An implementation of [`service::Handler`] and [`service::Request`] that yields a [`connect::Connect`] instance.
 pub struct Service;
 
-impl Handler for Service {
+impl service::Handler for Service {
     type Err = assh::Error;
-    type Ok<'s, IO: 's, S: 's> = Connect<'s, IO, S>;
+    type Ok<'s, IO: 's, S: 's> = connect::Connect<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
@@ -59,13 +52,13 @@ impl Handler for Service {
         IO: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
     {
-        Ok(Connect::new(session))
+        Ok(connect::Connect::new(session))
     }
 }
 
-impl Request for Service {
+impl service::Request for Service {
     type Err = assh::Error;
-    type Ok<'s, IO: 's, S: 's> = Connect<'s, IO, S>;
+    type Ok<'s, IO: 's, S: 's> = connect::Connect<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
@@ -77,6 +70,6 @@ impl Request for Service {
         IO: AsyncBufRead + AsyncWrite + Unpin,
         S: Side,
     {
-        Ok(Connect::new(session))
+        Ok(connect::Connect::new(session))
     }
 }

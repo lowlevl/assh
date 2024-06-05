@@ -1,3 +1,5 @@
+//! Facilities to interract with the SSH _connect_ protocol.
+
 use std::{
     collections::HashMap,
     convert::Infallible,
@@ -11,10 +13,44 @@ use assh::{side::Side, Session};
 use futures::{AsyncBufRead, AsyncWrite, FutureExt};
 use ssh_packet::connect;
 
-use crate::{channel, global_request, Error, Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE};
+use crate::{
+    channel::{Channel, Msg},
+    Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE,
+};
+
+pub mod channel;
+pub mod global_request;
+
+/// The response to a _global request_.
+#[derive(Debug)]
+pub enum GlobalRequestResponse {
+    /// _Accepted_ global request.
+    Accepted,
+
+    /// _Accepted_ global request, with a bound port.
+    AcceptedPort(u32),
+    /// _Rejected_ the global request.
+    Rejected,
+}
+
+/// The response to a _channel open request_.
+#[derive(Debug)]
+pub enum ChannelOpenResponse {
+    /// _Accepted_ the channel open request.
+    Accepted(Channel),
+
+    /// _Rejected_ the channel open request.
+    Rejected {
+        /// The reason for failure.
+        reason: connect::ChannelOpenFailureReason,
+
+        /// A textual message to acompany the reason.
+        message: String,
+    },
+}
 
 struct ChannelDef {
-    sender: flume::Sender<channel::Msg>,
+    sender: flume::Sender<Msg>,
     remote_window_size: Arc<AtomicU32>,
 }
 
@@ -23,11 +59,11 @@ pub struct Connect<'s, IO, S, G = (), C = ()> {
     session: &'s mut Session<IO, S>,
     channels: HashMap<u32, ChannelDef>,
 
+    sender: flume::Sender<Msg>,
+    receiver: flume::Receiver<Msg>,
+
     on_global_request: G,
     on_channel_open: C,
-
-    sender: flume::Sender<channel::Msg>,
-    receiver: flume::Receiver<channel::Msg>,
 }
 
 impl<'s, IO, S> Connect<'s, IO, S> {
@@ -39,11 +75,11 @@ impl<'s, IO, S> Connect<'s, IO, S> {
             session,
             channels: Default::default(),
 
-            on_global_request: (),
-            on_channel_open: (),
-
             sender,
             receiver,
+
+            on_global_request: (),
+            on_channel_open: (),
         }
     }
 }
@@ -56,8 +92,33 @@ where
     C: channel::Hook,
 {
     /// Make a _global request_ with the provided `context`.
-    pub async fn global_request(&mut self, context: connect::GlobalRequestContext) -> Result<()> {
-        todo!()
+    pub async fn global_request(
+        &mut self,
+        context: connect::GlobalRequestContext,
+    ) -> Result<GlobalRequestResponse> {
+        let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+
+        self.session
+            .send(&connect::GlobalRequest {
+                want_reply: true.into(),
+                context,
+            })
+            .await?;
+
+        let packet = self.session.recv().await?;
+        if let Ok(connect::RequestFailure) = packet.to() {
+            Ok(GlobalRequestResponse::Rejected)
+        } else if with_port {
+            if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
+                Ok(GlobalRequestResponse::AcceptedPort(bound_port))
+            } else {
+                Err(assh::Error::UnexpectedMessage.into())
+            }
+        } else if let Ok(connect::RequestSuccess) = packet.to() {
+            Ok(GlobalRequestResponse::Accepted)
+        } else {
+            Err(assh::Error::UnexpectedMessage.into())
+        }
     }
 
     /// Register the handler for _global requests_.
@@ -75,22 +136,22 @@ where
             session,
             channels,
 
-            on_channel_open: on_channel,
-            on_global_request: _,
-
             sender,
             receiver,
+
+            on_channel_open: on_channel,
+            on_global_request: _,
         } = self;
 
         Connect {
             session,
             channels,
 
-            on_channel_open: on_channel,
-            on_global_request: hook,
-
             sender,
             receiver,
+
+            on_channel_open: on_channel,
+            on_global_request: hook,
         }
     }
 
@@ -98,7 +159,7 @@ where
     pub async fn channel(
         &mut self,
         context: connect::ChannelOpenContext,
-    ) -> Result<channel::Channel> {
+    ) -> Result<ChannelOpenResponse> {
         let local_id = self
             .channels
             .keys()
@@ -117,7 +178,22 @@ where
 
         let packet = self.session.recv().await?;
 
-        if let Ok(connect::ChannelOpenConfirmation {
+        if let Ok(connect::ChannelOpenFailure {
+            recipient_channel,
+            reason,
+            description,
+            ..
+        }) = packet.to()
+        {
+            if recipient_channel == local_id {
+                Ok(ChannelOpenResponse::Rejected {
+                    reason,
+                    message: description.into_string(),
+                })
+            } else {
+                Err(assh::Error::UnexpectedMessage.into())
+            }
+        } else if let Ok(connect::ChannelOpenConfirmation {
             sender_channel: remote_id,
             recipient_channel,
             initial_window_size,
@@ -127,7 +203,7 @@ where
             if recipient_channel == local_id {
                 let remote_window_size = Arc::new(AtomicU32::new(initial_window_size));
 
-                let (channel, sender) = channel::Channel::new(
+                let (channel, sender) = Channel::new(
                     remote_id,
                     INITIAL_WINDOW_SIZE,
                     remote_window_size.clone(),
@@ -143,22 +219,7 @@ where
                     },
                 );
 
-                Ok(channel)
-            } else {
-                Err(assh::Error::UnexpectedMessage.into())
-            }
-        } else if let Ok(connect::ChannelOpenFailure {
-            recipient_channel,
-            reason,
-            description,
-            ..
-        }) = packet.to()
-        {
-            if recipient_channel == local_id {
-                Err(Error::ChannelOpenFailure {
-                    reason,
-                    message: description.into_string(),
-                })
+                Ok(ChannelOpenResponse::Accepted(channel))
             } else {
                 Err(assh::Error::UnexpectedMessage.into())
             }
@@ -182,22 +243,22 @@ where
             session,
             channels,
 
-            on_channel_open: _,
-            on_global_request,
-
             sender,
             receiver,
+
+            on_channel_open: _,
+            on_global_request,
         } = self;
 
         Connect {
             session,
             channels,
 
-            on_channel_open: hook,
-            on_global_request,
-
             sender,
             receiver,
+
+            on_channel_open: hook,
+            on_global_request,
         }
     }
 
@@ -224,9 +285,29 @@ where
     async fn rx(&mut self) -> Result<()> {
         let packet = self.session.recv().await?;
 
-        if let Ok(connect::GlobalRequest { .. }) = packet.to() {
-            // TODO: Implement global-requests.
-            todo!()
+        if let Ok(connect::GlobalRequest {
+            want_reply,
+            context,
+        }) = packet.to()
+        {
+            let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+            let outcome = self.on_global_request.process(context);
+
+            if *want_reply {
+                match outcome {
+                    global_request::Outcome::Accept { bound_port } if with_port => {
+                        self.session
+                            .send(&connect::ForwardingSuccess { bound_port })
+                            .await?;
+                    }
+                    global_request::Outcome::Accept { .. } => {
+                        self.session.send(&connect::RequestSuccess).await?;
+                    }
+                    global_request::Outcome::Reject => {
+                        self.session.send(&connect::RequestFailure).await?;
+                    }
+                }
+            }
         } else if let Ok(connect::ChannelOpen {
             sender_channel: remote_id,
             initial_window_size,
@@ -244,7 +325,7 @@ where
                 .unwrap_or_default();
             let remote_window_size = Arc::new(AtomicU32::new(initial_window_size));
 
-            let (channel, sender) = channel::Channel::new(
+            let (channel, sender) = Channel::new(
                 remote_id,
                 INITIAL_WINDOW_SIZE,
                 remote_window_size.clone(),
@@ -253,7 +334,7 @@ where
             );
 
             match self.on_channel_open.process(context, channel) {
-                channel::Response::Accept => {
+                channel::Outcome::Accept => {
                     self.channels.insert(
                         local_id,
                         ChannelDef {
@@ -273,7 +354,7 @@ where
 
                     tracing::debug!("Channel opened as #{local_id}:%{remote_id}");
                 }
-                channel::Response::Reject {
+                channel::Outcome::Reject {
                     reason,
                     description,
                 } => {
@@ -307,7 +388,7 @@ where
             } else {
                 tracing::warn!("Received a message for closed channel #{recipient_channel}");
             }
-        } else if let Ok(msg) = packet.to::<channel::Msg>() {
+        } else if let Ok(msg) = packet.to::<Msg>() {
             if let Some(channel) = self.channels.get(msg.recipient_channel()) {
                 if let Err(err) = channel.sender.send_async(msg).await {
                     // If we failed to send the message to the channel,

@@ -37,4 +37,4 @@ thiserror = "1.0.58"
 assh = { path = "assh" }
 assh-auth = { path = "assh-auth" }
 assh-connect = { path = "assh-connect" }
-# ssh-packet = { path = "../ssh-packet" }
+ssh-packet = { path = "../ssh-packet" }

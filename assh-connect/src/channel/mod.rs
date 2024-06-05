@@ -1,4 +1,4 @@
-//! Facilities to interract with SSH channels.
+//! Definition of the [`Channel`] struct that provides isolated I/O on SSH channels.
 
 use std::sync::{atomic::AtomicU32, Arc};
 
@@ -9,15 +9,12 @@ use crate::{Error, Result};
 
 mod io;
 
-mod hook;
-pub use hook::{Hook, Response};
-
 mod msg;
 pub(super) use msg::Msg;
 
 /// A response to a channel request.
 #[derive(Debug, PartialEq, Eq)]
-pub enum ReqResponse {
+pub enum Response {
     /// The request succeeded.
     Success,
 
@@ -103,7 +100,7 @@ impl Channel {
     }
 
     /// Send a request on the current channel.
-    pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<ReqResponse> {
+    pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<Response> {
         self.sender
             .send_async(Msg::Request(connect::ChannelRequest {
                 recipient_channel: self.remote_id,
@@ -119,8 +116,8 @@ impl Channel {
             .await
             .map_err(|_| Error::ChannelClosed)?
         {
-            Msg::Success(_) => Ok(ReqResponse::Success),
-            Msg::Failure(_) => Ok(ReqResponse::Failure),
+            Msg::Success(_) => Ok(Response::Success),
+            Msg::Failure(_) => Ok(Response::Failure),
             _ => Err(assh::Error::UnexpectedMessage.into()),
         }
     }
@@ -128,8 +125,8 @@ impl Channel {
     /// Receive and handle a request on the current channel.
     pub async fn on_request(
         &self,
-        mut handler: impl FnMut(connect::ChannelRequestContext) -> ReqResponse,
-    ) -> Result<ReqResponse> {
+        mut handler: impl FnMut(connect::ChannelRequestContext) -> Response,
+    ) -> Result<Response> {
         match self
             .receiver
             .recv_async()
@@ -141,7 +138,7 @@ impl Channel {
 
                 if *request.want_reply {
                     match response {
-                        ReqResponse::Success => {
+                        Response::Success => {
                             self.sender
                                 .send_async(Msg::Success(connect::ChannelSuccess {
                                     recipient_channel: self.remote_id,
@@ -149,7 +146,7 @@ impl Channel {
                                 .await
                                 .map_err(|_| Error::ChannelClosed)?;
                         }
-                        ReqResponse::Failure => {
+                        Response::Failure => {
                             self.sender
                                 .send_async(Msg::Failure(connect::ChannelFailure {
                                     recipient_channel: self.remote_id,

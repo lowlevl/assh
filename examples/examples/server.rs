@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
-use assh_connect::channel;
+use assh_connect::{channel, connect::channel::Outcome};
 
 use clap::Parser;
 use color_eyre::eyre;
@@ -85,7 +85,7 @@ async fn main() -> eyre::Result<()> {
                 .on_channel_open(|_, channel: channel::Channel| {
                     task::spawn(async move {
                         channel
-                            .on_request(|_ctx| channel::ReqResponse::Success)
+                            .on_request(|_ctx| channel::Response::Success)
                             .await?;
 
                         let mut writer = channel.as_writer();
@@ -101,7 +101,7 @@ async fn main() -> eyre::Result<()> {
                         Ok::<_, eyre::Error>(())
                     });
 
-                    channel::Response::Accept
+                    Outcome::Accept
                 })
                 .spin()
                 .await?;
