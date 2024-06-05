@@ -23,7 +23,7 @@ pub enum Outcome {
 /// A hook on channel open requests.
 pub trait Hook {
     /// Process the channel open request.
-    fn process(
+    fn on_request(
         &mut self,
         context: connect::ChannelOpenContext,
         channel: channel::Channel,
@@ -31,7 +31,7 @@ pub trait Hook {
 }
 
 impl<T: FnMut(connect::ChannelOpenContext, channel::Channel) -> Outcome> Hook for T {
-    fn process(
+    fn on_request(
         &mut self,
         context: connect::ChannelOpenContext,
         channel: channel::Channel,
@@ -42,7 +42,7 @@ impl<T: FnMut(connect::ChannelOpenContext, channel::Channel) -> Outcome> Hook fo
 
 /// A default implementation of the method that rejects all requests.
 impl Hook for () {
-    fn process(&mut self, _: connect::ChannelOpenContext, _: channel::Channel) -> Outcome {
+    fn on_request(&mut self, _: connect::ChannelOpenContext, _: channel::Channel) -> Outcome {
         Outcome::Reject {
             reason: connect::ChannelOpenFailureReason::AdministrativelyProhibited,
             description: "The channel opening is currently disabled".into(),

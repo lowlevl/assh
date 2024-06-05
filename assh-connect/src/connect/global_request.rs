@@ -18,18 +18,18 @@ pub enum Outcome {
 /// A hook on global requests.
 pub trait Hook {
     /// Process the global request.
-    fn process(&mut self, context: connect::GlobalRequestContext) -> Outcome;
+    fn on_request(&mut self, context: connect::GlobalRequestContext) -> Outcome;
 }
 
 impl<T: FnMut(connect::GlobalRequestContext) -> Outcome> Hook for T {
-    fn process(&mut self, context: connect::GlobalRequestContext) -> Outcome {
+    fn on_request(&mut self, context: connect::GlobalRequestContext) -> Outcome {
         (self)(context)
     }
 }
 
 /// A default implementation of the method that rejects all requests.
 impl Hook for () {
-    fn process(&mut self, _: connect::GlobalRequestContext) -> Outcome {
+    fn on_request(&mut self, _: connect::GlobalRequestContext) -> Outcome {
         Outcome::Reject
     }
 }

@@ -23,19 +23,20 @@ pub mod global_request;
 
 /// The response to a _global request_.
 #[derive(Debug)]
-pub enum GlobalRequestResponse {
+pub enum GlobalRequest {
     /// _Accepted_ global request.
     Accepted,
 
     /// _Accepted_ global request, with a bound port.
     AcceptedPort(u32),
+
     /// _Rejected_ the global request.
     Rejected,
 }
 
 /// The response to a _channel open request_.
 #[derive(Debug)]
-pub enum ChannelOpenResponse {
+pub enum ChannelOpen {
     /// _Accepted_ the channel open request.
     Accepted(Channel),
 
@@ -95,7 +96,7 @@ where
     pub async fn global_request(
         &mut self,
         context: connect::GlobalRequestContext,
-    ) -> Result<GlobalRequestResponse> {
+    ) -> Result<GlobalRequest> {
         let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
         self.session
@@ -107,21 +108,21 @@ where
 
         let packet = self.session.recv().await?;
         if let Ok(connect::RequestFailure) = packet.to() {
-            Ok(GlobalRequestResponse::Rejected)
+            Ok(GlobalRequest::Rejected)
         } else if with_port {
             if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
-                Ok(GlobalRequestResponse::AcceptedPort(bound_port))
+                Ok(GlobalRequest::AcceptedPort(bound_port))
             } else {
                 Err(assh::Error::UnexpectedMessage.into())
             }
         } else if let Ok(connect::RequestSuccess) = packet.to() {
-            Ok(GlobalRequestResponse::Accepted)
+            Ok(GlobalRequest::Accepted)
         } else {
             Err(assh::Error::UnexpectedMessage.into())
         }
     }
 
-    /// Register the handler for _global requests_.
+    /// Register the hook for _global requests_.
     ///
     /// # Note:
     ///
@@ -156,10 +157,10 @@ where
     }
 
     /// Request a new _channel_ with the provided `context`.
-    pub async fn channel(
+    pub async fn channel_open(
         &mut self,
         context: connect::ChannelOpenContext,
-    ) -> Result<ChannelOpenResponse> {
+    ) -> Result<ChannelOpen> {
         let local_id = self
             .channels
             .keys()
@@ -186,7 +187,7 @@ where
         }) = packet.to()
         {
             if recipient_channel == local_id {
-                Ok(ChannelOpenResponse::Rejected {
+                Ok(ChannelOpen::Rejected {
                     reason,
                     message: description.into_string(),
                 })
@@ -219,7 +220,7 @@ where
                     },
                 );
 
-                Ok(ChannelOpenResponse::Accepted(channel))
+                Ok(ChannelOpen::Accepted(channel))
             } else {
                 Err(assh::Error::UnexpectedMessage.into())
             }
@@ -228,7 +229,7 @@ where
         }
     }
 
-    /// Register the handler for _channel open requests_.
+    /// Register the hook for _channel open requests_.
     ///
     /// # Note:
     ///
@@ -291,7 +292,7 @@ where
         }) = packet.to()
         {
             let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
-            let outcome = self.on_global_request.process(context);
+            let outcome = self.on_global_request.on_request(context);
 
             if *want_reply {
                 match outcome {
@@ -333,7 +334,7 @@ where
                 self.sender.clone(),
             );
 
-            match self.on_channel_open.process(context, channel) {
+            match self.on_channel_open.on_request(context, channel) {
                 channel::Outcome::Accept => {
                     self.channels.insert(
                         local_id,
