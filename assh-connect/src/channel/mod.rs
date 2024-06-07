@@ -166,3 +166,18 @@ impl Channel {
         }
     }
 }
+
+impl Drop for Channel {
+    fn drop(&mut self) {
+        tracing::debug!("Closing channel %{}", self.remote_id);
+
+        if let Err(err) = self.sender.send(Msg::Close(connect::ChannelClose {
+            recipient_channel: self.remote_id,
+        })) {
+            tracing::error!(
+                "Unable to report channel %{} closed to the peer: {err}",
+                self.remote_id
+            );
+        }
+    }
+}

@@ -27,6 +27,7 @@ message! {
     Data(connect::ChannelData),
     ExtendedData(connect::ChannelExtendedData),
     Eof(connect::ChannelEof),
+    Close(connect::ChannelClose),
     Request(connect::ChannelRequest),
     Success(connect::ChannelSuccess),
     Failure(connect::ChannelFailure),
@@ -44,6 +45,9 @@ impl Msg {
             recipient_channel, ..
         })
         | Self::Eof(connect::ChannelEof {
+            recipient_channel, ..
+        })
+        | Self::Close(connect::ChannelClose {
             recipient_channel, ..
         })
         | Self::Request(connect::ChannelRequest {

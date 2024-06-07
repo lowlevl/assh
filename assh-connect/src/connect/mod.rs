@@ -24,6 +24,9 @@ pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestCon
 pub mod channel;
 pub mod global_request;
 
+// TODO: Clean the code duplication in channel opening.
+// TODO: Tackle code readability issue in Connect::rx
+
 /// The response to a _global request_.
 #[derive(Debug)]
 pub enum GlobalRequest {
@@ -55,6 +58,7 @@ pub enum ChannelOpen {
 
 struct ChannelDef {
     sender: flume::Sender<Msg>,
+    remote_id: u32,
     remote_window_size: Arc<AtomicU32>,
 }
 
@@ -213,6 +217,7 @@ where
                     local_id,
                     ChannelDef {
                         sender,
+                        remote_id,
                         remote_window_size,
                     },
                 );
@@ -337,6 +342,7 @@ where
                         local_id,
                         ChannelDef {
                             sender,
+                            remote_id,
                             remote_window_size,
                         },
                     );
@@ -370,6 +376,23 @@ where
             }
         } else if let Ok(connect::ChannelClose { recipient_channel }) = packet.to() {
             tracing::debug!("Peer closed channel #{recipient_channel}");
+
+            // Acknowledge the channel close if we didn't already send a close message earlier.
+            if let Some(remote_id) = self.channels.get(&recipient_channel).and_then(|channel| {
+                if !channel.sender.is_disconnected() {
+                    Some(channel.remote_id)
+                } else {
+                    None
+                }
+            }) {
+                tracing::debug!("Closing channel %{remote_id}");
+
+                self.session
+                    .send(&connect::ChannelClose {
+                        recipient_channel: remote_id,
+                    })
+                    .await?;
+            }
 
             self.channels.remove(&recipient_channel);
         } else if let Ok(connect::ChannelWindowAdjust {
