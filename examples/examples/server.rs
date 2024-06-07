@@ -8,7 +8,7 @@ use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    AsyncWriteExt,
+    AsyncReadExt, AsyncWriteExt, FutureExt,
 };
 use tokio::{net::TcpListener, task};
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -58,7 +58,6 @@ async fn main() -> eyre::Result<()> {
     loop {
         let (stream, _addr) = listener.accept().await?;
         let keys = keys.clone();
-
         task::spawn(async move {
             let stream = BufReader::new(BufWriter::new(stream.compat()));
 
@@ -89,13 +88,23 @@ async fn main() -> eyre::Result<()> {
                             .await?;
 
                         let mut writer = channel.as_writer();
+                        let mut reader = channel.as_reader();
 
                         for frame in FRAMES.iter().cycle() {
-                            writer.write_all(CLEAR.as_bytes()).await?;
-                            writer.write_all(frame.as_bytes()).await?;
-                            writer.flush().await?;
+                            let mut read = [0u8; 1];
 
-                            tokio::time::sleep(DELAY).await;
+                            futures::select! {
+                                len = reader.read(&mut read).fuse() => {
+                                    if matches!(len, Ok(len) if len > 0 && read[0] == b'q') {
+                                        break;
+                                    }
+                                }
+                                _ = tokio::time::sleep(DELAY).fuse() => {
+                                    writer.write_all(CLEAR.as_bytes()).await?;
+                                    writer.write_all(frame.as_bytes()).await?;
+                                    writer.flush().await?;
+                                }
+                            }
                         }
 
                         Ok::<_, eyre::Error>(())
