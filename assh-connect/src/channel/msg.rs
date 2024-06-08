@@ -1,5 +1,7 @@
 use ssh_packet::{binrw, connect};
 
+// TODO: Maybe split the `Msg` struct into Ctrl, Request and Io
+
 /// The purpose of this macro is to automatically document variants
 /// and link to the underlying item documentation.
 macro_rules! message {

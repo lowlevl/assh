@@ -16,7 +16,7 @@ assh = "^0"
 assh-auth = "^0"
 assh-connect = "^0"
 
-ssh-packet = { version = "0.5.1", features = [
+ssh-packet = { version = "0.5.2", features = [
     "futures",
     "digest",
     "signature",

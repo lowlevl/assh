@@ -24,7 +24,7 @@ pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestCon
 pub mod channel;
 pub mod global_request;
 
-// TODO: Clean the code duplication in channel opening.
+// TODO: Clean the code duplication in channel opening
 // TODO: Tackle code readability issue in Connect::rx
 
 /// The response to a _global request_.

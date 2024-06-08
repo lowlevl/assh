@@ -4,6 +4,8 @@ use ssh_packet::{arch::StringUtf8, connect};
 
 use crate::channel;
 
+// TODO: Use a ChannelBuilder with Drop reject implementation ?
+
 /// An outcome to a channel open [`Hook`].
 #[derive(Debug)]
 pub enum Outcome {

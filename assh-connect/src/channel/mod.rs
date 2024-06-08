@@ -15,6 +15,8 @@ mod io;
 mod msg;
 pub(super) use msg::Msg;
 
+// TODO: Enable channels read muxing, with RwLock<HashSet<Option<connect::ChannelExtendedDataType>>>
+
 /// A response to a channel request.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
