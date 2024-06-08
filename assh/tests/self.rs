@@ -105,7 +105,7 @@ async fn end_to_end(
 
     tracing::info!("message: {message:?}");
 
-    assert!(matches!(message, Err(Error::Disconnected)));
+    assert!(matches!(message, Err(Error::Disconnected(_))));
 
     Ok(())
 }

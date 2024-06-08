@@ -29,7 +29,7 @@ pub mod algorithm;
 pub mod service;
 pub mod side;
 
-mod error;
+pub mod error;
 pub use error::{Error, Result};
 
 mod session;

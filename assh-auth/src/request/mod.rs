@@ -170,27 +170,29 @@ impl<R: Request> Request for Auth<R> {
                 if let Some(next) = self.next_method(&continue_with) {
                     method = next;
                 } else {
-                    session
-                        .disconnect(
-                            DisconnectReason::NoMoreAuthMethodsAvailable,
-                            "Exhausted available authentication methods.",
-                        )
-                        .await?;
-
-                    break Err(Error::Disconnected.into());
+                    break Err(Error::from(
+                        session
+                            .disconnect(
+                                DisconnectReason::NoMoreAuthMethodsAvailable,
+                                "Exhausted available authentication methods",
+                            )
+                            .await,
+                    )
+                    .into());
                 };
             } else {
-                session
-                    .disconnect(
-                        DisconnectReason::ProtocolError,
-                        format!(
-                            "Unexpected message in the context of the `{}` service request.",
-                            Self::SERVICE_NAME
-                        ),
-                    )
-                    .await?;
-
-                break Err(Error::UnexpectedMessage.into());
+                break Err(Error::from(
+                    session
+                        .disconnect(
+                            DisconnectReason::ProtocolError,
+                            format!(
+                                "Unexpected message in the context of the `{}` service request",
+                                Self::SERVICE_NAME
+                            ),
+                        )
+                        .await,
+                )
+                .into());
             }
         }
     }

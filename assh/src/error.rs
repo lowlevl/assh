@@ -1,4 +1,32 @@
+//! Collection of error handling types and aliases.
+
+use ssh_packet::trans;
 use thiserror::Error;
+
+/// The disconnection side for [`DisconnectedError`].
+#[derive(Debug, Clone)]
+pub enum DisconnectedBy {
+    /// The session has been disconnected by _us_.
+    Us,
+
+    /// The session has been disconnected by _them_.
+    Them,
+}
+
+/// The error type describing disconnect.
+#[must_use]
+#[derive(Debug, Error, Clone)]
+#[error("The session has been disconnected by {by:?} for {reason:?}: {description}")]
+pub struct DisconnectedError {
+    /// Side that sent the disconnect message.
+    pub by: DisconnectedBy,
+
+    /// Reason for disconnect.
+    pub reason: trans::DisconnectReason,
+
+    /// Description of the disconnect reason.
+    pub description: String,
+}
 
 /// The error types that can occur when manipulating this crate.
 #[non_exhaustive]
@@ -69,8 +97,8 @@ pub enum Error {
     UnknownService,
 
     /// The session has been disconnected.
-    #[error("The session has been disconnected")]
-    Disconnected,
+    #[error(transparent)]
+    Disconnected(#[from] DisconnectedError),
 }
 
 /// A handy [`std::result::Result`] type alias bounding the [`enum@Error`] struct as `E`.

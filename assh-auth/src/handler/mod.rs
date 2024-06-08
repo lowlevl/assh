@@ -308,14 +308,15 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
 
                                 self.handler.on_request(session).await
                             } else {
-                                session
-                                    .disconnect(
-                                        DisconnectReason::ServiceNotAvailable,
-                                        "Requested service is unknown, aborting.",
-                                    )
-                                    .await?;
-
-                                Err(Error::UnknownService.into())
+                                Err(Error::from(
+                                    session
+                                        .disconnect(
+                                            DisconnectReason::ServiceNotAvailable,
+                                            "Requested service is unknown",
+                                        )
+                                        .await,
+                                )
+                                .into())
                             }
                         }
                         attempt @ Attempt::Failure | attempt @ Attempt::Partial => {
@@ -337,17 +338,18 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
                         .await?;
                 }
             } else {
-                session
-                    .disconnect(
-                        DisconnectReason::ProtocolError,
-                        format!(
-                            "Unexpected message in the context of the `{}` service request.",
-                            Self::SERVICE_NAME
-                        ),
-                    )
-                    .await?;
-
-                break Err(Error::UnexpectedMessage.into());
+                break Err(Error::from(
+                    session
+                        .disconnect(
+                            DisconnectReason::ProtocolError,
+                            format!(
+                                "Unexpected message in the context of the `{}` service request",
+                                Self::SERVICE_NAME
+                            ),
+                        )
+                        .await,
+                )
+                .into());
             }
         }
     }

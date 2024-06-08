@@ -1,3 +1,4 @@
+use either::Either;
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
@@ -9,13 +10,18 @@ use ssh_packet::{
     Id, Packet, ToPacket,
 };
 
-use crate::{service, side::Side, stream::Stream, Error, Result};
+use crate::{
+    error::{DisconnectedBy, DisconnectedError, Error, Result},
+    service,
+    side::Side,
+    stream::Stream,
+};
 
 // TODO: Handle extension negotiation described in RFC8308
 
 /// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
 pub struct Session<IO, S> {
-    stream: Option<Stream<IO>>,
+    stream: Either<Stream<IO>, DisconnectedError>,
     config: S,
 
     peer_id: Id,
@@ -41,7 +47,7 @@ where
         tracing::debug!("Session started with peer `{peer_id}`");
 
         Ok(Self {
-            stream: Some(stream),
+            stream: Either::Left(stream),
             config,
             peer_id,
         })
@@ -54,15 +60,16 @@ where
 
     /// Access initial exchange hash.
     pub fn session_id(&self) -> Option<&[u8]> {
-        self.stream.as_ref().and_then(Stream::session_id)
+        self.stream.as_ref().left().and_then(Stream::session_id)
     }
 
     /// Waits until the [`Session`] becomes readable,
     /// mainly to be used with [`Session::recv`] in [`futures::select`],
     /// since the `recv` method is **not cancel-safe**.
     pub async fn readable(&mut self) -> Result<()> {
-        let Some(ref mut stream) = self.stream else {
-            return Err(Error::Disconnected);
+        let stream = match &mut self.stream {
+            Either::Left(stream) => stream,
+            Either::Right(err) => Err(err.clone())?,
         };
 
         stream.fill_buf().await
@@ -75,8 +82,9 @@ where
     /// some data may be partially received.
     pub async fn recv(&mut self) -> Result<Packet> {
         loop {
-            let Some(ref mut stream) = self.stream else {
-                break Err(Error::Disconnected);
+            let stream = match &mut self.stream {
+                Either::Left(stream) => stream,
+                Either::Right(err) => Err(err.clone())?,
             };
 
             if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
@@ -95,7 +103,11 @@ where
             {
                 tracing::warn!("Peer disconnected with `{reason:?}`: {}", &*description);
 
-                drop(self.stream.take());
+                self.stream = Either::Right(DisconnectedError {
+                    by: DisconnectedBy::Them,
+                    reason,
+                    description: description.into_string(),
+                });
             } else if let Ok(Ignore { data }) = packet.to() {
                 tracing::debug!("Received an 'ignore' message with length {}", data.len());
             } else if let Ok(Unimplemented { seq }) = packet.to() {
@@ -110,8 +122,9 @@ where
 
     /// Send a _packet_ to the connected peer.
     pub async fn send(&mut self, message: &impl ToPacket) -> Result<()> {
-        let Some(ref mut stream) = self.stream else {
-            return Err(Error::Disconnected);
+        let stream = match &mut self.stream {
+            Either::Left(stream) => stream,
+            Either::Right(err) => Err(err.clone())?,
         };
 
         if stream.is_rekeyable()
@@ -128,17 +141,24 @@ where
         &mut self,
         reason: DisconnectReason,
         description: impl Into<StringUtf8>,
-    ) -> Result<()> {
-        self.send(&Disconnect {
+    ) -> DisconnectedError {
+        let message = Disconnect {
             reason,
             description: description.into(),
             language: Default::default(),
-        })
-        .await?;
+        };
+        if let Err(Error::Disconnected(err)) = self.send(&message).await {
+            return err;
+        }
 
-        drop(self.stream.take());
+        let err = DisconnectedError {
+            by: DisconnectedBy::Us,
+            reason: message.reason,
+            description: message.description.into_string(),
+        };
+        self.stream = Either::Right(err.clone());
 
-        Ok(())
+        err
     }
 
     /// Handle a _service_ for the peer.
@@ -154,22 +174,24 @@ where
 
                 service.on_request(self).await
             } else {
-                self.disconnect(
-                    DisconnectReason::ServiceNotAvailable,
-                    "Requested service is unknown, aborting.",
+                Err(Error::from(
+                    self.disconnect(
+                        DisconnectReason::ServiceNotAvailable,
+                        "Requested service is unknown",
+                    )
+                    .await,
                 )
-                .await?;
-
-                Err(Error::UnknownService.into())
+                .into())
             }
         } else {
-            self.disconnect(
-                DisconnectReason::ProtocolError,
-                "Unexpected message outside of a service request, aborting.",
+            Err(Error::from(
+                self.disconnect(
+                    DisconnectReason::ProtocolError,
+                    "Unexpected message outside of a service request",
+                )
+                .await,
             )
-            .await?;
-
-            Err(Error::UnexpectedMessage.into())
+            .into())
         }
     }
 
@@ -188,22 +210,24 @@ where
             if &*service_name == R::SERVICE_NAME.as_bytes() {
                 service.on_accept(self).await
             } else {
-                self.disconnect(
-                    DisconnectReason::ServiceNotAvailable,
-                    "Accepted service is unknown, aborting.",
+                Err(Error::from(
+                    self.disconnect(
+                        DisconnectReason::ServiceNotAvailable,
+                        "Accepted service is unknown",
+                    )
+                    .await,
                 )
-                .await?;
-
-                Err(Error::UnknownService.into())
+                .into())
             }
         } else {
-            self.disconnect(
-                DisconnectReason::ProtocolError,
-                "Unexpected message outside of a service response, aborting.",
+            Err(Error::from(
+                self.disconnect(
+                    DisconnectReason::ProtocolError,
+                    "Unexpected message outside of a service response",
+                )
+                .await,
             )
-            .await?;
-
-            Err(Error::UnexpectedMessage.into())
+            .into())
         }
     }
 }
