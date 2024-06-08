@@ -69,7 +69,7 @@ where
     pub async fn readable(&mut self) -> Result<()> {
         let stream = match &mut self.stream {
             Either::Left(stream) => stream,
-            Either::Right(err) => Err(err.clone())?,
+            Either::Right(err) => return Err(err.clone().into()),
         };
 
         stream.fill_buf().await
@@ -84,11 +84,16 @@ where
         loop {
             let stream = match &mut self.stream {
                 Either::Left(stream) => stream,
-                Either::Right(err) => Err(err.clone())?,
+                Either::Right(err) => return Err(err.clone().into()),
             };
 
             if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
-                self.config.kex(stream, &self.peer_id).await?;
+                if let Err(err) = self.config.kex(stream, &self.peer_id).await {
+                    return Err(self
+                        .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
+                        .await
+                        .into());
+                }
 
                 continue;
             }
@@ -124,13 +129,18 @@ where
     pub async fn send(&mut self, message: &impl ToPacket) -> Result<()> {
         let stream = match &mut self.stream {
             Either::Left(stream) => stream,
-            Either::Right(err) => Err(err.clone())?,
+            Either::Right(err) => return Err(err.clone().into()),
         };
 
         if stream.is_rekeyable()
             || (stream.is_readable().await? && stream.peek().await?.to::<KexInit>().is_ok())
         {
-            self.config.kex(stream, &self.peer_id).await?;
+            if let Err(err) = self.config.kex(stream, &self.peer_id).await {
+                return Err(self
+                    .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
+                    .await
+                    .into());
+            }
         }
 
         stream.send(message).await
@@ -142,12 +152,17 @@ where
         reason: DisconnectReason,
         description: impl Into<StringUtf8>,
     ) -> DisconnectedError {
+        let stream = match &mut self.stream {
+            Either::Left(stream) => stream,
+            Either::Right(err) => return err.clone(),
+        };
+
         let message = Disconnect {
             reason,
             description: description.into(),
             language: Default::default(),
         };
-        if let Err(Error::Disconnected(err)) = self.send(&message).await {
+        if let Err(Error::Disconnected(err)) = stream.send(&message).await {
             return err;
         }
 
