@@ -56,10 +56,6 @@ pub enum Error {
     #[error(transparent)]
     Signature(#[from] signature::Error),
 
-    /// Error while encrypting or decrypting messages.
-    #[error("The cipher ended up in an error")]
-    Cipher,
-
     /// No common kex algorithm found between both sides.
     #[error("Unable to negociate a common kex algorithm")]
     NoCommonKex,
@@ -80,21 +76,17 @@ pub enum Error {
     #[error("Unable to negociate a common compression algorithm")]
     NoCommonCompression,
 
-    /// Provided algorithm wasn't supported.
-    #[error("Algorithm is unsupported")]
-    UnsupportedAlgorithm,
-
     /// Protocol error in the key-exchange.
     #[error("Error in the kex-exchange algorithm")]
     KexError,
 
+    /// Error while encrypting or decrypting messages.
+    #[error("The cipher ended up in an error")]
+    Cipher,
+
     /// The message received was unexpected in the current context.
     #[error("Peer sent a message that made no sense in the current context")]
     UnexpectedMessage,
-
-    /// The service requested by the peer was unknown to us.
-    #[error("Peer requested an unknown service and has been disconnected")]
-    UnknownService,
 
     /// The session has been disconnected.
     #[error(transparent)]

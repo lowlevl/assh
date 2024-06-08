@@ -14,13 +14,13 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Hmac, Hmac
             .preferred_in(&serverkex.mac_algorithms_client_to_server)
             .ok_or(Error::NoCommonHmac)?
             .parse()
-            .map_err(|_| Error::UnsupportedAlgorithm)?,
+            .map_err(|_| Error::NoCommonHmac)?,
         clientkex
             .mac_algorithms_server_to_client
             .preferred_in(&serverkex.mac_algorithms_server_to_client)
             .ok_or(Error::NoCommonHmac)?
             .parse()
-            .map_err(|_| Error::UnsupportedAlgorithm)?,
+            .map_err(|_| Error::NoCommonHmac)?,
     ))
 }
 

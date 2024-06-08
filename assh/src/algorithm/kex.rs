@@ -23,7 +23,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Kex> {
         .preferred_in(&serverkex.kex_algorithms)
         .ok_or(Error::NoCommonKex)?
         .parse()
-        .map_err(|_| Error::UnsupportedAlgorithm)
+        .map_err(|_| Error::NoCommonKex)
 }
 
 // TODO: Implement the following legacy key-exchange methods (`diffie-hellman-group14-sha256`, `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`).

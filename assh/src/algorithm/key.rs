@@ -9,5 +9,5 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Key> {
         .preferred_in(&serverkex.server_host_key_algorithms)
         .ok_or(Error::NoCommonKey)?
         .parse()
-        .map_err(|_| Error::UnsupportedAlgorithm)
+        .map_err(|_| Error::NoCommonKex)
 }

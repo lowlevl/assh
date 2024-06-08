@@ -14,13 +14,13 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Cipher, Ci
             .preferred_in(&serverkex.encryption_algorithms_client_to_server)
             .ok_or(Error::NoCommonCipher)?
             .parse()
-            .map_err(|_| Error::UnsupportedAlgorithm)?,
+            .map_err(|_| Error::NoCommonCipher)?,
         clientkex
             .encryption_algorithms_server_to_client
             .preferred_in(&serverkex.encryption_algorithms_server_to_client)
             .ok_or(Error::NoCommonCipher)?
             .parse()
-            .map_err(|_| Error::UnsupportedAlgorithm)?,
+            .map_err(|_| Error::NoCommonCipher)?,
     ))
 }
 
