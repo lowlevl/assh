@@ -27,9 +27,9 @@ ssh-packet.workspace = true
 futures.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+rand.workspace = true
 
 flume = "0.11.0"
-rand = "0.8.5"
 
 [dev-dependencies]
 rstest = "0.18.2"

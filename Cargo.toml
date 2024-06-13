@@ -29,9 +29,12 @@ ssh-key = { version = "0.6.1", features = [
     "ed25519",
 ] }
 
-tracing = "0.1.40"
+async-compat = "0.2.3"
 futures = "0.3.28"
+tracing = "0.1.40"
+
 thiserror = "1.0.58"
+rand = "0.8.5"
 
 [patch.crates-io]
 assh = { path = "assh" }

@@ -4,6 +4,7 @@ use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
 use assh_connect::{channel, connect::channel::Outcome};
 
+use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
 use futures::{
@@ -11,7 +12,6 @@ use futures::{
     AsyncReadExt, AsyncWriteExt, FutureExt,
 };
 use tokio::{net::TcpListener, task};
-use tokio_util::compat::TokioAsyncReadCompatExt;
 
 // TODO: Create a kind-of complete server-side example.
 
