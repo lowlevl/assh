@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
@@ -33,9 +33,8 @@ const FRAMES: &[&str] = &[
 /// An `assh` server example.
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// The port to bind with the listener on `127.0.0.1`.
-    #[arg(short, long)]
-    port: u16,
+    /// The address to bind the server on.
+    address: SocketAddr,
 }
 
 #[tokio::main]
@@ -53,7 +52,7 @@ async fn main() -> eyre::Result<()> {
         ssh_key::Algorithm::Ed25519,
     )
     .expect("Cannot generate private keys")];
-    let listener = TcpListener::bind(("127.0.0.1", args.port)).await?;
+    let listener = TcpListener::bind(args.address).await?;
 
     loop {
         let (stream, _addr) = listener.accept().await?;
