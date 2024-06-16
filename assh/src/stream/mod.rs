@@ -3,7 +3,7 @@
 
 use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
 use futures_time::{future::FutureExt as _, time::Duration};
-use ssh_packet::ToPacket;
+use ssh_packet::IntoPacket;
 
 use crate::{algorithm, Result};
 
@@ -124,8 +124,8 @@ where
     }
 
     /// Encrypt and send a _packet_ to the peer.
-    pub async fn send(&mut self, packet: &impl ToPacket) -> Result<()> {
-        let packet = packet.to_packet()?;
+    pub async fn send(&mut self, packet: impl IntoPacket) -> Result<()> {
+        let packet = packet.into_packet()?;
 
         packet
             .to_async_writer(&mut self.inner, &mut self.transport.tx, self.txseq)

@@ -2,12 +2,16 @@ use std::net::SocketAddr;
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
-use assh_connect::{channel, connect::channel::Outcome};
+use assh_connect::{channel, connect::channel_open::Outcome};
 
 use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
-use futures::io::{BufReader, BufWriter};
+use futures::{
+    io::{BufReader, BufWriter},
+    StreamExt,
+};
+use ssh_packet::connect;
 use tokio::{net::TcpListener, task};
 
 /// An `assh` server example, echoing back all sent data.
@@ -54,17 +58,23 @@ async fn main() -> eyre::Result<()> {
             let connect = session
                 .handle(
                     Auth::new(assh_connect::Service)
-                        .banner("Welcome, and get parrot'd\r\n")
+                        .banner("Welcome, and get echo'd\r\n")
                         .none(|_| none::Response::Accept),
                 )
                 .await?;
 
             connect
-                .on_channel_open(|_, channel: channel::Channel| {
+                .on_channel_open(|_, mut channel: channel::Channel| {
                     task::spawn(async move {
-                        channel
-                            .on_request(|_ctx| channel::Response::Success)
-                            .await?;
+                        while let Some(request) = channel.requests().next().await {
+                            if matches!(&*request, connect::ChannelRequestContext::Shell) {
+                                request.accept().await;
+
+                                break;
+                            }
+
+                            request.accept().await;
+                        }
 
                         futures::io::copy(&mut channel.as_reader(), &mut channel.as_writer())
                             .await?;

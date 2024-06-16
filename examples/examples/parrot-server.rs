@@ -2,15 +2,16 @@ use std::{net::SocketAddr, time::Duration};
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
-use assh_connect::{channel, connect::channel::Outcome};
+use assh_connect::{channel, connect::channel_open::Outcome};
 
 use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    AsyncReadExt, AsyncWriteExt, FutureExt,
+    AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt,
 };
+use ssh_packet::connect;
 use tokio::{net::TcpListener, task};
 
 const DELAY: Duration = Duration::from_millis(50);
@@ -78,11 +79,17 @@ async fn main() -> eyre::Result<()> {
                 .await?;
 
             connect
-                .on_channel_open(|_, channel: channel::Channel| {
+                .on_channel_open(|_, mut channel: channel::Channel| {
                     task::spawn(async move {
-                        channel
-                            .on_request(|_ctx| channel::Response::Success)
-                            .await?;
+                        while let Some(request) = channel.requests().next().await {
+                            if matches!(&*request, connect::ChannelRequestContext::Shell) {
+                                request.accept().await;
+
+                                break;
+                            }
+
+                            request.accept().await;
+                        }
 
                         let mut writer = channel.as_writer();
                         let mut reader = channel.as_reader();
@@ -90,16 +97,16 @@ async fn main() -> eyre::Result<()> {
                         for frame in FRAMES.iter().cycle() {
                             let mut read = [0u8; 1];
 
-                            futures::select! {
-                                len = reader.read(&mut read).fuse() => {
-                                    if matches!(len, Ok(len) if len > 0 && read[0] == b'q') {
-                                        break;
-                                    }
-                                }
+                            futures::select_biased! {
                                 _ = tokio::time::sleep(DELAY).fuse() => {
                                     writer.write_all(CLEAR.as_bytes()).await?;
                                     writer.write_all(frame.as_bytes()).await?;
                                     writer.flush().await?;
+                                }
+                                len = reader.read(&mut read).fuse() => {
+                                    if matches!(len, Ok(len) if len > 0 && read[0] == b'q') {
+                                        break;
+                                    }
                                 }
                             }
                         }

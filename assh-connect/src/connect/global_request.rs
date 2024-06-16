@@ -2,6 +2,19 @@
 
 use ssh_packet::connect;
 
+/// The response to a _global request_.
+#[derive(Debug)]
+pub enum GlobalRequest {
+    /// _Accepted_ global request.
+    Accepted,
+
+    /// _Accepted_ global request, with a bound port.
+    AcceptedPort(u32),
+
+    /// _Rejected_ the global request.
+    Rejected,
+}
+
 /// An outcome to a global request [`Hook`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum Outcome {

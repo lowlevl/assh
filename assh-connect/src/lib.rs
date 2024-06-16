@@ -21,16 +21,15 @@
 #![forbid(unsafe_code)]
 
 const SERVICE_NAME: &str = "ssh-connection";
-
 const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
-const INITIAL_WINDOW_SIZE: u32 = 64 * MAXIMUM_PACKET_SIZE;
-const WINDOW_ADJUST_THRESHOLD: u32 = INITIAL_WINDOW_SIZE / 2;
 
 pub mod channel;
 pub mod connect;
 
 mod error;
 pub use error::{Error, Result};
+
+// ---
 
 use assh::{service, side::Side, Session};
 use futures::{AsyncBufRead, AsyncWrite};

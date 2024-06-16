@@ -1,93 +1,44 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
-use std::{
-    collections::HashMap,
-    convert::Infallible,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
-    },
-};
+use std::{collections::HashMap, convert::Infallible};
 
 use assh::{side::Side, Session};
+use flume::{Receiver, Sender};
 use futures::{AsyncBufRead, AsyncWrite, FutureExt};
-use ssh_packet::connect;
+use ssh_packet::{connect, Packet};
 
-use crate::{
-    channel::{Channel, Msg},
-    Result, INITIAL_WINDOW_SIZE, MAXIMUM_PACKET_SIZE,
-};
+use crate::{channel, Result};
+
+pub(super) mod messages;
+
+pub mod channel_open;
+pub mod global_request;
 
 #[doc(no_inline)]
 pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestContext};
 
-pub mod channel;
-pub mod global_request;
-
-// TODO: Clean the code duplication in channel opening
-// TODO: Tackle code readability issue in Connect::rx
-
-/// The response to a _global request_.
-#[derive(Debug)]
-pub enum GlobalRequest {
-    /// _Accepted_ global request.
-    Accepted,
-
-    /// _Accepted_ global request, with a bound port.
-    AcceptedPort(u32),
-
-    /// _Rejected_ the global request.
-    Rejected,
-}
-
-/// The response to a _channel open request_.
-#[derive(Debug)]
-pub enum ChannelOpen {
-    /// _Accepted_ the channel open request.
-    Accepted(Channel),
-
-    /// _Rejected_ the channel open request.
-    Rejected {
-        /// The reason for failure.
-        reason: ChannelOpenFailureReason,
-
-        /// A textual message to acompany the reason.
-        message: String,
-    },
-}
-
-struct ChannelDef {
-    sender: flume::Sender<Msg>,
-    remote_id: u32,
-    remote_window_size: Arc<AtomicU32>,
-}
-
 /// A wrapper around a [`Session`] to interract with the connect layer.
 pub struct Connect<'s, IO, S, G = (), C = ()> {
     session: &'s mut Session<IO, S>,
-    channels: HashMap<u32, ChannelDef>,
-
-    sender: flume::Sender<Msg>,
-    receiver: flume::Receiver<Msg>,
 
     on_global_request: G,
     on_channel_open: C,
+
+    outgoing: (Sender<Packet>, Receiver<Packet>),
+    channels: HashMap<u32, channel::Handle>,
 }
 
 impl<'s, IO, S> Connect<'s, IO, S> {
     /// Create a wrapper around the `session` to handle the connect layer.
     pub(super) fn new(session: &'s mut Session<IO, S>) -> Self {
-        let (sender, receiver) = flume::unbounded();
-
         Self {
             session,
-            channels: Default::default(),
-
-            sender,
-            receiver,
 
             on_global_request: (),
             on_channel_open: (),
+
+            outgoing: flume::bounded(1),
+            channels: Default::default(),
         }
     }
 }
@@ -97,10 +48,21 @@ where
     IO: AsyncBufRead + AsyncWrite + Unpin,
     S: Side,
     G: global_request::Hook,
-    C: channel::Hook,
+    C: channel_open::Hook,
 {
+    fn local_id(&self) -> u32 {
+        self.channels
+            .keys()
+            .max()
+            .map(|x| x + 1)
+            .unwrap_or_default()
+    }
+
     /// Make a _global request_ with the provided `context`.
-    pub async fn global_request(&mut self, context: GlobalRequestContext) -> Result<GlobalRequest> {
+    pub async fn global_request(
+        &mut self,
+        context: GlobalRequestContext,
+    ) -> Result<global_request::GlobalRequest> {
         let with_port = matches!(context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
         self.session
@@ -112,15 +74,15 @@ where
 
         let packet = self.session.recv().await?;
         if let Ok(connect::RequestFailure) = packet.to() {
-            Ok(GlobalRequest::Rejected)
+            Ok(global_request::GlobalRequest::Rejected)
         } else if with_port {
             if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
-                Ok(GlobalRequest::AcceptedPort(bound_port))
+                Ok(global_request::GlobalRequest::AcceptedPort(bound_port))
             } else {
                 Err(assh::Error::UnexpectedMessage.into())
             }
         } else if let Ok(connect::RequestSuccess) = packet.to() {
-            Ok(GlobalRequest::Accepted)
+            Ok(global_request::GlobalRequest::Accepted)
         } else {
             Err(assh::Error::UnexpectedMessage.into())
         }
@@ -139,90 +101,68 @@ where
     ) -> Connect<'s, IO, S, impl global_request::Hook, C> {
         let Self {
             session,
-            channels,
-
-            sender,
-            receiver,
 
             on_channel_open: on_channel,
             on_global_request: _,
+
+            outgoing,
+            channels,
         } = self;
 
         Connect {
             session,
-            channels,
-
-            sender,
-            receiver,
 
             on_channel_open: on_channel,
             on_global_request: hook,
+
+            outgoing,
+            channels,
         }
     }
 
     /// Request a new _channel_ with the provided `context`.
-    pub async fn channel_open(&mut self, context: ChannelOpenContext) -> Result<ChannelOpen> {
-        let local_id = self
-            .channels
-            .keys()
-            .max()
-            .map(|x| x + 1)
-            .unwrap_or_default();
+    pub async fn channel_open(
+        &mut self,
+        context: ChannelOpenContext,
+    ) -> Result<channel_open::ChannelOpen> {
+        let local_id = self.local_id();
+        let local_window = channel::io::LocalWindow::new();
 
         self.session
             .send(&connect::ChannelOpen {
                 sender_channel: local_id,
-                initial_window_size: INITIAL_WINDOW_SIZE,
-                maximum_packet_size: MAXIMUM_PACKET_SIZE,
+                initial_window_size: local_window.remaining(),
+                maximum_packet_size: crate::MAXIMUM_PACKET_SIZE,
                 context,
             })
             .await?;
 
         let packet = self.session.recv().await?;
 
-        if let Ok(connect::ChannelOpenFailure {
-            recipient_channel,
-            reason,
-            description,
-            ..
-        }) = packet.to()
-        {
-            if recipient_channel == local_id {
-                Ok(ChannelOpen::Rejected {
-                    reason,
-                    message: description.into_string(),
+        if let Ok(open_failure) = packet.to::<connect::ChannelOpenFailure>() {
+            if open_failure.recipient_channel == local_id {
+                Ok(channel_open::ChannelOpen::Rejected {
+                    reason: open_failure.reason,
+                    message: open_failure.description.into_string(),
                 })
             } else {
                 Err(assh::Error::UnexpectedMessage.into())
             }
-        } else if let Ok(connect::ChannelOpenConfirmation {
-            sender_channel: remote_id,
-            recipient_channel,
-            initial_window_size,
-            maximum_packet_size,
-        }) = packet.to()
-        {
-            if recipient_channel == local_id {
-                let remote_window_size = Arc::new(AtomicU32::new(initial_window_size));
-
-                let (channel, sender) = Channel::new(
-                    remote_id,
-                    INITIAL_WINDOW_SIZE,
-                    remote_window_size.clone(),
-                    maximum_packet_size,
-                    self.sender.clone(),
+        } else if let Ok(open_confirmation) = packet.to::<connect::ChannelOpenConfirmation>() {
+            if open_confirmation.recipient_channel == local_id {
+                let (channel, handle) = channel::pair(
+                    open_confirmation.recipient_channel,
+                    open_confirmation.maximum_packet_size,
+                    (
+                        local_window,
+                        channel::io::RemoteWindow::new(open_confirmation.initial_window_size),
+                    ),
+                    self.outgoing.0.clone(),
                 );
 
-                self.channels.insert(
-                    local_id,
-                    ChannelDef {
-                        sender,
-                        remote_id,
-                        remote_window_size,
-                    },
-                );
+                self.channels.insert(local_id, handle);
 
-                Ok(ChannelOpen::Accepted(channel))
+                Ok(channel_open::ChannelOpen::Accepted(channel))
             } else {
                 Err(assh::Error::UnexpectedMessage.into())
             }
@@ -240,28 +180,26 @@ where
     /// being processed, as well as interrupt channel I/O.
     pub fn on_channel_open(
         self,
-        hook: impl channel::Hook,
-    ) -> Connect<'s, IO, S, G, impl channel::Hook> {
+        hook: impl channel_open::Hook,
+    ) -> Connect<'s, IO, S, G, impl channel_open::Hook> {
         let Self {
             session,
-            channels,
-
-            sender,
-            receiver,
 
             on_channel_open: _,
             on_global_request,
+
+            outgoing,
+            channels,
         } = self;
 
         Connect {
             session,
-            channels,
-
-            sender,
-            receiver,
 
             on_channel_open: hook,
             on_global_request,
+
+            outgoing,
+            channels,
         }
     }
 
@@ -270,11 +208,9 @@ where
     pub async fn spin(mut self) -> Result<Infallible> {
         loop {
             futures::select! {
-                msg = self.receiver.recv_async() => {
-                    #[allow(clippy::unwrap_used)]
-                    let msg = msg.unwrap(); // Will never be disconnected, since this struct always hold a sender.
-
-                    self.session.send(&msg).await?;
+                msg = self.outgoing.1.recv_async() => {
+                    #[allow(clippy::unwrap_used)] // Will never be disconnected, since this struct always hold a sender.
+                    self.session.send(msg.unwrap()).await?;
                 }
                 res = self.session.readable().fuse() => {
                     res?;
@@ -288,15 +224,11 @@ where
     async fn rx(&mut self) -> Result<()> {
         let packet = self.session.recv().await?;
 
-        if let Ok(connect::GlobalRequest {
-            want_reply,
-            context,
-        }) = packet.to()
-        {
-            let with_port = matches!(context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
-            let outcome = self.on_global_request.on_request(context);
+        if let Ok(global_request) = packet.to::<connect::GlobalRequest>() {
+            let with_port = matches!(global_request.context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+            let outcome = self.on_global_request.on_request(global_request.context);
 
-            if *want_reply {
+            if *global_request.want_reply {
                 match outcome {
                     global_request::Outcome::Accept { bound_port } if with_port => {
                         self.session
@@ -311,115 +243,106 @@ where
                     }
                 }
             }
-        } else if let Ok(connect::ChannelOpen {
-            sender_channel: remote_id,
-            initial_window_size,
-            maximum_packet_size,
-            context,
-        }) = packet.to()
-        {
-            tracing::debug!("Peer requested to open channel %{remote_id}: {context:?}");
-
-            let local_id = self
-                .channels
-                .keys()
-                .max()
-                .map(|x| x + 1)
-                .unwrap_or_default();
-            let remote_window_size = Arc::new(AtomicU32::new(initial_window_size));
-
-            let (channel, sender) = Channel::new(
-                remote_id,
-                INITIAL_WINDOW_SIZE,
-                remote_window_size.clone(),
-                maximum_packet_size,
-                self.sender.clone(),
+        } else if let Ok(channel_open) = packet.to::<connect::ChannelOpen>() {
+            tracing::debug!(
+                "Peer requested to open channel %{}: {:?}",
+                channel_open.sender_channel,
+                channel_open.context
             );
 
-            match self.on_channel_open.on_request(context, channel) {
-                channel::Outcome::Accept => {
-                    self.channels.insert(
-                        local_id,
-                        ChannelDef {
-                            sender,
-                            remote_id,
-                            remote_window_size,
-                        },
-                    );
+            let local_id = self.local_id();
 
+            let (channel, handle) = channel::pair(
+                channel_open.sender_channel,
+                channel_open.maximum_packet_size,
+                (
+                    channel::io::LocalWindow::new(),
+                    channel::io::RemoteWindow::new(channel_open.initial_window_size),
+                ),
+                self.outgoing.0.clone(),
+            );
+
+            match self
+                .on_channel_open
+                .on_request(channel_open.context, channel)
+            {
+                channel_open::Outcome::Accept => {
                     self.session
                         .send(&connect::ChannelOpenConfirmation {
-                            recipient_channel: remote_id,
+                            recipient_channel: channel_open.sender_channel,
                             sender_channel: local_id,
-                            initial_window_size: INITIAL_WINDOW_SIZE,
-                            maximum_packet_size: MAXIMUM_PACKET_SIZE,
+                            initial_window_size: handle.windows.0.remaining(),
+                            maximum_packet_size: crate::MAXIMUM_PACKET_SIZE,
                         })
                         .await?;
 
-                    tracing::debug!("Channel opened as #{local_id}:%{remote_id}");
+                    self.channels.insert(local_id, handle);
+
+                    tracing::debug!(
+                        "Channel opened as #{local_id}:%{}",
+                        channel_open.sender_channel
+                    );
                 }
-                channel::Outcome::Reject {
+                channel_open::Outcome::Reject {
                     reason,
                     description,
                 } => {
                     self.session
                         .send(&connect::ChannelOpenFailure {
-                            recipient_channel: remote_id,
+                            recipient_channel: channel_open.sender_channel,
                             reason,
                             description,
                             language: Default::default(),
                         })
                         .await?;
 
-                    tracing::debug!("Channel open refused for %{remote_id}");
+                    tracing::debug!("Channel open refused for %{}", channel_open.sender_channel);
                 }
             }
-        } else if let Ok(connect::ChannelClose { recipient_channel }) = packet.to() {
-            tracing::debug!("Peer closed channel #{recipient_channel}");
+        } else if let Ok(channel_close) = packet.to::<connect::ChannelClose>() {
+            tracing::debug!("Peer closed channel #{}", channel_close.recipient_channel);
 
-            // Acknowledge the channel close if we didn't already send a close message earlier.
-            if let Some(remote_id) = self.channels.get(&recipient_channel).and_then(|channel| {
-                if !channel.sender.is_disconnected() {
-                    Some(channel.remote_id)
+            self.channels.remove(&channel_close.recipient_channel);
+        } else if let Ok(window_adjust) = packet.to::<connect::ChannelWindowAdjust>() {
+            if let Some(handle) = self.channels.get(&window_adjust.recipient_channel) {
+                tracing::debug!(
+                    "Peer adjusted window size by `{}` for channel %{}",
+                    window_adjust.bytes_to_add,
+                    window_adjust.recipient_channel
+                );
+
+                handle.windows.1.adjust(window_adjust.bytes_to_add);
+            }
+        } else if let Ok(data) = packet.to::<messages::Data>() {
+            if let Some(handle) = self.channels.get(data.recipient_channel()) {
+                if let Some(sender) = handle.streams.get(&data.data_type()) {
+                    sender.send_async(data.data()).await.ok();
                 } else {
-                    None
+                    handle.windows.0.consume(data.data().len() as u32)
                 }
-            }) {
-                tracing::debug!("Closing channel %{remote_id}");
 
-                self.session
-                    .send(&connect::ChannelClose {
-                        recipient_channel: remote_id,
-                    })
-                    .await?;
-            }
+                if let Some(bytes_to_add) = handle.windows.0.adjust() {
+                    self.session
+                        .send(&connect::ChannelWindowAdjust {
+                            recipient_channel: handle.remote_id,
+                            bytes_to_add,
+                        })
+                        .await?;
 
-            self.channels.remove(&recipient_channel);
-        } else if let Ok(connect::ChannelWindowAdjust {
-            recipient_channel,
-            bytes_to_add,
-        }) = packet.to()
-        {
-            if let Some(channel) = self.channels.get(&recipient_channel) {
-                tracing::debug!("Peer added {bytes_to_add} to window for #{recipient_channel}");
-
-                channel
-                    .remote_window_size
-                    .fetch_add(bytes_to_add, Ordering::AcqRel);
-            } else {
-                tracing::warn!("Received a message for closed channel #{recipient_channel}");
-            }
-        } else if let Ok(msg) = packet.to::<Msg>() {
-            if let Some(channel) = self.channels.get(msg.recipient_channel()) {
-                if let Err(err) = channel.sender.send_async(msg).await {
-                    // If we failed to send the message to the channel,
-                    // the receiver has been dropped, so treat it as such and report it as closed.
-                    self.channels.remove(err.into_inner().recipient_channel());
+                    tracing::debug!(
+                        "Adjusted window size by `{}` for channel %{}",
+                        bytes_to_add,
+                        handle.remote_id
+                    );
                 }
+            }
+        } else if let Ok(control) = packet.to::<messages::Control>() {
+            if let Some(handle) = self.channels.get(control.recipient_channel()) {
+                handle.control.send_async(control).await.ok();
             } else {
                 tracing::warn!(
                     "Received a message for closed channel #{}",
-                    msg.recipient_channel()
+                    control.recipient_channel()
                 );
             }
         } else {
@@ -427,6 +350,8 @@ where
                 "Received an unhandled packet from peer of length `{}` bytes",
                 packet.payload.len()
             );
+
+            // TODO: Send back an `Unimplemented` packet if necessary or pertinent
         }
 
         Ok(())

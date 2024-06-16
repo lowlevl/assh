@@ -1,126 +1,59 @@
-use std::{io, pin::Pin, sync::atomic::Ordering, task};
+use std::{
+    io::{self, Read as _},
+    pin::Pin,
+    sync::Arc,
+    task,
+};
 
-use ssh_packet::connect;
+use flume::{r#async::RecvStream, Sender};
+use futures::StreamExt;
 
-use crate::{INITIAL_WINDOW_SIZE, WINDOW_ADJUST_THRESHOLD};
+use super::LocalWindow;
 
-use super::{Channel, Msg};
+// TODO: Handle pending messages for window on Drop
 
-pub struct Read<'a> {
-    channel: &'a Channel,
-    ext: Option<connect::ChannelExtendedDataType>,
+pub struct Read {
+    receiver: RecvStream<'static, Vec<u8>>,
+    window: Arc<LocalWindow>,
 
-    buffer: Option<(Msg, usize)>,
+    buffer: io::Cursor<Vec<u8>>,
 }
 
-impl<'a> Read<'a> {
-    pub fn new(channel: &'a Channel, ext: Option<connect::ChannelExtendedDataType>) -> Self {
-        Self {
-            channel,
-            ext,
-            buffer: None,
-        }
+impl Read {
+    pub fn new(window: Arc<LocalWindow>) -> (Self, Sender<Vec<u8>>) {
+        let (sender, receiver) = flume::bounded(1);
+
+        (
+            Self {
+                window,
+                receiver: receiver.into_stream(),
+                buffer: Default::default(),
+            },
+            sender,
+        )
     }
 }
 
-impl futures::AsyncRead for Read<'_> {
+impl futures::AsyncRead for Read {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
-        // Replenish the window when reading.
-        let window_size = self.channel.local_window_size.load(Ordering::Acquire);
-        if window_size <= WINDOW_ADJUST_THRESHOLD {
-            let bytes_to_add = INITIAL_WINDOW_SIZE - window_size;
-
-            self.channel
-                .local_window_size
-                .fetch_add(bytes_to_add, Ordering::AcqRel);
-
-            self.channel
-                .sender
-                .send(Msg::WindowAdjust(connect::ChannelWindowAdjust {
-                    recipient_channel: self.channel.remote_id,
-                    bytes_to_add,
-                }))
-                .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
-
-            tracing::debug!(
-                "Added {bytes_to_add} to window for %{}",
-                self.channel.remote_id
+        if self.buffer.position() >= self.buffer.get_ref().len() as u64 {
+            self.buffer = io::Cursor::new(
+                futures::ready!(self.receiver.poll_next_unpin(cx)).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "The channel has been disconnected",
+                    )
+                })?,
             );
         }
 
-        let (msg, mut idx) = match self.buffer.take() {
-            Some(buffer) => buffer,
-            None => match self.channel.receiver.try_recv() {
-                Ok(msg) => {
-                    let size = match msg {
-                        Msg::Data(connect::ChannelData { ref data, .. }) => data.len(),
-                        Msg::ExtendedData(connect::ChannelExtendedData { ref data, .. }) => {
-                            data.len()
-                        }
-                        _ => 0,
-                    };
+        let read = self.buffer.read(buf)?;
+        self.window.consume(read as u32);
 
-                    self.channel
-                        .local_window_size
-                        .fetch_sub(size as u32, Ordering::AcqRel);
-
-                    (msg, 0)
-                }
-                Err(flume::TryRecvError::Empty) => {
-                    cx.waker().wake_by_ref();
-                    return task::Poll::Pending;
-                }
-                Err(flume::TryRecvError::Disconnected) => {
-                    return task::Poll::Ready(Err(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "Session disconnected before packet could be received",
-                    )))
-                }
-            },
-        };
-
-        // Process received messages containing data, ignoring any other message.
-        match (&msg, self.ext) {
-            (Msg::Data(connect::ChannelData { data, .. }), None) => {
-                let readable = buf.len().min(data.len() - idx);
-
-                buf[..readable].copy_from_slice(&data[idx..idx + readable]);
-                idx += readable;
-
-                if idx != data.len() {
-                    self.buffer = Some((msg, idx));
-                }
-
-                task::Poll::Ready(Ok(readable))
-            }
-            (
-                Msg::ExtendedData(connect::ChannelExtendedData {
-                    data,
-                    data_type: ext,
-                    ..
-                }),
-                Some(target),
-            ) if *ext == target => {
-                let readable = buf.len().min(data.len() - idx);
-
-                buf[..readable].copy_from_slice(&data[idx..idx + readable]);
-                idx += readable;
-
-                if idx != data.len() {
-                    self.buffer = Some((msg, idx));
-                }
-
-                task::Poll::Ready(Ok(readable))
-            }
-            (Msg::Eof { .. }, _) => task::Poll::Ready(Ok(0)),
-            _ => {
-                cx.waker().wake_by_ref();
-                task::Poll::Pending
-            }
-        }
+        task::Poll::Ready(Ok(read))
     }
 }

@@ -7,7 +7,7 @@ use ssh_packet::{
         Debug, Disconnect, DisconnectReason, Ignore, KexInit, ServiceAccept, ServiceRequest,
         Unimplemented,
     },
-    Id, Packet, ToPacket,
+    Id, IntoPacket, Packet,
 };
 
 use crate::{
@@ -126,7 +126,7 @@ where
     }
 
     /// Send a _packet_ to the connected peer.
-    pub async fn send(&mut self, message: &impl ToPacket) -> Result<()> {
+    pub async fn send(&mut self, message: impl IntoPacket) -> Result<()> {
         let stream = match &mut self.stream {
             Either::Left(stream) => stream,
             Either::Right(err) => return Err(err.clone().into()),

@@ -1,185 +1,177 @@
 //! Definition of the [`Channel`] struct that provides isolated I/O on SSH channels.
 
-use std::sync::{atomic::AtomicU32, Arc};
+use std::{num::NonZeroU32, sync::Arc};
 
-use futures::{AsyncRead, AsyncWrite};
-use ssh_packet::connect;
+use dashmap::DashMap;
+use flume::{Receiver, Sender};
+use futures::{AsyncRead, AsyncWrite, Stream, StreamExt};
+use ssh_packet::{connect, IntoPacket, Packet};
 
 use crate::{Error, Result};
 
 #[doc(no_inline)]
-pub use connect::{ChannelExtendedDataType, ChannelRequestContext};
+pub use connect::ChannelRequestContext;
 
-mod io;
+pub(super) mod io;
 
-mod msg;
-pub(super) use msg::Msg;
+mod handle;
+pub(super) use handle::Handle;
 
-// TODO: Enable channels read muxing, with RwLock<HashSet<Option<connect::ChannelExtendedDataType>>>
+mod request;
+pub use request::{Request, Response};
 
-/// A response to a channel request.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Response {
-    /// The request succeeded.
-    Success,
+use crate::connect::messages;
 
-    /// The request failed.
-    Failure,
+pub(super) fn pair(
+    remote_id: u32,
+    remote_maximum_packet_size: u32,
+    windows: (io::LocalWindow, io::RemoteWindow),
+    outgoing: Sender<Packet>,
+) -> (Channel, Handle) {
+    let (control, incoming) = flume::bounded(1);
+    let streams = Arc::new(DashMap::new());
+    let windows = (windows.0.into(), windows.1.into());
+
+    (
+        Channel {
+            remote_id,
+            remote_maximum_packet_size,
+            incoming,
+            outgoing,
+            streams: streams.clone(),
+            windows: windows.clone(),
+        },
+        Handle {
+            remote_id,
+            control,
+            streams,
+            windows,
+        },
+    )
 }
 
 /// A reference to an opened channel in the session.
-#[derive(Debug)]
 pub struct Channel {
     remote_id: u32,
-
-    local_window_size: AtomicU32,
-    remote_window_size: Arc<AtomicU32>,
     remote_maximum_packet_size: u32,
 
-    sender: flume::Sender<Msg>,
-    receiver: flume::Receiver<Msg>,
+    outgoing: Sender<Packet>,
+    incoming: Receiver<messages::Control>,
+    streams: Arc<DashMap<Option<NonZeroU32>, Sender<Vec<u8>>>>,
+    windows: (Arc<io::LocalWindow>, Arc<io::RemoteWindow>),
 }
 
 impl Channel {
-    pub(super) fn new(
-        remote_id: u32,
-        local_window_size: u32,
-        remote_window_size: Arc<AtomicU32>,
-        remote_maximum_packet_size: u32,
-        sender: flume::Sender<Msg>,
-    ) -> (Self, flume::Sender<Msg>) {
-        let (tx, rx) = flume::unbounded();
-
-        (
-            Self {
-                remote_id,
-                local_window_size: local_window_size.into(),
-                remote_window_size,
-                remote_maximum_packet_size,
-                receiver: rx,
-                sender,
-            },
-            tx,
-        )
-    }
-
-    /// Tells whether the channel has been closed by us or the peer.
-    pub fn is_closed(&self) -> bool {
-        self.receiver.is_disconnected()
-    }
-
-    /// Make a reader for current channel's _data_ stream.
-    ///
-    /// # Caveats
-    ///
-    /// Even though the interface allows having multiple _readers_,
-    /// polling for a reader will discard other data types
-    /// and polling concurrently for more than one reader may cause data integrity issues.
-    #[must_use]
-    pub fn as_reader(&self) -> impl AsyncRead + '_ {
-        io::Read::new(self, None)
-    }
-
-    /// Make a reader for current channel's _extended data_ stream.
-    ///
-    /// # Caveats
-    ///
-    /// Even though the interface allows having multiple _readers_,
-    /// polling for a reader will discard other data types
-    /// and polling concurrently for more than one reader may cause data integrity issues.
-    #[must_use]
-    pub fn as_reader_ext(&self, ext: ChannelExtendedDataType) -> impl AsyncRead + '_ {
-        io::Read::new(self, Some(ext))
-    }
-
-    /// Make a writer for current channel's _data_ stream.
-    #[must_use]
-    pub fn as_writer(&self) -> impl AsyncWrite + '_ {
-        io::Write::new(self, None)
-    }
-
-    /// Make a writer for current channel's _extended data_ stream.
-    #[must_use]
-    pub fn as_writer_ext(&self, ext: ChannelExtendedDataType) -> impl AsyncWrite + '_ {
-        io::Write::new(self, Some(ext))
+    /// Iterate over the incoming channel requests to process them.
+    pub fn requests(&mut self) -> impl Stream<Item = request::Request> + Unpin + '_ {
+        self.incoming.stream().filter_map(|message| {
+            Box::pin(async {
+                if let messages::Control::Request(request) = message {
+                    Some(request::Request::new(
+                        self.remote_id,
+                        self.outgoing.clone(),
+                        request,
+                    ))
+                } else {
+                    None
+                }
+            })
+        })
     }
 
     /// Send a request on the current channel.
-    pub async fn request(&self, context: ChannelRequestContext) -> Result<Response> {
-        self.sender
-            .send_async(Msg::Request(connect::ChannelRequest {
-                recipient_channel: self.remote_id,
-                want_reply: true.into(),
-                context,
-            }))
+    pub async fn request(&mut self, context: ChannelRequestContext) -> Result<Response> {
+        self.outgoing
+            .send_async(
+                connect::ChannelRequest {
+                    recipient_channel: self.remote_id,
+                    want_reply: true.into(),
+                    context,
+                }
+                .into_packet()
+                .expect("Conversion to Packet shouldn't fail"),
+            )
             .await
-            .map_err(|_| Error::ChannelClosed)?;
+            .ok();
 
-        match self
-            .receiver
-            .recv_async()
-            .await
-            .map_err(|_| Error::ChannelClosed)?
-        {
-            Msg::Success(_) => Ok(Response::Success),
-            Msg::Failure(_) => Ok(Response::Failure),
-            _ => Err(assh::Error::UnexpectedMessage.into()),
+        match self.incoming.recv_async().await {
+            Ok(messages::Control::Success(_)) => Ok(Response::Success),
+            Ok(messages::Control::Failure(_)) => Ok(Response::Failure),
+            Ok(_) => Err(assh::Error::UnexpectedMessage.into()),
+            Err(_) => Err(Error::ChannelClosed),
         }
     }
 
-    /// Receive and handle a request on the current channel.
-    pub async fn on_request(
-        &self,
-        mut handler: impl FnMut(ChannelRequestContext) -> Response,
-    ) -> Result<Response> {
-        match self
-            .receiver
-            .recv_async()
-            .await
-            .map_err(|_| Error::ChannelClosed)?
-        {
-            Msg::Request(request) => {
-                let response = handler(request.context);
+    /// Make a reader for current channel's _data_ stream.
+    #[must_use]
+    pub fn as_reader(&self) -> impl AsyncRead {
+        let (reader, sender) = io::Read::new(self.windows.0.clone());
 
-                if *request.want_reply {
-                    match response {
-                        Response::Success => {
-                            self.sender
-                                .send_async(Msg::Success(connect::ChannelSuccess {
-                                    recipient_channel: self.remote_id,
-                                }))
-                                .await
-                                .map_err(|_| Error::ChannelClosed)?;
-                        }
-                        Response::Failure => {
-                            self.sender
-                                .send_async(Msg::Failure(connect::ChannelFailure {
-                                    recipient_channel: self.remote_id,
-                                }))
-                                .await
-                                .map_err(|_| Error::ChannelClosed)?;
-                        }
-                    }
-                }
+        self.streams.insert(None, sender);
 
-                Ok(response)
-            }
-            _ => Err(assh::Error::UnexpectedMessage.into()),
-        }
+        reader
+    }
+
+    /// Make a reader for current channel's _extended data_ stream.
+    #[must_use]
+    pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead {
+        let (reader, sender) = io::Read::new(self.windows.0.clone());
+
+        self.streams.insert(Some(ext), sender);
+
+        reader
+    }
+
+    /// Make a writer for current channel's _data_ stream.
+    ///
+    /// ## Note:
+    /// The writer does not flush [`Drop`], the caller is responsible to call
+    /// [`futures::AsyncWriteExt::flush`] before dropping.
+    #[must_use]
+    pub fn as_writer(&self) -> impl AsyncWrite {
+        io::Write::new(
+            self.outgoing.clone().into_sink(),
+            self.windows.1.clone(),
+            self.remote_maximum_packet_size,
+            self.remote_id,
+            None,
+        )
+    }
+
+    /// Make a writer for current channel's _extended data_ stream.
+    ///
+    /// ## Note:
+    /// The writer does not flush [`Drop`], the caller is responsible to call
+    /// [`futures::AsyncWriteExt::flush`] before dropping.
+    #[must_use]
+    pub fn as_writer_ext(&self, ext: NonZeroU32) -> impl AsyncWrite {
+        io::Write::new(
+            self.outgoing.clone().into_sink(),
+            self.windows.1.clone(),
+            self.remote_maximum_packet_size,
+            self.remote_id,
+            Some(ext),
+        )
+    }
+
+    /// Tells whether the channel has been closed.
+    pub async fn is_closed(&self) -> bool {
+        self.incoming.is_disconnected()
     }
 }
 
 impl Drop for Channel {
     fn drop(&mut self) {
-        tracing::debug!("Closing channel %{}", self.remote_id);
+        tracing::debug!("Reporting channel closed %{}", self.remote_id);
 
-        if let Err(err) = self.sender.send(Msg::Close(connect::ChannelClose {
-            recipient_channel: self.remote_id,
-        })) {
-            tracing::error!(
-                "Unable to report channel %{} closed to the peer: {err}",
-                self.remote_id
-            );
-        }
+        self.outgoing
+            .try_send(
+                connect::ChannelClose {
+                    recipient_channel: self.remote_id,
+                }
+                .into_packet()
+                .expect("Conversion to Packet shouldn't fail"),
+            )
+            .ok();
     }
 }

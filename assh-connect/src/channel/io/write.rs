@@ -1,48 +1,61 @@
-use std::{io, pin::Pin, sync::atomic::Ordering, task};
+use std::{io, num::NonZeroU32, pin::Pin, sync::Arc, task};
 
-use super::{Channel, Msg};
-use ssh_packet::connect;
+use flume::r#async::SendSink;
+use futures::SinkExt;
+use ssh_packet::{connect, IntoPacket, Packet};
 
-pub struct Write<'a> {
-    channel: &'a Channel,
-    ext: Option<connect::ChannelExtendedDataType>,
+use super::RemoteWindow;
+
+pub struct Write {
+    outgoing: SendSink<'static, Packet>,
+    window: Arc<RemoteWindow>,
+    max_size: u32,
+
+    remote_id: u32,
+    stream_id: Option<NonZeroU32>,
 
     buffer: Vec<u8>,
 }
 
-impl<'a> Write<'a> {
-    pub fn new(channel: &'a Channel, ext: Option<connect::ChannelExtendedDataType>) -> Self {
+impl Write {
+    pub fn new(
+        outgoing: SendSink<'static, Packet>,
+        window: Arc<RemoteWindow>,
+        max_size: u32,
+        remote_id: u32,
+        stream_id: Option<NonZeroU32>,
+    ) -> Self {
         Self {
-            channel,
-            ext,
-            buffer: Vec::with_capacity(channel.remote_maximum_packet_size as usize),
+            outgoing,
+            window,
+            max_size,
+
+            remote_id,
+            stream_id,
+
+            buffer: Default::default(),
         }
     }
 }
 
-impl futures::AsyncWrite for Write<'_> {
+impl futures::AsyncWrite for Write {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &[u8],
     ) -> task::Poll<io::Result<usize>> {
-        let size: usize = self.buffer.len();
+        loop {
+            let writable = buf.len().min(self.max_size as usize - self.buffer.len());
+            if writable == 0 {
+                futures::ready!(self.as_mut().poll_flush(cx))?;
 
-        if size >= self.channel.remote_maximum_packet_size as usize {
-            futures::ready!(self.as_mut().poll_flush(cx)?);
-        }
+                continue;
+            }
 
-        let writable = buf
-            .len()
-            .min(self.channel.remote_maximum_packet_size as usize - size);
+            let reserved = futures::ready!(self.window.poll_reserve(cx, writable as u32)) as usize;
+            self.buffer.extend_from_slice(&buf[..reserved]);
 
-        if writable > 0 {
-            self.buffer.extend_from_slice(&buf[..writable]);
-
-            task::Poll::Ready(Ok(writable))
-        } else {
-            cx.waker().wake_by_ref();
-            task::Poll::Pending
+            break task::Poll::Ready(Ok(reserved));
         }
     }
 
@@ -51,67 +64,36 @@ impl futures::AsyncWrite for Write<'_> {
         cx: &mut task::Context<'_>,
     ) -> task::Poll<io::Result<()>> {
         if self.buffer.is_empty() {
-            task::Poll::Ready(Ok(()))
-        } else {
-            let flushable = self
-                .channel
-                .remote_maximum_packet_size
-                .min(self.channel.remote_window_size.load(Ordering::Acquire))
-                .min(self.buffer.len() as u32) as usize;
-
-            if flushable > 0 {
-                let mut data = self.buffer.split_off(flushable);
-                std::mem::swap(&mut data, &mut self.buffer);
-
-                tracing::debug!(
-                    "Flushing data of size {} bytes for channel %{}",
-                    data.len(),
-                    self.channel.remote_id
-                );
-
-                let data = data.into();
-                let msg = match self.ext {
-                    None => Msg::Data(connect::ChannelData {
-                        recipient_channel: self.channel.remote_id,
-                        data,
-                    }),
-                    Some(ext) => Msg::ExtendedData(connect::ChannelExtendedData {
-                        recipient_channel: self.channel.remote_id,
-                        data_type: ext,
-                        data,
-                    }),
-                };
-
-                self.channel
-                    .remote_window_size
-                    .fetch_sub(flushable as u32, Ordering::AcqRel);
-
-                self.channel
-                    .sender
-                    .send(msg)
-                    .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
-
-                task::Poll::Ready(Ok(()))
-            } else {
-                cx.waker().wake_by_ref();
-                task::Poll::Pending
-            }
+            return task::Poll::Ready(Ok(()));
         }
-    }
 
-    fn poll_close(
-        mut self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-    ) -> task::Poll<io::Result<()>> {
-        futures::ready!(self.as_mut().poll_flush(cx)?);
+        futures::ready!(self.outgoing.poll_ready_unpin(cx))
+            .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
-        self.channel
-            .sender
-            .send(Msg::Eof(connect::ChannelEof {
-                recipient_channel: self.channel.remote_id,
-            }))
+        let packet = if let Some(data_type) = self.stream_id {
+            connect::ChannelExtendedData {
+                recipient_channel: self.remote_id,
+                data_type,
+                data: self.buffer.drain(..).collect::<Vec<_>>().into(),
+            }
+            .into_packet()
+        } else {
+            connect::ChannelData {
+                recipient_channel: self.remote_id,
+                data: self.buffer.drain(..).collect::<Vec<_>>().into(),
+            }
+            .into_packet()
+        }
+        .expect("Conversion to Packet shouldn't fail");
+
+        self.outgoing
+            .start_send_unpin(packet)
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
         task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<io::Result<()>> {
+        self.poll_flush(cx)
     }
 }

@@ -6,6 +6,21 @@ use crate::channel;
 
 // TODO: Use a ChannelBuilder with Drop reject implementation ?
 
+/// The response to a _channel open request_.
+pub enum ChannelOpen {
+    /// _Accepted_ the channel open request.
+    Accepted(channel::Channel),
+
+    /// _Rejected_ the channel open request.
+    Rejected {
+        /// The reason for failure.
+        reason: connect::ChannelOpenFailureReason,
+
+        /// A textual message to acompany the reason.
+        message: String,
+    },
+}
+
 /// An outcome to a channel open [`Hook`].
 #[derive(Debug)]
 pub enum Outcome {
