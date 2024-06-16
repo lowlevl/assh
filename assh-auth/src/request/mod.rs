@@ -16,6 +16,7 @@ use method::Method;
 
 // TODO: Add hostbased authentication.
 // TODO: Add keyboard-interactive authentication.
+// TODO: Handle the SSH banner in the `request` side.
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;

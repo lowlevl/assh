@@ -184,6 +184,18 @@ where
                 let key = PublicKey::from_bytes(&blob);
 
                 match signature {
+                    None => {
+                        // Authentication has not actually been attempted, so we allow it again.
+                        self.methods |= Method::Publickey;
+
+                        if key.is_ok() {
+                            session.send(&userauth::PkOk { blob, algorithm }).await?;
+
+                            Attempt::Continue
+                        } else {
+                            Attempt::Failure
+                        }
+                    }
                     Some(signature) => match key {
                         Ok(key) if key.algorithm().as_str().as_bytes() == algorithm.as_ref() => {
                             let message = PublickeySignature {
@@ -208,18 +220,6 @@ where
                         }
                         _ => Attempt::Failure,
                     },
-                    None => {
-                        // Authentication has not actually been attempted, so we allow it again.
-                        self.methods |= Method::Publickey;
-
-                        if key.is_ok() {
-                            session.send(&userauth::PkOk { blob, algorithm }).await?;
-
-                            Attempt::Continue
-                        } else {
-                            Attempt::Failure
-                        }
-                    }
                 }
             }
 
