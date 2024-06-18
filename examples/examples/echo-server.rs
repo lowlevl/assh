@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, time::Duration};
+use std::net::SocketAddr;
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
@@ -7,30 +7,10 @@ use assh_connect::{channel, connect::channel::Outcome};
 use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
-use futures::{
-    io::{BufReader, BufWriter},
-    AsyncReadExt, AsyncWriteExt, FutureExt,
-};
+use futures::io::{BufReader, BufWriter};
 use tokio::{net::TcpListener, task};
 
-// TODO: Create a kind-of complete server-side example.
-
-const DELAY: Duration = Duration::from_millis(50);
-const CLEAR: &str = "\x1B[2J";
-const FRAMES: &[&str] = &[
-    include_str!("server/0.txt"),
-    include_str!("server/1.txt"),
-    include_str!("server/2.txt"),
-    include_str!("server/3.txt"),
-    include_str!("server/4.txt"),
-    include_str!("server/5.txt"),
-    include_str!("server/6.txt"),
-    include_str!("server/7.txt"),
-    include_str!("server/8.txt"),
-    include_str!("server/9.txt"),
-];
-
-/// An `assh` server example.
+/// An `assh` server example, echoing back all sent data.
 #[derive(Debug, Parser)]
 pub struct Args {
     /// The address to bind the server on.
@@ -86,25 +66,8 @@ async fn main() -> eyre::Result<()> {
                             .on_request(|_ctx| channel::Response::Success)
                             .await?;
 
-                        let mut writer = channel.as_writer();
-                        let mut reader = channel.as_reader();
-
-                        for frame in FRAMES.iter().cycle() {
-                            let mut read = [0u8; 1];
-
-                            futures::select! {
-                                len = reader.read(&mut read).fuse() => {
-                                    if matches!(len, Ok(len) if len > 0 && read[0] == b'q') {
-                                        break;
-                                    }
-                                }
-                                _ = tokio::time::sleep(DELAY).fuse() => {
-                                    writer.write_all(CLEAR.as_bytes()).await?;
-                                    writer.write_all(frame.as_bytes()).await?;
-                                    writer.flush().await?;
-                                }
-                            }
-                        }
+                        futures::io::copy(&mut channel.as_reader(), &mut channel.as_writer())
+                            .await?;
 
                         Ok::<_, eyre::Error>(())
                     });
