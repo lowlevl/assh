@@ -73,7 +73,7 @@ impl futures::AsyncWrite for Write<'_> {
         loop {
             let writable = buf.len().min(self.max_size as usize - self.buffer.len());
             if writable == 0 {
-                futures::ready!(self.as_mut().poll_send(cx))?;
+                futures::ready!(self.poll_send(cx))?;
 
                 continue;
             }
@@ -89,6 +89,10 @@ impl futures::AsyncWrite for Write<'_> {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<io::Result<()>> {
+        if !self.buffer.is_empty() {
+            futures::ready!(self.poll_send(cx))?;
+        }
+
         self.sender
             .poll_flush_unpin(cx)
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))

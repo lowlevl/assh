@@ -66,16 +66,14 @@ impl Channel {
     /// Iterate over the incoming channel requests to process them.
     pub fn requests(&mut self) -> impl Stream<Item = request::Request> + Unpin + '_ {
         self.incoming.stream().filter_map(|message| {
-            Box::pin(async {
-                if let messages::Control::Request(request) = message {
-                    Some(request::Request::new(
-                        self.remote_id,
-                        self.outgoing.clone(),
-                        request,
-                    ))
-                } else {
-                    None
-                }
+            futures::future::ready(if let messages::Control::Request(request) = message {
+                Some(request::Request::new(
+                    self.remote_id,
+                    self.outgoing.clone(),
+                    request,
+                ))
+            } else {
+                None
             })
         })
     }
