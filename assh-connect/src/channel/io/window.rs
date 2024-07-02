@@ -2,13 +2,15 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use futures::task;
 
+// TODO: Confirm memory ordering is correct
+
 pub struct LocalWindow {
     inner: AtomicU32,
 }
 
 impl LocalWindow {
     const INITIAL_WINDOW_SIZE: u32 = 64 * crate::MAXIMUM_PACKET_SIZE;
-    const FLOATING_THRESHOLD: u32 = Self::INITIAL_WINDOW_SIZE / 2;
+    const FLOATING_THRESHOLD: u32 = Self::INITIAL_WINDOW_SIZE - crate::MAXIMUM_PACKET_SIZE * 5;
 
     pub fn new() -> Self {
         Self {
@@ -16,7 +18,7 @@ impl LocalWindow {
         }
     }
 
-    pub fn remaining(&self) -> u32 {
+    pub fn size(&self) -> u32 {
         self.inner.load(Ordering::Relaxed)
     }
 
@@ -28,7 +30,7 @@ impl LocalWindow {
         let previous = self
             .inner
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |window| {
-                if window < Self::FLOATING_THRESHOLD {
+                if window <= Self::FLOATING_THRESHOLD {
                     Some(Self::INITIAL_WINDOW_SIZE)
                 } else {
                     None
@@ -54,13 +56,14 @@ impl RemoteWindow {
     }
 
     pub fn adjust(&self, size: u32) {
-        self.inner.fetch_add(size, Ordering::Release);
+        self.inner.fetch_add(size, Ordering::Relaxed);
         self.waker.wake();
     }
 
     fn try_reserve(&self, mut amount: u32) -> Option<u32> {
-        self.inner
-            .fetch_update(Ordering::Release, Ordering::Acquire, |window| {
+        let updated = self
+            .inner
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |window| {
                 if amount <= window {
                     Some(window - amount)
                 } else {
@@ -73,9 +76,9 @@ impl RemoteWindow {
                     }
                 }
             })
-            .ok();
+            .is_ok();
 
-        if amount > 0 {
+        if updated {
             Some(amount)
         } else {
             None
@@ -87,7 +90,10 @@ impl RemoteWindow {
             task::Poll::Ready(size)
         } else {
             // TODO: Does this cause busy waiting ? Is it necessary ? Maybe host a collection of wakers.
-            self.waker.wake();
+            assert!(
+                self.waker.take().is_none(),
+                "Need to rework to add a collection of wakers"
+            );
 
             self.waker.register(cx.waker());
             task::Poll::Pending

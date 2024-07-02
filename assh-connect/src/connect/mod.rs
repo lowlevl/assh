@@ -37,7 +37,7 @@ impl<'s, IO, S> Connect<'s, IO, S> {
             on_global_request: (),
             on_channel_open: (),
 
-            outgoing: flume::bounded(1),
+            outgoing: flume::unbounded(),
             channels: Default::default(),
         }
     }
@@ -131,7 +131,7 @@ where
         self.session
             .send(&connect::ChannelOpen {
                 sender_channel: local_id,
-                initial_window_size: local_window.remaining(),
+                initial_window_size: local_window.size(),
                 maximum_packet_size: crate::MAXIMUM_PACKET_SIZE,
                 context,
             })
@@ -271,7 +271,7 @@ where
                         .send(&connect::ChannelOpenConfirmation {
                             recipient_channel: channel_open.sender_channel,
                             sender_channel: local_id,
-                            initial_window_size: handle.windows.0.remaining(),
+                            initial_window_size: handle.windows.0.size(),
                             maximum_packet_size: crate::MAXIMUM_PACKET_SIZE,
                         })
                         .await?;
@@ -316,24 +316,10 @@ where
         } else if let Ok(data) = packet.to::<messages::Data>() {
             if let Some(handle) = self.channels.get(data.recipient_channel()) {
                 if let Some(sender) = handle.streams.get(&data.data_type()) {
+                    // TODO: Handle dropped streams
                     sender.send_async(data.data()).await.ok();
                 } else {
-                    handle.windows.0.consume(data.data().len() as u32)
-                }
-
-                if let Some(bytes_to_add) = handle.windows.0.adjust() {
-                    self.session
-                        .send(&connect::ChannelWindowAdjust {
-                            recipient_channel: handle.remote_id,
-                            bytes_to_add,
-                        })
-                        .await?;
-
-                    tracing::debug!(
-                        "Adjusted window size by `{}` for channel %{}",
-                        bytes_to_add,
-                        handle.remote_id
-                    );
+                    handle.windows.0.consume(data.data().len() as u32);
                 }
             }
         } else if let Ok(control) = packet.to::<messages::Control>() {

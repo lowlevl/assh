@@ -7,26 +7,26 @@ use ssh_packet::{connect, IntoPacket, Packet};
 use super::RemoteWindow;
 
 pub struct Write {
-    outgoing: SendSink<'static, Packet>,
-    window: Arc<RemoteWindow>,
-    max_size: u32,
-
     remote_id: u32,
     stream_id: Option<NonZeroU32>,
+
+    sender: SendSink<'static, Packet>,
+    window: Arc<RemoteWindow>,
+    max_size: u32,
 
     buffer: Vec<u8>,
 }
 
 impl Write {
     pub fn new(
-        outgoing: SendSink<'static, Packet>,
-        window: Arc<RemoteWindow>,
-        max_size: u32,
         remote_id: u32,
         stream_id: Option<NonZeroU32>,
+        sender: SendSink<'static, Packet>,
+        window: Arc<RemoteWindow>,
+        max_size: u32,
     ) -> Self {
         Self {
-            outgoing,
+            sender,
             window,
             max_size,
 
@@ -67,7 +67,7 @@ impl futures::AsyncWrite for Write {
             return task::Poll::Ready(Ok(()));
         }
 
-        futures::ready!(self.outgoing.poll_ready_unpin(cx))
+        futures::ready!(self.sender.poll_ready_unpin(cx))
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
         let packet = if let Some(data_type) = self.stream_id {
@@ -86,7 +86,7 @@ impl futures::AsyncWrite for Write {
         }
         .expect("Conversion to Packet shouldn't fail");
 
-        self.outgoing
+        self.sender
             .start_send_unpin(packet)
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 

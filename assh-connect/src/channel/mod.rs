@@ -28,7 +28,7 @@ pub(super) fn pair(
     windows: (io::LocalWindow, io::RemoteWindow),
     outgoing: Sender<Packet>,
 ) -> (Channel, Handle) {
-    let (control, incoming) = flume::bounded(1);
+    let (control, incoming) = flume::unbounded();
     let streams = Arc::new(DashMap::new());
     let windows = (windows.0.into(), windows.1.into());
 
@@ -105,7 +105,11 @@ impl Channel {
     /// Make a reader for current channel's _data_ stream.
     #[must_use]
     pub fn as_reader(&self) -> impl AsyncRead {
-        let (reader, sender) = io::Read::new(self.windows.0.clone());
+        let (reader, sender) = io::Read::new(
+            self.remote_id,
+            self.outgoing.clone().into_sink(),
+            self.windows.0.clone(),
+        );
 
         self.streams.insert(None, sender);
 
@@ -115,7 +119,11 @@ impl Channel {
     /// Make a reader for current channel's _extended data_ stream.
     #[must_use]
     pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead {
-        let (reader, sender) = io::Read::new(self.windows.0.clone());
+        let (reader, sender) = io::Read::new(
+            self.remote_id,
+            self.outgoing.clone().into_sink(),
+            self.windows.0.clone(),
+        );
 
         self.streams.insert(Some(ext), sender);
 
@@ -130,11 +138,11 @@ impl Channel {
     #[must_use]
     pub fn as_writer(&self) -> impl AsyncWrite {
         io::Write::new(
+            self.remote_id,
+            None,
             self.outgoing.clone().into_sink(),
             self.windows.1.clone(),
             self.remote_maximum_packet_size,
-            self.remote_id,
-            None,
         )
     }
 
@@ -146,11 +154,11 @@ impl Channel {
     #[must_use]
     pub fn as_writer_ext(&self, ext: NonZeroU32) -> impl AsyncWrite {
         io::Write::new(
+            self.remote_id,
+            Some(ext),
             self.outgoing.clone().into_sink(),
             self.windows.1.clone(),
             self.remote_maximum_packet_size,
-            self.remote_id,
-            Some(ext),
         )
     }
 
