@@ -30,6 +30,14 @@ impl Request {
         }
     }
 
+    /// Access the context of the current channel request.
+    pub fn ctx(&self) -> &connect::ChannelRequestContext {
+        self.inner
+            .as_ref()
+            .map(|request| &request.context)
+            .expect("Request already dropped, aborting.")
+    }
+
     /// Report the request as _accepted_ to the peer if it asked for a response.
     pub async fn accept(mut self) -> ChannelRequestContext {
         let request = self
@@ -67,16 +75,5 @@ impl Drop for Request {
                 )
                 .ok();
         }
-    }
-}
-
-impl std::ops::Deref for Request {
-    type Target = connect::ChannelRequestContext;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner
-            .as_ref()
-            .map(|request| &request.context)
-            .expect("Request already dropped, aborting.")
     }
 }

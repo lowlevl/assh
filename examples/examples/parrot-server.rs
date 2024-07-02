@@ -56,6 +56,7 @@ async fn main() -> eyre::Result<()> {
     loop {
         let (stream, _addr) = listener.accept().await?;
         let keys = keys.clone();
+
         task::spawn(async move {
             let stream = BufReader::new(BufWriter::new(stream.compat()));
 
@@ -81,15 +82,20 @@ async fn main() -> eyre::Result<()> {
             connect
                 .on_channel_open(|_, mut channel: channel::Channel| {
                     task::spawn(async move {
-                        while let Some(request) = channel.requests().next().await {
-                            if matches!(&*request, connect::ChannelRequestContext::Shell) {
+                        channel
+                            .requests()
+                            .take_while(|request| {
+                                futures::future::ready(matches!(
+                                    request.ctx(),
+                                    connect::ChannelRequestContext::Shell
+                                        | connect::ChannelRequestContext::Exec { .. }
+                                        | connect::ChannelRequestContext::Subsystem { .. }
+                                ))
+                            })
+                            .for_each(|request| async {
                                 request.accept().await;
-
-                                break;
-                            }
-
-                            request.accept().await;
-                        }
+                            })
+                            .await;
 
                         let mut writer = channel.as_writer();
                         let mut reader = channel.as_reader();
