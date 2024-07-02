@@ -323,6 +323,7 @@ where
             }
         } else if let Ok(control) = packet.to::<messages::Control>() {
             if let Some(handle) = self.channels.get(control.recipient_channel()) {
+                // TODO: Handle closed channels
                 handle.control.send_async(control).await.ok();
             } else {
                 tracing::warn!(

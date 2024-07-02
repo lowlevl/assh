@@ -7,7 +7,6 @@ use super::{LocalWindow, RemoteWindow};
 use crate::connect::messages;
 
 pub struct Handle {
-    pub remote_id: u32,
     pub control: Sender<messages::Control>,
     pub streams: Arc<DashMap<Option<NonZeroU32>, Sender<Vec<u8>>>>,
     pub windows: (Arc<LocalWindow>, Arc<RemoteWindow>),

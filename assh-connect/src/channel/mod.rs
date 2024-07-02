@@ -43,7 +43,6 @@ pub(super) fn pair(
             windows: windows.clone(),
         },
         Handle {
-            remote_id,
             control,
             streams,
             windows,
