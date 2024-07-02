@@ -51,8 +51,7 @@ impl Request {
                     connect::ChannelSuccess {
                         recipient_channel: self.remote_id,
                     }
-                    .into_packet()
-                    .expect("Conversion to Packet shouldn't fail"),
+                    .into_packet(),
                 )
                 .await
                 .ok();
@@ -70,8 +69,7 @@ impl Drop for Request {
                     connect::ChannelFailure {
                         recipient_channel: self.remote_id,
                     }
-                    .into_packet()
-                    .expect("Conversion to Packet shouldn't fail"),
+                    .into_packet(),
                 )
                 .ok();
         }

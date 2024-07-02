@@ -83,8 +83,7 @@ impl futures::AsyncWrite for Write<'_> {
                 data: self.buffer.drain(..).collect::<Vec<_>>().into(),
             }
             .into_packet()
-        }
-        .expect("Conversion to Packet shouldn't fail");
+        };
 
         self.sender
             .start_send_unpin(packet)

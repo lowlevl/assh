@@ -89,8 +89,7 @@ impl Channel {
                     want_reply: true.into(),
                     context,
                 }
-                .into_packet()
-                .expect("Conversion to Packet shouldn't fail"),
+                .into_packet(),
             )
             .await
             .ok();
@@ -172,8 +171,7 @@ impl Drop for Channel {
                 connect::ChannelClose {
                     recipient_channel: self.remote_id,
                 }
-                .into_packet()
-                .expect("Conversion to Packet shouldn't fail"),
+                .into_packet(),
             )
             .ok();
     }

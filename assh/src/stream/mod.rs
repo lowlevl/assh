@@ -125,7 +125,7 @@ where
 
     /// Encrypt and send a _packet_ to the peer.
     pub async fn send(&mut self, packet: impl IntoPacket) -> Result<()> {
-        let packet = packet.into_packet()?;
+        let packet = packet.into_packet();
 
         packet
             .to_async_writer(&mut self.inner, &mut self.transport.tx, self.txseq)

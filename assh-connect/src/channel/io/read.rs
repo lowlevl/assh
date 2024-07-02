@@ -64,8 +64,7 @@ impl futures::AsyncRead for Read<'_> {
                         recipient_channel: self.remote_id,
                         bytes_to_add,
                     }
-                    .into_packet()
-                    .expect("Conversion to Packet shouldn't fail");
+                    .into_packet();
 
                     self.sender
                         .start_send_unpin(packet)
