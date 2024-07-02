@@ -36,37 +36,8 @@ impl<'a> Write<'a> {
             buffer: Default::default(),
         }
     }
-}
 
-impl futures::AsyncWrite for Write<'_> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-        buf: &[u8],
-    ) -> task::Poll<io::Result<usize>> {
-        loop {
-            let writable = buf.len().min(self.max_size as usize - self.buffer.len());
-            if writable == 0 {
-                futures::ready!(self.as_mut().poll_flush(cx))?;
-
-                continue;
-            }
-
-            let reserved = futures::ready!(self.window.poll_reserve(cx, writable as u32)) as usize;
-            self.buffer.extend_from_slice(&buf[..reserved]);
-
-            break task::Poll::Ready(Ok(reserved));
-        }
-    }
-
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-    ) -> task::Poll<io::Result<()>> {
-        if self.buffer.is_empty() {
-            return task::Poll::Ready(Ok(()));
-        }
-
+    fn poll_send(&mut self, cx: &mut task::Context) -> task::Poll<io::Result<()>> {
         futures::ready!(self.sender.poll_ready_unpin(cx))
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
@@ -90,6 +61,37 @@ impl futures::AsyncWrite for Write<'_> {
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
         task::Poll::Ready(Ok(()))
+    }
+}
+
+impl futures::AsyncWrite for Write<'_> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+        buf: &[u8],
+    ) -> task::Poll<io::Result<usize>> {
+        loop {
+            let writable = buf.len().min(self.max_size as usize - self.buffer.len());
+            if writable == 0 {
+                futures::ready!(self.as_mut().poll_send(cx))?;
+
+                continue;
+            }
+
+            let reserved = futures::ready!(self.window.poll_reserve(cx, writable as u32)) as usize;
+            self.buffer.extend_from_slice(&buf[..reserved]);
+
+            break task::Poll::Ready(Ok(reserved));
+        }
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<io::Result<()>> {
+        self.sender
+            .poll_flush_unpin(cx)
+            .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<io::Result<()>> {
