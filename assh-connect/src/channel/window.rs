@@ -10,24 +10,11 @@ pub struct LocalWindow {
 
 impl LocalWindow {
     pub const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
-    const INITIAL_WINDOW_SIZE: u32 = 64 * Self::MAXIMUM_PACKET_SIZE;
+    pub const INITIAL_WINDOW_SIZE: u32 = 64 * Self::MAXIMUM_PACKET_SIZE;
+
     const ADJUST_THRESHOLD: u32 = Self::INITIAL_WINDOW_SIZE - Self::MAXIMUM_PACKET_SIZE * 5;
 
-    pub fn new() -> Self {
-        Self {
-            inner: Self::INITIAL_WINDOW_SIZE.into(),
-        }
-    }
-
-    pub fn size(&self) -> u32 {
-        self.inner.load(Ordering::Relaxed)
-    }
-
-    pub fn consume(&self, size: u32) {
-        self.inner.fetch_sub(size, Ordering::Relaxed);
-    }
-
-    pub fn adjust(&self) -> Option<u32> {
+    pub fn adjustable(&self) -> Option<u32> {
         let previous = self
             .inner
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |window| {
@@ -41,6 +28,18 @@ impl LocalWindow {
 
         previous.map(|previous| Self::INITIAL_WINDOW_SIZE - previous)
     }
+
+    pub fn consume(&self, size: u32) {
+        self.inner.fetch_sub(size, Ordering::Relaxed);
+    }
+}
+
+impl Default for LocalWindow {
+    fn default() -> Self {
+        Self {
+            inner: Self::INITIAL_WINDOW_SIZE.into(),
+        }
+    }
 }
 
 pub struct RemoteWindow {
@@ -49,20 +48,13 @@ pub struct RemoteWindow {
 }
 
 impl RemoteWindow {
-    pub fn new(size: u32) -> Self {
-        Self {
-            inner: size.into(),
-            waker: Default::default(),
-        }
-    }
-
     pub fn replenish(&self, size: u32) {
         self.inner.fetch_add(size, Ordering::Relaxed);
         self.waker.wake();
     }
 
     fn try_reserve(&self, mut amount: u32) -> Option<u32> {
-        let updated = self
+        let reserved = self
             .inner
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |window| {
                 if amount <= window {
@@ -79,7 +71,7 @@ impl RemoteWindow {
             })
             .is_ok();
 
-        if updated {
+        if reserved {
             Some(amount)
         } else {
             None
@@ -98,6 +90,15 @@ impl RemoteWindow {
 
             self.waker.register(cx.waker());
             task::Poll::Pending
+        }
+    }
+}
+
+impl From<u32> for RemoteWindow {
+    fn from(value: u32) -> Self {
+        Self {
+            inner: value.into(),
+            waker: Default::default(),
         }
     }
 }

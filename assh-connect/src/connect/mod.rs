@@ -126,12 +126,11 @@ where
         context: ChannelOpenContext,
     ) -> Result<channel_open::ChannelOpen> {
         let local_id = self.local_id();
-        let local_window = channel::LocalWindow::new();
 
         self.session
             .send(&connect::ChannelOpen {
                 sender_channel: local_id,
-                initial_window_size: local_window.size(),
+                initial_window_size: channel::LocalWindow::INITIAL_WINDOW_SIZE,
                 maximum_packet_size: channel::LocalWindow::MAXIMUM_PACKET_SIZE,
                 context,
             })
@@ -154,8 +153,8 @@ where
                     open_confirmation.recipient_channel,
                     open_confirmation.maximum_packet_size,
                     (
-                        local_window,
-                        channel::RemoteWindow::new(open_confirmation.initial_window_size),
+                        channel::LocalWindow::default(),
+                        channel::RemoteWindow::from(open_confirmation.initial_window_size),
                     ),
                     self.outgoing.0.clone(),
                 );
@@ -250,14 +249,12 @@ where
                 channel_open.context
             );
 
-            let local_id = self.local_id();
-
             let (channel, handle) = channel::pair(
                 channel_open.sender_channel,
                 channel_open.maximum_packet_size,
                 (
-                    channel::LocalWindow::new(),
-                    channel::RemoteWindow::new(channel_open.initial_window_size),
+                    channel::LocalWindow::default(),
+                    channel::RemoteWindow::from(channel_open.initial_window_size),
                 ),
                 self.outgoing.0.clone(),
             );
@@ -267,11 +264,13 @@ where
                 .on_request(channel_open.context, channel)
             {
                 channel_open::Outcome::Accept => {
+                    let local_id = self.local_id();
+
                     self.session
                         .send(&connect::ChannelOpenConfirmation {
                             recipient_channel: channel_open.sender_channel,
                             sender_channel: local_id,
-                            initial_window_size: handle.windows.0.size(),
+                            initial_window_size: channel::LocalWindow::INITIAL_WINDOW_SIZE,
                             maximum_packet_size: channel::LocalWindow::MAXIMUM_PACKET_SIZE,
                         })
                         .await?;

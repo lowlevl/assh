@@ -47,6 +47,10 @@ impl<'a> Read<'a> {
             tx,
         )
     }
+
+    fn is_empty(&self) -> bool {
+        self.buffer.position() >= self.buffer.get_ref().len() as u64
+    }
 }
 
 impl futures::AsyncRead for Read<'_> {
@@ -55,11 +59,11 @@ impl futures::AsyncRead for Read<'_> {
         cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
-        if self.buffer.position() >= self.buffer.get_ref().len() as u64 {
+        if self.is_empty() {
             if let task::Poll::Ready(res) = self.sender.poll_ready_unpin(cx) {
                 res.map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
-                if let Some(bytes_to_add) = self.window.adjust() {
+                if let Some(bytes_to_add) = self.window.adjustable() {
                     let packet = connect::ChannelWindowAdjust {
                         recipient_channel: self.remote_id,
                         bytes_to_add,
@@ -78,16 +82,16 @@ impl futures::AsyncRead for Read<'_> {
                 }
             }
 
-            self.buffer = io::Cursor::new(
-                futures::ready!(self.receiver.poll_next_unpin(cx)).ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "The channel has been disconnected",
-                    )
-                })?,
-            );
-
-            self.window.consume(self.buffer.get_ref().len() as u32);
+            match futures::ready!(self.receiver.poll_next_unpin(cx)) {
+                Some(data) => {
+                    self.window.consume(data.len() as u32);
+                    self.buffer = io::Cursor::new(data);
+                }
+                None => Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "The channel has been disconnected",
+                ))?,
+            }
         }
 
         task::Poll::Ready(self.buffer.read(buf))
