@@ -1,7 +1,6 @@
 use std::{
     io::{self, Read as _},
     pin::Pin,
-    sync::Arc,
     task,
 };
 
@@ -16,21 +15,21 @@ use super::super::LocalWindow;
 
 // TODO: Handle pending messages for window on Drop
 
-pub struct Read<'a> {
+pub struct Read<'io> {
     remote_id: u32,
 
     receiver: RecvStream<'static, Vec<u8>>,
-    sender: SendSink<'a, Packet>,
-    window: Arc<LocalWindow>,
+    sender: SendSink<'io, Packet>,
+    window: &'io LocalWindow,
 
     buffer: io::Cursor<Vec<u8>>,
 }
 
-impl<'a> Read<'a> {
+impl<'io> Read<'io> {
     pub fn new(
         remote_id: u32,
-        sender: SendSink<'a, Packet>,
-        window: Arc<LocalWindow>,
+        sender: SendSink<'io, Packet>,
+        window: &'io LocalWindow,
     ) -> (Self, Sender<Vec<u8>>) {
         let (tx, receiver) = flume::unbounded();
 

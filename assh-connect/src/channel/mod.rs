@@ -103,8 +103,7 @@ impl Channel {
     /// Make a reader for current channel's _data_ stream.
     #[must_use]
     pub fn as_reader(&self) -> impl AsyncRead + '_ {
-        let (reader, sender) =
-            io::Read::new(self.remote_id, self.outgoing.sink(), self.windows.0.clone());
+        let (reader, sender) = io::Read::new(self.remote_id, self.outgoing.sink(), &self.windows.0);
 
         self.streams.insert(None, sender);
 
@@ -114,8 +113,7 @@ impl Channel {
     /// Make a reader for current channel's _extended data_ stream.
     #[must_use]
     pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead + '_ {
-        let (reader, sender) =
-            io::Read::new(self.remote_id, self.outgoing.sink(), self.windows.0.clone());
+        let (reader, sender) = io::Read::new(self.remote_id, self.outgoing.sink(), &self.windows.0);
 
         self.streams.insert(Some(ext), sender);
 
@@ -133,7 +131,7 @@ impl Channel {
             self.remote_id,
             None,
             self.outgoing.sink(),
-            self.windows.1.clone(),
+            &self.windows.1,
             self.remote_maximum_packet_size,
         )
     }
@@ -149,7 +147,7 @@ impl Channel {
             self.remote_id,
             Some(ext),
             self.outgoing.sink(),
-            self.windows.1.clone(),
+            &self.windows.1,
             self.remote_maximum_packet_size,
         )
     }

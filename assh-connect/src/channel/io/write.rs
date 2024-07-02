@@ -1,4 +1,4 @@
-use std::{io, num::NonZeroU32, pin::Pin, sync::Arc, task};
+use std::{io, num::NonZeroU32, pin::Pin, task};
 
 use flume::r#async::SendSink;
 use futures::SinkExt;
@@ -6,23 +6,23 @@ use ssh_packet::{connect, IntoPacket, Packet};
 
 use super::super::RemoteWindow;
 
-pub struct Write<'a> {
+pub struct Write<'io> {
     remote_id: u32,
     stream_id: Option<NonZeroU32>,
 
-    sender: SendSink<'a, Packet>,
-    window: Arc<RemoteWindow>,
+    sender: SendSink<'io, Packet>,
+    window: &'io RemoteWindow,
     max_size: u32,
 
     buffer: Vec<u8>,
 }
 
-impl<'a> Write<'a> {
+impl<'io> Write<'io> {
     pub fn new(
         remote_id: u32,
         stream_id: Option<NonZeroU32>,
-        sender: SendSink<'a, Packet>,
-        window: Arc<RemoteWindow>,
+        sender: SendSink<'io, Packet>,
+        window: &'io RemoteWindow,
         max_size: u32,
     ) -> Self {
         Self {
