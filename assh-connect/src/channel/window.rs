@@ -9,8 +9,9 @@ pub struct LocalWindow {
 }
 
 impl LocalWindow {
-    const INITIAL_WINDOW_SIZE: u32 = 64 * crate::MAXIMUM_PACKET_SIZE;
-    const FLOATING_THRESHOLD: u32 = Self::INITIAL_WINDOW_SIZE - crate::MAXIMUM_PACKET_SIZE * 5;
+    pub const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
+    const INITIAL_WINDOW_SIZE: u32 = 64 * Self::MAXIMUM_PACKET_SIZE;
+    const ADJUST_THRESHOLD: u32 = Self::INITIAL_WINDOW_SIZE - Self::MAXIMUM_PACKET_SIZE * 5;
 
     pub fn new() -> Self {
         Self {
@@ -30,7 +31,7 @@ impl LocalWindow {
         let previous = self
             .inner
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |window| {
-                if window <= Self::FLOATING_THRESHOLD {
+                if window <= Self::ADJUST_THRESHOLD {
                     Some(Self::INITIAL_WINDOW_SIZE)
                 } else {
                     None
@@ -55,7 +56,7 @@ impl RemoteWindow {
         }
     }
 
-    pub fn adjust(&self, size: u32) {
+    pub fn replenish(&self, size: u32) {
         self.inner.fetch_add(size, Ordering::Relaxed);
         self.waker.wake();
     }

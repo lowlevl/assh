@@ -4,24 +4,24 @@ use flume::r#async::SendSink;
 use futures::SinkExt;
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use super::RemoteWindow;
+use super::super::RemoteWindow;
 
-pub struct Write {
+pub struct Write<'a> {
     remote_id: u32,
     stream_id: Option<NonZeroU32>,
 
-    sender: SendSink<'static, Packet>,
+    sender: SendSink<'a, Packet>,
     window: Arc<RemoteWindow>,
     max_size: u32,
 
     buffer: Vec<u8>,
 }
 
-impl Write {
+impl<'a> Write<'a> {
     pub fn new(
         remote_id: u32,
         stream_id: Option<NonZeroU32>,
-        sender: SendSink<'static, Packet>,
+        sender: SendSink<'a, Packet>,
         window: Arc<RemoteWindow>,
         max_size: u32,
     ) -> Self {
@@ -38,7 +38,7 @@ impl Write {
     }
 }
 
-impl futures::AsyncWrite for Write {
+impl futures::AsyncWrite for Write<'_> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,

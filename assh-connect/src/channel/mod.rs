@@ -7,12 +7,15 @@ use flume::{Receiver, Sender};
 use futures::{AsyncRead, AsyncWrite, Stream, StreamExt};
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use crate::{Error, Result};
+use crate::{connect::messages, Error, Result};
 
 #[doc(no_inline)]
 pub use connect::ChannelRequestContext;
 
-pub(super) mod io;
+mod io;
+
+mod window;
+pub(super) use window::{LocalWindow, RemoteWindow};
 
 mod handle;
 pub(super) use handle::Handle;
@@ -20,12 +23,10 @@ pub(super) use handle::Handle;
 mod request;
 pub use request::{Request, Response};
 
-use crate::connect::messages;
-
 pub(super) fn pair(
     remote_id: u32,
     remote_maximum_packet_size: u32,
-    windows: (io::LocalWindow, io::RemoteWindow),
+    windows: (LocalWindow, RemoteWindow),
     outgoing: Sender<Packet>,
 ) -> (Channel, Handle) {
     let (control, incoming) = flume::unbounded();
@@ -58,7 +59,7 @@ pub struct Channel {
     outgoing: Sender<Packet>,
     incoming: Receiver<messages::Control>,
     streams: Arc<DashMap<Option<NonZeroU32>, Sender<Vec<u8>>>>,
-    windows: (Arc<io::LocalWindow>, Arc<io::RemoteWindow>),
+    windows: (Arc<LocalWindow>, Arc<RemoteWindow>),
 }
 
 impl Channel {
@@ -104,12 +105,9 @@ impl Channel {
 
     /// Make a reader for current channel's _data_ stream.
     #[must_use]
-    pub fn as_reader(&self) -> impl AsyncRead {
-        let (reader, sender) = io::Read::new(
-            self.remote_id,
-            self.outgoing.clone().into_sink(),
-            self.windows.0.clone(),
-        );
+    pub fn as_reader(&self) -> impl AsyncRead + '_ {
+        let (reader, sender) =
+            io::Read::new(self.remote_id, self.outgoing.sink(), self.windows.0.clone());
 
         self.streams.insert(None, sender);
 
@@ -118,12 +116,9 @@ impl Channel {
 
     /// Make a reader for current channel's _extended data_ stream.
     #[must_use]
-    pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead {
-        let (reader, sender) = io::Read::new(
-            self.remote_id,
-            self.outgoing.clone().into_sink(),
-            self.windows.0.clone(),
-        );
+    pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead + '_ {
+        let (reader, sender) =
+            io::Read::new(self.remote_id, self.outgoing.sink(), self.windows.0.clone());
 
         self.streams.insert(Some(ext), sender);
 
@@ -136,11 +131,11 @@ impl Channel {
     /// The writer does not flush [`Drop`], the caller is responsible to call
     /// [`futures::AsyncWriteExt::flush`] before dropping.
     #[must_use]
-    pub fn as_writer(&self) -> impl AsyncWrite {
+    pub fn as_writer(&self) -> impl AsyncWrite + '_ {
         io::Write::new(
             self.remote_id,
             None,
-            self.outgoing.clone().into_sink(),
+            self.outgoing.sink(),
             self.windows.1.clone(),
             self.remote_maximum_packet_size,
         )
@@ -152,11 +147,11 @@ impl Channel {
     /// The writer does not flush [`Drop`], the caller is responsible to call
     /// [`futures::AsyncWriteExt::flush`] before dropping.
     #[must_use]
-    pub fn as_writer_ext(&self, ext: NonZeroU32) -> impl AsyncWrite {
+    pub fn as_writer_ext(&self, ext: NonZeroU32) -> impl AsyncWrite + '_ {
         io::Write::new(
             self.remote_id,
             Some(ext),
-            self.outgoing.clone().into_sink(),
+            self.outgoing.sink(),
             self.windows.1.clone(),
             self.remote_maximum_packet_size,
         )

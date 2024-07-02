@@ -126,13 +126,13 @@ where
         context: ChannelOpenContext,
     ) -> Result<channel_open::ChannelOpen> {
         let local_id = self.local_id();
-        let local_window = channel::io::LocalWindow::new();
+        let local_window = channel::LocalWindow::new();
 
         self.session
             .send(&connect::ChannelOpen {
                 sender_channel: local_id,
                 initial_window_size: local_window.size(),
-                maximum_packet_size: crate::MAXIMUM_PACKET_SIZE,
+                maximum_packet_size: channel::LocalWindow::MAXIMUM_PACKET_SIZE,
                 context,
             })
             .await?;
@@ -155,7 +155,7 @@ where
                     open_confirmation.maximum_packet_size,
                     (
                         local_window,
-                        channel::io::RemoteWindow::new(open_confirmation.initial_window_size),
+                        channel::RemoteWindow::new(open_confirmation.initial_window_size),
                     ),
                     self.outgoing.0.clone(),
                 );
@@ -256,8 +256,8 @@ where
                 channel_open.sender_channel,
                 channel_open.maximum_packet_size,
                 (
-                    channel::io::LocalWindow::new(),
-                    channel::io::RemoteWindow::new(channel_open.initial_window_size),
+                    channel::LocalWindow::new(),
+                    channel::RemoteWindow::new(channel_open.initial_window_size),
                 ),
                 self.outgoing.0.clone(),
             );
@@ -272,7 +272,7 @@ where
                             recipient_channel: channel_open.sender_channel,
                             sender_channel: local_id,
                             initial_window_size: handle.windows.0.size(),
-                            maximum_packet_size: crate::MAXIMUM_PACKET_SIZE,
+                            maximum_packet_size: channel::LocalWindow::MAXIMUM_PACKET_SIZE,
                         })
                         .await?;
 
@@ -311,7 +311,7 @@ where
                     window_adjust.recipient_channel
                 );
 
-                handle.windows.1.adjust(window_adjust.bytes_to_add);
+                handle.windows.1.replenish(window_adjust.bytes_to_add);
             }
         } else if let Ok(data) = packet.to::<messages::Data>() {
             if let Some(handle) = self.channels.get(data.recipient_channel()) {

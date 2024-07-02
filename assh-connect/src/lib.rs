@@ -20,8 +20,9 @@
 )]
 #![forbid(unsafe_code)]
 
+// TODO: Hunt for invalid Result::ok() calls
+
 const SERVICE_NAME: &str = "ssh-connection";
-const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
 
 pub mod channel;
 pub mod connect;

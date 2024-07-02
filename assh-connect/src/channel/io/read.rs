@@ -12,44 +12,44 @@ use flume::{
 use futures::{SinkExt, StreamExt};
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use super::LocalWindow;
+use super::super::LocalWindow;
 
 // TODO: Handle pending messages for window on Drop
 
-pub struct Read {
+pub struct Read<'a> {
     remote_id: u32,
 
-    datarx: RecvStream<'static, Vec<u8>>,
-    sender: SendSink<'static, Packet>,
+    receiver: RecvStream<'static, Vec<u8>>,
+    sender: SendSink<'a, Packet>,
     window: Arc<LocalWindow>,
 
     buffer: io::Cursor<Vec<u8>>,
 }
 
-impl Read {
+impl<'a> Read<'a> {
     pub fn new(
         remote_id: u32,
-        sender: SendSink<'static, Packet>,
+        sender: SendSink<'a, Packet>,
         window: Arc<LocalWindow>,
     ) -> (Self, Sender<Vec<u8>>) {
-        let (datatx, datarx) = flume::unbounded();
+        let (tx, receiver) = flume::unbounded();
 
         (
             Self {
                 remote_id,
 
-                datarx: datarx.into_stream(),
+                receiver: receiver.into_stream(),
                 sender,
                 window,
 
                 buffer: Default::default(),
             },
-            datatx,
+            tx,
         )
     }
 }
 
-impl futures::AsyncRead for Read {
+impl futures::AsyncRead for Read<'_> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
@@ -80,7 +80,7 @@ impl futures::AsyncRead for Read {
             }
 
             self.buffer = io::Cursor::new(
-                futures::ready!(self.datarx.poll_next_unpin(cx)).ok_or_else(|| {
+                futures::ready!(self.receiver.poll_next_unpin(cx)).ok_or_else(|| {
                     io::Error::new(
                         io::ErrorKind::BrokenPipe,
                         "The channel has been disconnected",
