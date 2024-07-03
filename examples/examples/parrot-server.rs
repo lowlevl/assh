@@ -81,7 +81,7 @@ async fn main() -> eyre::Result<()> {
                     .await?;
 
                 connect
-                    .on_channel_open(|_, mut channel: channel::Channel| {
+                    .on_channel_open(|_, channel: channel::Channel| {
                         task::spawn(async move {
                         channel
                             .requests()
@@ -111,12 +111,14 @@ async fn main() -> eyre::Result<()> {
                                     writer.flush().await?;
                                 }
                                 len = reader.read(&mut read).fuse() => {
-                                    if matches!(len, Ok(len) if len > 0 && read[0] == b'q') {
+                                    if matches!(len, Ok(len) if len == 0 || read[0] == b'q') {
                                         break;
                                     }
                                 }
                             }
                         }
+
+                        channel.eof().await?;
 
                         Ok::<_, eyre::Error>(())
                     }.inspect_err(|err| {

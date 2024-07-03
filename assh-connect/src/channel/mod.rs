@@ -62,8 +62,8 @@ pub struct Channel {
 }
 
 impl Channel {
-    /// Iterate over the incoming channel requests to process them.
-    pub fn requests(&mut self) -> impl Stream<Item = request::Request> + Unpin + '_ {
+    /// Iterate over the incoming requests in the current channel.
+    pub fn requests(&self) -> impl Stream<Item = request::Request> + Unpin + '_ {
         self.incoming.stream().filter_map(|message| {
             futures::future::ready(if let messages::Control::Request(request) = message {
                 Some(request::Request::new(
@@ -77,8 +77,8 @@ impl Channel {
         })
     }
 
-    /// Send a request on the current channel.
-    pub async fn request(&mut self, context: ChannelRequestContext) -> Result<Response> {
+    /// Send a request in the current channel.
+    pub async fn request(&self, context: ChannelRequestContext) -> Result<Response> {
         self.outgoing
             .send_async(
                 connect::ChannelRequest {
@@ -89,7 +89,7 @@ impl Channel {
                 .into_packet(),
             )
             .await
-            .ok();
+            .map_err(|_| Error::ChannelClosed)?;
 
         match self.incoming.recv_async().await {
             Ok(messages::Control::Success(_)) => Ok(Response::Success),
@@ -149,6 +149,19 @@ impl Channel {
             &self.windows.1,
             self.remote_maximum_packet_size,
         )
+    }
+
+    /// Signal to the peer we won't send any more data in the current channel.
+    pub async fn eof(&self) -> Result<()> {
+        self.outgoing
+            .send_async(
+                connect::ChannelEof {
+                    recipient_channel: self.remote_id,
+                }
+                .into_packet(),
+            )
+            .await
+            .map_err(|_| Error::ChannelClosed)
     }
 
     /// Tells whether the channel has been closed.

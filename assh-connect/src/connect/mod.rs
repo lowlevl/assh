@@ -302,10 +302,19 @@ where
             tracing::debug!("Peer closed channel #{}", channel_close.recipient_channel);
 
             self.channels.remove(&channel_close.recipient_channel);
+        } else if let Ok(channel_eof) = packet.to::<connect::ChannelEof>() {
+            tracing::debug!(
+                "Peer sent EOF for channel #{}",
+                channel_eof.recipient_channel
+            );
+
+            if let Some(handle) = self.channels.get(&channel_eof.recipient_channel) {
+                handle.streams.clear();
+            }
         } else if let Ok(window_adjust) = packet.to::<connect::ChannelWindowAdjust>() {
             if let Some(handle) = self.channels.get(&window_adjust.recipient_channel) {
                 tracing::debug!(
-                    "Peer adjusted window size by `{}` for channel %{}",
+                    "Peer adjusted window size by `{}` for channel #{}",
                     window_adjust.bytes_to_add,
                     window_adjust.recipient_channel
                 );

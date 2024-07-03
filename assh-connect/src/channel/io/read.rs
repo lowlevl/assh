@@ -81,15 +81,9 @@ impl futures::AsyncRead for Read<'_> {
                 }
             }
 
-            match futures::ready!(self.receiver.poll_next_unpin(cx)) {
-                Some(data) => {
-                    self.window.consume(data.len() as u32);
-                    self.buffer = io::Cursor::new(data);
-                }
-                None => Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "The channel has been disconnected",
-                ))?,
+            if let Some(data) = futures::ready!(self.receiver.poll_next_unpin(cx)) {
+                self.window.consume(data.len() as u32);
+                self.buffer = io::Cursor::new(data);
             }
         }
 

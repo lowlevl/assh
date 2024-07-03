@@ -66,7 +66,7 @@ async fn main() -> eyre::Result<()> {
                     .await?;
 
                 connect
-                    .on_channel_open(|_, mut channel: channel::Channel| {
+                    .on_channel_open(|_, channel: channel::Channel| {
                         task::spawn(
                             async move {
                                 channel
@@ -89,6 +89,8 @@ async fn main() -> eyre::Result<()> {
                                     &mut channel.as_writer(),
                                 )
                                 .await?;
+
+                                channel.eof().await?;
 
                                 Ok::<_, eyre::Error>(())
                             }

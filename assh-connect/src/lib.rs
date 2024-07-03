@@ -20,9 +20,7 @@
 )]
 #![forbid(unsafe_code)]
 
-// TODO: Hunt for invalid Result::ok() calls
-// TODO: Handle EOF packets in channels
-// TODO: Produce EOF packets in channels
+// TODO: Handle data loss on very first packet(s) in channels
 
 const SERVICE_NAME: &str = "ssh-connection";
 
