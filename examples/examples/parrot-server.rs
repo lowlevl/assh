@@ -9,7 +9,7 @@ use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt,
+    AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt, TryFutureExt,
 };
 use ssh_packet::connect;
 use tokio::{net::TcpListener, task};
@@ -57,31 +57,32 @@ async fn main() -> eyre::Result<()> {
         let (stream, _addr) = listener.accept().await?;
         let keys = keys.clone();
 
-        task::spawn(async move {
-            let stream = BufReader::new(BufWriter::new(stream.compat()));
+        task::spawn(
+            async move {
+                let stream = BufReader::new(BufWriter::new(stream.compat()));
 
-            let mut session = Session::new(
-                stream,
-                Server {
-                    keys,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-            tracing::info!("Successfully connected to `{}`", session.peer_id());
-
-            let connect = session
-                .handle(
-                    Auth::new(assh_connect::Service)
-                        .banner("Welcome, and get parrot'd\r\n")
-                        .none(|_| none::Response::Accept),
+                let mut session = Session::new(
+                    stream,
+                    Server {
+                        keys,
+                        ..Default::default()
+                    },
                 )
                 .await?;
 
-            connect
-                .on_channel_open(|_, mut channel: channel::Channel| {
-                    task::spawn(async move {
+                tracing::info!("Successfully connected to `{}`", session.peer_id());
+
+                let connect = session
+                    .handle(
+                        Auth::new(assh_connect::Service)
+                            .banner("Welcome, and get parrot'd\r\n")
+                            .none(|_| none::Response::Accept),
+                    )
+                    .await?;
+
+                connect
+                    .on_channel_open(|_, mut channel: channel::Channel| {
+                        task::spawn(async move {
                         channel
                             .requests()
                             .take_while(|request| {
@@ -118,14 +119,18 @@ async fn main() -> eyre::Result<()> {
                         }
 
                         Ok::<_, eyre::Error>(())
-                    });
+                    }.inspect_err(|err| {
+                            tracing::error!("Channel closed with an error: {err:?}")
+                        }));
 
-                    Outcome::Accept
-                })
-                .spin()
-                .await?;
+                        Outcome::Accept
+                    })
+                    .spin()
+                    .await?;
 
-            Ok::<_, eyre::Error>(())
-        });
+                Ok::<_, eyre::Error>(())
+            }
+            .inspect_err(|err| tracing::error!("Session ended with an error: {err:?}")),
+        );
     }
 }

@@ -9,7 +9,7 @@ use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    StreamExt,
+    StreamExt, TryFutureExt,
 };
 use ssh_packet::connect;
 use tokio::{net::TcpListener, task};
@@ -42,58 +42,69 @@ async fn main() -> eyre::Result<()> {
         let (stream, _addr) = listener.accept().await?;
         let keys = keys.clone();
 
-        task::spawn(async move {
-            let stream = BufReader::new(BufWriter::new(stream.compat()));
+        task::spawn(
+            async move {
+                let stream = BufReader::new(BufWriter::new(stream.compat()));
 
-            let mut session = Session::new(
-                stream,
-                Server {
-                    keys,
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-            tracing::info!("Successfully connected to `{}`", session.peer_id());
-
-            let connect = session
-                .handle(
-                    Auth::new(assh_connect::Service)
-                        .banner("Welcome, and get echo'd\r\n")
-                        .none(|_| none::Response::Accept),
+                let mut session = Session::new(
+                    stream,
+                    Server {
+                        keys,
+                        ..Default::default()
+                    },
                 )
                 .await?;
 
-            connect
-                .on_channel_open(|_, mut channel: channel::Channel| {
-                    task::spawn(async move {
-                        channel
-                            .requests()
-                            .take_while(|request| {
-                                futures::future::ready(matches!(
-                                    request.ctx(),
-                                    connect::ChannelRequestContext::Shell
-                                        | connect::ChannelRequestContext::Exec { .. }
-                                        | connect::ChannelRequestContext::Subsystem { .. }
-                                ))
-                            })
-                            .for_each(|request| async {
-                                request.accept().await;
-                            })
-                            .await;
+                tracing::info!("Successfully connected to `{}`", session.peer_id());
 
-                        futures::io::copy(&mut channel.as_reader(), &mut channel.as_writer())
-                            .await?;
+                let connect = session
+                    .handle(
+                        Auth::new(assh_connect::Service)
+                            .banner("Welcome, and get echo'd\r\n")
+                            .none(|_| none::Response::Accept),
+                    )
+                    .await?;
 
-                        Ok::<_, eyre::Error>(())
-                    });
+                connect
+                    .on_channel_open(|_, mut channel: channel::Channel| {
+                        task::spawn(
+                            async move {
+                                channel
+                                    .requests()
+                                    .take_while(|request| {
+                                        futures::future::ready(matches!(
+                                            request.ctx(),
+                                            connect::ChannelRequestContext::Shell
+                                                | connect::ChannelRequestContext::Exec { .. }
+                                                | connect::ChannelRequestContext::Subsystem { .. }
+                                        ))
+                                    })
+                                    .for_each(|request| async {
+                                        request.accept().await;
+                                    })
+                                    .await;
 
-                    Outcome::Accept
-                })
-                .spin()
-                .await?;
+                                futures::io::copy(
+                                    &mut channel.as_reader(),
+                                    &mut channel.as_writer(),
+                                )
+                                .await?;
 
-            Ok::<_, eyre::Error>(())
-        });
+                                Ok::<_, eyre::Error>(())
+                            }
+                            .inspect_err(|err| {
+                                tracing::error!("Channel closed with an error: {err:?}")
+                            }),
+                        );
+
+                        Outcome::Accept
+                    })
+                    .spin()
+                    .await?;
+
+                Ok::<_, eyre::Error>(())
+            }
+            .inspect_err(|err| tracing::error!("Session ended with an error: {err:?}")),
+        );
     }
 }

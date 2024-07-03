@@ -21,6 +21,8 @@
 #![forbid(unsafe_code)]
 
 // TODO: Hunt for invalid Result::ok() calls
+// TODO: Handle EOF packets in channels
+// TODO: Produce EOF packets in channels
 
 const SERVICE_NAME: &str = "ssh-connection";
 
