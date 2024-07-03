@@ -114,7 +114,12 @@ where
                         .timeout(self.timeout)
                         .await??;
 
-                tracing::trace!("<[rx]-({}): {} bytes", self.rxseq, packet.payload.len());
+                tracing::trace!(
+                    "<~- #{}: ^{:#x} ({} bytes)",
+                    self.rxseq,
+                    packet.payload[0],
+                    packet.payload.len(),
+                );
 
                 self.rxseq = self.rxseq.wrapping_add(1);
 
@@ -133,7 +138,12 @@ where
             .await??;
         self.inner.flush().await?;
 
-        tracing::trace!("({}) -[tx]>: {} bytes", self.txseq, packet.payload.len());
+        tracing::trace!(
+            "-~> #{}: ^{:#x} ({} bytes)",
+            self.txseq,
+            packet.payload[0],
+            packet.payload.len(),
+        );
 
         self.txseq = self.txseq.wrapping_add(1);
 
