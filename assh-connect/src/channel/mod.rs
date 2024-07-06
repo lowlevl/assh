@@ -2,7 +2,6 @@
 
 use std::{num::NonZeroU32, sync::Arc};
 
-use dashmap::DashMap;
 use flume::{Receiver, Sender};
 use futures::{AsyncRead, AsyncWrite, Stream, StreamExt};
 use ssh_packet::{connect, IntoPacket, Packet};
@@ -13,6 +12,9 @@ use crate::{connect::messages, Error, Result};
 pub use connect::ChannelRequestContext;
 
 mod io;
+
+mod mux;
+pub(super) use mux::Multiplexer;
 
 mod window;
 pub(super) use window::{LocalWindow, RemoteWindow};
@@ -30,8 +32,8 @@ pub(super) fn pair(
     outgoing: Sender<Packet>,
 ) -> (Channel, Handle) {
     let (control, incoming) = flume::unbounded();
-    let streams = Arc::new(DashMap::new());
-    let windows = (windows.0.into(), windows.1.into());
+    let mux = Arc::new(Multiplexer::new(windows.0));
+    let window = Arc::new(windows.1);
 
     (
         Channel {
@@ -39,13 +41,13 @@ pub(super) fn pair(
             remote_maximum_packet_size,
             incoming,
             outgoing,
-            streams: streams.clone(),
-            windows: windows.clone(),
+            window: window.clone(),
+            mux: mux.clone(),
         },
         Handle {
             control,
-            streams,
-            windows,
+            window,
+            mux,
         },
     )
 }
@@ -57,8 +59,8 @@ pub struct Channel {
 
     outgoing: Sender<Packet>,
     incoming: Receiver<messages::Control>,
-    streams: Arc<DashMap<Option<NonZeroU32>, Sender<Vec<u8>>>>,
-    windows: (Arc<LocalWindow>, Arc<RemoteWindow>),
+    window: Arc<RemoteWindow>,
+    mux: Arc<Multiplexer>,
 }
 
 impl Channel {
@@ -102,21 +104,13 @@ impl Channel {
     /// Make a reader for current channel's _data_ stream.
     #[must_use]
     pub fn as_reader(&self) -> impl AsyncRead + '_ {
-        let (reader, sender) = io::Read::new(self.remote_id, self.outgoing.sink(), &self.windows.0);
-
-        self.streams.insert(None, sender);
-
-        reader
+        io::Read::new(self.remote_id, None, &self.mux, self.outgoing.sink())
     }
 
     /// Make a reader for current channel's _extended data_ stream.
     #[must_use]
     pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead + '_ {
-        let (reader, sender) = io::Read::new(self.remote_id, self.outgoing.sink(), &self.windows.0);
-
-        self.streams.insert(Some(ext), sender);
-
-        reader
+        io::Read::new(self.remote_id, Some(ext), &self.mux, self.outgoing.sink())
     }
 
     /// Make a writer for current channel's _data_ stream.
@@ -130,7 +124,7 @@ impl Channel {
             self.remote_id,
             None,
             self.outgoing.sink(),
-            &self.windows.1,
+            &self.window,
             self.remote_maximum_packet_size,
         )
     }
@@ -146,7 +140,7 @@ impl Channel {
             self.remote_id,
             Some(ext),
             self.outgoing.sink(),
-            &self.windows.1,
+            &self.window,
             self.remote_maximum_packet_size,
         )
     }

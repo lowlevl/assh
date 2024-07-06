@@ -20,8 +20,6 @@
 )]
 #![forbid(unsafe_code)]
 
-// TODO: Handle data loss on very first packet(s) in channels
-
 const SERVICE_NAME: &str = "ssh-connection";
 
 pub mod channel;

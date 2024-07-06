@@ -90,11 +90,9 @@ async fn main() -> eyre::Result<()> {
                                 )
                                 .await?;
 
-                                channel.eof().await?;
-
-                                Ok::<_, eyre::Error>(())
+                                Ok(channel.eof().await?)
                             }
-                            .inspect_err(|err| {
+                            .inspect_err(|err: &eyre::Error| {
                                 tracing::error!("Channel closed with an error: {err:?}")
                             }),
                         );

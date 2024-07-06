@@ -309,7 +309,7 @@ where
             );
 
             if let Some(handle) = self.channels.get(&channel_eof.recipient_channel) {
-                handle.streams.clear();
+                handle.mux.eof().await;
             }
         } else if let Ok(window_adjust) = packet.to::<connect::ChannelWindowAdjust>() {
             if let Some(handle) = self.channels.get(&window_adjust.recipient_channel) {
@@ -319,16 +319,11 @@ where
                     window_adjust.recipient_channel
                 );
 
-                handle.windows.1.replenish(window_adjust.bytes_to_add);
+                handle.window.replenish(window_adjust.bytes_to_add);
             }
         } else if let Ok(data) = packet.to::<messages::Data>() {
             if let Some(handle) = self.channels.get(data.recipient_channel()) {
-                if let Some(sender) = handle.streams.get(&data.data_type()) {
-                    // TODO: Handle dropped streams
-                    sender.send_async(data.data()).await.ok();
-                } else {
-                    handle.windows.0.consume(data.data().len() as u32);
-                }
+                handle.mux.publish(data.data_type(), data.data()).await;
             }
         } else if let Ok(control) = packet.to::<messages::Control>() {
             if let Some(handle) = self.channels.get(control.recipient_channel()) {
