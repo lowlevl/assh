@@ -65,42 +65,47 @@ async fn main() -> eyre::Result<()> {
                     )
                     .await?;
 
-                connect
-                    .on_channel_open(|_, channel: channel::Channel| {
-                        task::spawn(
-                            async move {
-                                channel
-                                    .requests()
-                                    .take_while(|request| {
-                                        futures::future::ready(matches!(
-                                            request.ctx(),
-                                            connect::ChannelRequestContext::Shell
-                                                | connect::ChannelRequestContext::Exec { .. }
-                                                | connect::ChannelRequestContext::Subsystem { .. }
-                                        ))
-                                    })
-                                    .for_each(|request| async {
-                                        request.accept().await;
-                                    })
-                                    .await;
+                let stream = &mut *connect.packets().await;
+                stream
+                    .for_each(|packet| async move { tracing::warn!("New message: {packet:?}") })
+                    .await;
 
-                                futures::io::copy(
-                                    &mut channel.as_reader(),
-                                    &mut channel.as_writer(),
-                                )
-                                .await?;
+                // connect
+                //     .on_channel_open(|_, channel: channel::Channel| {
+                //         task::spawn(
+                //             async move {
+                //                 channel
+                //                     .requests()
+                //                     .take_while(|request| {
+                //                         futures::future::ready(matches!(
+                //                             request.ctx(),
+                //                             connect::ChannelRequestContext::Shell
+                //                                 | connect::ChannelRequestContext::Exec { .. }
+                //                                 | connect::ChannelRequestContext::Subsystem { .. }
+                //                         ))
+                //                     })
+                //                     .for_each(|request| async {
+                //                         request.accept().await;
+                //                     })
+                //                     .await;
 
-                                Ok(channel.eof().await?)
-                            }
-                            .inspect_err(|err: &eyre::Error| {
-                                tracing::error!("Channel closed with an error: {err:?}")
-                            }),
-                        );
+                //                 futures::io::copy(
+                //                     &mut channel.as_reader(),
+                //                     &mut channel.as_writer(),
+                //                 )
+                //                 .await?;
 
-                        Outcome::Accept
-                    })
-                    .spin()
-                    .await?;
+                //                 Ok(channel.eof().await?)
+                //             }
+                //             .inspect_err(|err: &eyre::Error| {
+                //                 tracing::error!("Channel closed with an error: {err:?}")
+                //             }),
+                //         );
+
+                //         Outcome::Accept
+                //     })
+                //     .spin()
+                //     .await?;
 
                 Ok::<_, eyre::Error>(())
             }

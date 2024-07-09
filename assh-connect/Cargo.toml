@@ -29,15 +29,22 @@ tracing.workspace = true
 thiserror.workspace = true
 rand.workspace = true
 
+either.workspace = true
 dashmap = "6.0.1"
 flume = "0.11.0"
 
 [dev-dependencies]
-rstest = "0.21.0"
-async-std = { version = "1.12.0", features = ["attributes", "unstable"] }
+sha1 = "0.10.6"
+eyre = "0.6.12"
 
+ssh-key.workspace = true
+rand = { workspace = true, features = ["min_const_gen"] }
+
+async-compat.workspace = true
+tokio = { version = "1.37.0", features = ["full"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = [
     "env-filter",
     "fmt",
     "tracing-log",
+    "ansi",
 ] }
