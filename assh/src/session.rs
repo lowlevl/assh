@@ -249,8 +249,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use async_std::net::TcpStream;
-
     use super::*;
     use crate::side::{client::Client, server::Server};
 
@@ -258,15 +256,15 @@ mod tests {
     fn assert_session_is_send() {
         fn is_send<T: Send>() {}
 
-        is_send::<Session<TcpStream, Client>>();
-        is_send::<Session<TcpStream, Server>>();
+        is_send::<Session<futures::io::Empty, Client>>();
+        is_send::<Session<futures::io::Empty, Server>>();
     }
 
     #[test]
     fn assert_session_is_sync() {
         fn is_sync<T: Sync>() {}
 
-        is_sync::<Session<TcpStream, Client>>();
-        is_sync::<Session<TcpStream, Server>>();
+        is_sync::<Session<futures::io::Empty, Client>>();
+        is_sync::<Session<futures::io::Empty, Server>>();
     }
 }

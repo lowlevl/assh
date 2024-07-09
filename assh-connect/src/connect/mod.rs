@@ -347,3 +347,25 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assh::side::{client::Client, server::Server};
+
+    #[test]
+    fn assert_connect_is_send() {
+        fn is_send<T: Send>() {}
+
+        is_send::<Connect<'static, futures::io::Empty, Client>>();
+        is_send::<Connect<'static, futures::io::Empty, Server>>();
+    }
+
+    #[test]
+    fn assert_connect_is_sync() {
+        fn is_sync<T: Sync>() {}
+
+        is_sync::<Connect<'static, futures::io::Empty, Client>>();
+        is_sync::<Connect<'static, futures::io::Empty, Server>>();
+    }
+}
