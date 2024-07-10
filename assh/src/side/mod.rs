@@ -26,7 +26,7 @@ mod private {
 }
 
 /// A side of the SSH protocol, either [`Client`] or [`Server`].
-pub trait Side: private::Sealed {
+pub trait Side: private::Sealed + Send + Sync {
     /// Get the [`Id`] for this session.
     fn id(&self) -> &Id;
 
@@ -44,14 +44,14 @@ pub trait Side: private::Sealed {
         kexinit: KexInit,
         peerkexinit: KexInit,
         peer_id: &Id,
-    ) -> impl Future<Output = Result<TransportPair>>;
+    ) -> impl Future<Output = Result<TransportPair>> + Send + Sync;
 
     /// Perform the key-exchange from this side.
     fn kex(
         &self,
         stream: &mut Stream<impl Pipe>,
         peer_id: &Id,
-    ) -> impl Future<Output = Result<()>> {
+    ) -> impl Future<Output = Result<()>> + Send + Sync {
         async move {
             tracing::debug!("Starting key-exchange procedure");
 

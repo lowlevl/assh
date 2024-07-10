@@ -20,8 +20,8 @@ use crate::{
 // TODO: Handle extension negotiation described in RFC8308
 
 /// A trait alias for something _pipe-alike_, implementing [`AsyncBufRead`] and [`AsyncWrite`].
-pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin {}
-impl<T: AsyncBufRead + AsyncWrite + Unpin> Pipe for T {}
+pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync {}
+impl<T: AsyncBufRead + AsyncWrite + Unpin + Send + Sync> Pipe for T {}
 
 /// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
 pub struct Session<IO: Pipe, S: Side> {
