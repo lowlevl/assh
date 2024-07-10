@@ -30,15 +30,14 @@ pub use error::{Error, Result};
 
 // ---
 
-use assh::{service, side::Side, Session};
-use futures::{AsyncBufRead, AsyncWrite};
+use assh::{service, side::Side, Pipe, Session};
 
 /// An implementation of [`service::Handler`] and [`service::Request`] that yields a [`connect::Connect`] instance.
 pub struct Service;
 
 impl service::Handler for Service {
     type Err = assh::Error;
-    type Ok<'s, IO: 's, S: 's> = connect::Connect<'s, IO, S>;
+    type Ok<'s, IO: Pipe + 's, S: Side + 's> = connect::Connect<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
@@ -47,7 +46,7 @@ impl service::Handler for Service {
         session: &'s mut Session<IO, S>,
     ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side,
     {
         Ok(connect::Connect::new(session))
@@ -56,7 +55,7 @@ impl service::Handler for Service {
 
 impl service::Request for Service {
     type Err = assh::Error;
-    type Ok<'s, IO: 's, S: 's> = connect::Connect<'s, IO, S>;
+    type Ok<'s, IO: Pipe + 's, S: Side + 's> = connect::Connect<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
@@ -65,7 +64,7 @@ impl service::Request for Service {
         session: &'s mut Session<IO, S>,
     ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side,
     {
         Ok(connect::Connect::new(session))

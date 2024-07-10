@@ -2,8 +2,7 @@
 
 use hashbrown::HashSet;
 
-use assh::{service::Request, side::Side, Error, Result, Session};
-use futures::{AsyncBufRead, AsyncWrite};
+use assh::{service::Request, side::Side, Error, Pipe, Result, Session};
 use ssh_packet::{
     arch::{self, StringUtf8},
     cryptography::PublickeySignature,
@@ -71,7 +70,7 @@ impl<R: Request> Auth<R> {
             .next()
     }
 
-    async fn attempt_method<IO: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+    async fn attempt_method<IO: Pipe, S: Side>(
         &mut self,
         session: &mut Session<IO, S>,
         method: &Method,
@@ -146,7 +145,7 @@ impl<R: Request> Auth<R> {
 
 impl<R: Request> Request for Auth<R> {
     type Err = R::Err;
-    type Ok<'s, IO: 's, S: 's> = R::Ok<'s, IO, S>;
+    type Ok<'s, IO: Pipe + 's, S: Side + 's> = R::Ok<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
@@ -155,7 +154,7 @@ impl<R: Request> Request for Auth<R> {
         session: &'s mut Session<IO, S>,
     ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side,
     {
         let mut method = Method::None;

@@ -1,8 +1,7 @@
 //! Authentication _handling_ mechanics.
 
-use assh::{service::Handler, side::Side, Error, Result, Session};
+use assh::{service::Handler, side::Side, Error, Pipe, Result, Session};
 use enumset::EnumSet;
-use futures::{AsyncBufRead, AsyncWrite};
 use ssh_key::{public::PublicKey, Signature};
 use ssh_packet::{
     arch::{NameList, StringAscii, StringUtf8},
@@ -149,7 +148,7 @@ where
         }
     }
 
-    async fn handle_attempt<IO: AsyncBufRead + AsyncWrite + Unpin, S: Side>(
+    async fn handle_attempt<IO: Pipe, S: Side>(
         &mut self,
         session: &mut Session<IO, S>,
         username: StringUtf8,
@@ -269,7 +268,7 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
     for Auth<H, N, P, PK>
 {
     type Err = H::Err;
-    type Ok<'s, IO: 's, S: 's> = H::Ok<'s, IO, S>;
+    type Ok<'s, IO: Pipe + 's, S: Side + 's> = H::Ok<'s, IO, S>;
 
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
@@ -278,7 +277,7 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
         session: &'s mut Session<IO, S>,
     ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side,
     {
         if let Some(message) = self.banner.take() {

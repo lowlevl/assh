@@ -2,16 +2,13 @@
 
 use std::time::Duration;
 
-use futures::{AsyncBufRead, AsyncWrite};
 use futures_time::time::Duration as Timeout;
 use rand::RngCore;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::Side;
 use crate::{
-    algorithm::{kex, key, Cipher, Compress, Hmac, Kex},
-    stream::{Stream, TransportPair},
-    Result,
+    algorithm::{kex, key, Cipher, Compress, Hmac, Kex}, stream::{Stream, TransportPair}, Pipe, Result
 };
 
 #[doc(no_inline)]
@@ -128,7 +125,7 @@ impl Side for Server {
 
     async fn exchange(
         &self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
+        stream: &mut Stream<impl Pipe>,
         kexinit: KexInit,
         peerkexinit: KexInit,
         peer_id: &Id,

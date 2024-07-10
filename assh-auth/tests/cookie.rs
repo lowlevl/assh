@@ -1,7 +1,6 @@
 //! A dummy subservice to test for authentication success.
 
-use assh::{side::Side, Result, Session};
-use futures::{AsyncBufRead, AsyncWrite};
+use assh::{side::Side, Pipe, Result, Session};
 
 const SERVICE_NAME: &str = "dummy-service@assh.rs";
 
@@ -22,14 +21,14 @@ impl assh::service::Request for Cookie {
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
     type Err = assh::Error;
-    type Ok<'s, IO: 's, S: 's> = ();
+    type Ok<'s, IO: Pipe + 's, S: Side + 's> = ();
 
     async fn on_accept<'s, IO, S>(
         &mut self,
         _: &'s mut Session<IO, S>,
     ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side,
     {
         self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -40,7 +39,7 @@ impl assh::service::Request for Cookie {
 
 impl assh::service::Handler for Cookie {
     type Err = assh::Error;
-    type Ok<'s, IO: 's, S: 's> = ();
+    type Ok<'s, IO: Pipe + 's, S: Side + 's> = ();
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
@@ -49,7 +48,7 @@ impl assh::service::Handler for Cookie {
         _: &'s mut Session<IO, S>,
     ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side,
     {
         self.flag.store(true, std::sync::atomic::Ordering::Relaxed);

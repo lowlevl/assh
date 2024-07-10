@@ -19,8 +19,12 @@ use crate::{
 
 // TODO: Handle extension negotiation described in RFC8308
 
+/// A trait alias for something _pipe-alike_, implementing [`AsyncBufRead`] and [`AsyncWrite`].
+pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin {}
+impl<T: AsyncBufRead + AsyncWrite + Unpin> Pipe for T {}
+
 /// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
-pub struct Session<IO, S> {
+pub struct Session<IO: Pipe, S: Side> {
     stream: Either<Stream<IO>, DisconnectedError>,
     config: S,
 
@@ -29,10 +33,10 @@ pub struct Session<IO, S> {
 
 impl<IO, S> Session<IO, S>
 where
-    IO: AsyncBufRead + AsyncWrite + Unpin,
+    IO: Pipe,
     S: Side,
 {
-    /// Create a new [`Session`] from a [`AsyncBufRead`] + [`AsyncWrite`] stream,
+    /// Create a new [`Session`] from a [`Pipe`] stream,
     /// and some configuration.
     pub async fn new(mut stream: IO, config: S) -> Result<Self> {
         config.id().to_async_writer(&mut stream).await?;
@@ -247,24 +251,41 @@ where
     }
 }
 
+impl<IO, S> Drop for Session<IO, S>
+where
+    IO: Pipe,
+    S: Side,
+{
+    fn drop(&mut self) {
+        // TODO: Find out: 1. if this blocking call is an issue; 2. how to have a generic way to trigger an async task regardless of the executor
+        let _ = futures::executor::block_on(
+            self.disconnect(DisconnectReason::ByApplication, "user closed the session"),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::side::{client::Client, server::Server};
+
+    use async_std::net::TcpStream;
+    use futures::io::BufReader;
 
     #[test]
     fn assert_session_is_send() {
         fn is_send<T: Send>() {}
 
-        is_send::<Session<futures::io::Empty, Client>>();
-        is_send::<Session<futures::io::Empty, Server>>();
+        is_send::<Session<BufReader<TcpStream>, Client>>();
+        is_send::<Session<BufReader<TcpStream>, Server>>();
     }
 
     #[test]
     fn assert_session_is_sync() {
         fn is_sync<T: Sync>() {}
 
-        is_sync::<Session<futures::io::Empty, Client>>();
-        is_sync::<Session<futures::io::Empty, Server>>();
+        is_sync::<Session<BufReader<TcpStream>, Client>>();
+        is_sync::<Session<BufReader<TcpStream>, Server>>();
     }
 }

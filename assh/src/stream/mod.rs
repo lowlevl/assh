@@ -1,11 +1,11 @@
 //! Primitives to manipulate binary data to extract and encode
-//! messages from/to an [`AsyncBufRead`] + [`AsyncWrite`] stream.
+//! messages from/to a [`Pipe`] stream.
 
-use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
+use futures::{AsyncBufReadExt, AsyncWriteExt, FutureExt};
 use futures_time::{future::FutureExt as _, time::Duration};
 use ssh_packet::IntoPacket;
 
-use crate::{algorithm, Result};
+use crate::{algorithm, Pipe, Result};
 
 mod counter;
 use counter::IoCounter;
@@ -22,8 +22,7 @@ pub use ssh_packet::Packet;
 /// Re-key after 1GiB of exchanged data as recommended per the RFC.
 const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
-/// A wrapper around [`AsyncBufRead`] + [`AsyncWrite`]
-/// to interface with to the SSH binary protocol.
+/// A wrapper around a [`Pipe`] to interface with to the SSH binary protocol.
 pub struct Stream<S> {
     inner: IoCounter<S>,
     timeout: Duration,
@@ -46,7 +45,7 @@ pub struct Stream<S> {
 
 impl<S> Stream<S>
 where
-    S: AsyncBufRead + AsyncWrite + Unpin,
+    S: Pipe,
 {
     pub fn new(stream: S, timeout: Duration) -> Self {
         Self {

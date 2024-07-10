@@ -1,6 +1,6 @@
 //! Session's [`Side`]s, either [`Client`] or [`Server`].
 
-use futures::{AsyncBufRead, AsyncWrite, Future};
+use futures::Future;
 use futures_time::time::Duration;
 use ssh_packet::{
     trans::{KexInit, NewKeys},
@@ -9,7 +9,7 @@ use ssh_packet::{
 
 use crate::{
     stream::{Stream, TransportPair},
-    Result,
+    Pipe, Result,
 };
 
 pub mod client;
@@ -40,7 +40,7 @@ pub trait Side: private::Sealed {
     /// Exchange the keys from the config.
     fn exchange(
         &self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
+        stream: &mut Stream<impl Pipe>,
         kexinit: KexInit,
         peerkexinit: KexInit,
         peer_id: &Id,
@@ -49,7 +49,7 @@ pub trait Side: private::Sealed {
     /// Perform the key-exchange from this side.
     fn kex(
         &self,
-        stream: &mut Stream<impl AsyncBufRead + AsyncWrite + Unpin>,
+        stream: &mut Stream<impl Pipe>,
         peer_id: &Id,
     ) -> impl Future<Output = Result<()>> {
         async move {

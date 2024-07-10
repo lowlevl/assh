@@ -1,8 +1,8 @@
 //! Service handling and requesting facilities.
 
-use futures::{AsyncBufRead, AsyncWrite, Future};
+use futures::Future;
 
-use crate::{side::Side, Session};
+use crate::{side::Side, Pipe, Session};
 
 // TODO: Handle multiple services at once ?
 
@@ -11,7 +11,7 @@ pub trait Handler {
     /// The errorneous outcome of the [`Handler`].
     type Err: From<crate::Error>;
     /// The successful outcome of the [`Handler`].
-    type Ok<'s, IO: 's, S: 's>;
+    type Ok<'s, IO: Pipe + 's, S: Side + 's>;
 
     /// The handled service _identifier_.
     const SERVICE_NAME: &'static str;
@@ -22,7 +22,7 @@ pub trait Handler {
         session: &'s mut Session<IO, S>,
     ) -> impl Future<Output = Result<Self::Ok<'s, IO, S>, Self::Err>>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side;
 }
 
@@ -31,7 +31,7 @@ pub trait Request {
     /// The errorneous outcome of the [`Request`].
     type Err: From<crate::Error>;
     /// The successful outcome of the [`Request`].
-    type Ok<'s, IO: 's, S: 's>;
+    type Ok<'s, IO: Pipe + 's, S: Side + 's>;
 
     /// The requested service _identifier_.
     const SERVICE_NAME: &'static str;
@@ -42,6 +42,6 @@ pub trait Request {
         session: &'s mut Session<IO, S>,
     ) -> impl Future<Output = Result<Self::Ok<'s, IO, S>, Self::Err>>
     where
-        IO: AsyncBufRead + AsyncWrite + Unpin,
+        IO: Pipe,
         S: Side;
 }

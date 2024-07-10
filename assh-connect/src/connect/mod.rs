@@ -2,9 +2,9 @@
 
 use std::{collections::HashMap, convert::Infallible};
 
-use assh::{side::Side, Session};
+use assh::{side::Side, Pipe, Session};
 use flume::{Receiver, Sender};
-use futures::{AsyncBufRead, AsyncWrite, FutureExt};
+use futures::FutureExt;
 use ssh_packet::{connect, Packet};
 
 use crate::{channel, Result};
@@ -18,7 +18,7 @@ pub mod global_request;
 pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestContext};
 
 /// A wrapper around a [`Session`] to interract with the connect layer.
-pub struct Connect<'s, IO, S, G = (), C = ()> {
+pub struct Connect<'s, IO: Pipe, S: Side, G = (), C = ()> {
     session: &'s mut Session<IO, S>,
 
     on_global_request: G,
@@ -28,7 +28,11 @@ pub struct Connect<'s, IO, S, G = (), C = ()> {
     channels: HashMap<u32, channel::Handle>,
 }
 
-impl<'s, IO, S> Connect<'s, IO, S> {
+impl<'s, IO, S> Connect<'s, IO, S>
+where
+    IO: Pipe,
+    S: Side,
+{
     /// Create a wrapper around the `session` to handle the connect layer.
     pub(super) fn new(session: &'s mut Session<IO, S>) -> Self {
         Self {
@@ -45,7 +49,7 @@ impl<'s, IO, S> Connect<'s, IO, S> {
 
 impl<'s, IO, S, G, C> Connect<'s, IO, S, G, C>
 where
-    IO: AsyncBufRead + AsyncWrite + Unpin,
+    IO: Pipe,
     S: Side,
     G: global_request::Hook,
     C: channel_open::Hook,
@@ -351,21 +355,24 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use assh::side::{client::Client, server::Server};
+    use async_std::net::TcpStream;
+    use futures::io::BufReader;
 
     #[test]
     fn assert_connect_is_send() {
         fn is_send<T: Send>() {}
 
-        is_send::<Connect<'static, futures::io::Empty, Client>>();
-        is_send::<Connect<'static, futures::io::Empty, Server>>();
+        is_send::<Connect<'static, BufReader<TcpStream>, Client>>();
+        is_send::<Connect<'static, BufReader<TcpStream>, Server>>();
     }
 
     #[test]
     fn assert_connect_is_sync() {
         fn is_sync<T: Sync>() {}
 
-        is_sync::<Connect<'static, futures::io::Empty, Client>>();
-        is_sync::<Connect<'static, futures::io::Empty, Server>>();
+        is_sync::<Connect<'static, BufReader<TcpStream>, Client>>();
+        is_sync::<Connect<'static, BufReader<TcpStream>, Server>>();
     }
 }

@@ -33,4 +33,4 @@ pub mod error;
 pub use error::{Error, Result};
 
 mod session;
-pub use session::Session;
+pub use session::{Pipe, Session};

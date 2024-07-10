@@ -1,4 +1,3 @@
-use futures::{AsyncBufRead, AsyncWrite};
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
@@ -12,7 +11,7 @@ use strum::{AsRefStr, EnumString};
 
 use crate::{
     stream::{Keys, Stream, Transport, TransportPair},
-    Error, Result,
+    Error, Pipe, Result,
 };
 
 use super::{cipher, compress, hmac};
@@ -48,7 +47,7 @@ pub enum Kex {
 }
 
 impl Kex {
-    pub(crate) async fn init<S: AsyncBufRead + AsyncWrite + Unpin>(
+    pub(crate) async fn init<S: Pipe>(
         &self,
         stream: &mut Stream<S>,
         v_c: &Id,
@@ -137,7 +136,7 @@ impl Kex {
         }
     }
 
-    pub(crate) async fn reply<S: AsyncBufRead + AsyncWrite + Unpin>(
+    pub(crate) async fn reply<S: Pipe>(
         &self,
         stream: &mut Stream<S>,
         v_c: &Id,
