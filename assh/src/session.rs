@@ -20,8 +20,8 @@ use crate::{
 // TODO: Handle extension negotiation described in RFC8308
 
 /// A trait alias for something _pipe-alike_, implementing [`AsyncBufRead`] and [`AsyncWrite`].
-pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync {}
-impl<T: AsyncBufRead + AsyncWrite + Unpin + Send + Sync> Pipe for T {}
+pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static {}
+impl<T: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static> Pipe for T {}
 
 /// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
 pub struct Session<IO: Pipe, S: Side> {
@@ -181,7 +181,7 @@ where
     }
 
     /// Handle a _service_ for the peer.
-    pub async fn handle<H>(&mut self, mut service: H) -> Result<H::Ok<'_, IO, S>, H::Err>
+    pub async fn handle<H>(mut self, mut service: H) -> Result<H::Ok<IO, S>, H::Err>
     where
         H: service::Handler,
     {
@@ -215,7 +215,7 @@ where
     }
 
     /// Request a _service_ from the peer.
-    pub async fn request<R>(&mut self, mut service: R) -> Result<R::Ok<'_, IO, S>, R::Err>
+    pub async fn request<R>(mut self, mut service: R) -> Result<R::Ok<IO, S>, R::Err>
     where
         R: service::Request,
     {

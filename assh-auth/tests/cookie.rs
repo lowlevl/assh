@@ -21,12 +21,9 @@ impl assh::service::Request for Cookie {
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
     type Err = assh::Error;
-    type Ok<'s, IO: Pipe + 's, S: Side + 's> = ();
+    type Ok<IO: Pipe, S: Side> = ();
 
-    async fn on_accept<'s, IO, S>(
-        &mut self,
-        _: &'s mut Session<IO, S>,
-    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
+    async fn on_accept<IO, S>(&mut self, _: Session<IO, S>) -> Result<Self::Ok<IO, S>, Self::Err>
     where
         IO: Pipe,
         S: Side,
@@ -39,14 +36,11 @@ impl assh::service::Request for Cookie {
 
 impl assh::service::Handler for Cookie {
     type Err = assh::Error;
-    type Ok<'s, IO: Pipe + 's, S: Side + 's> = ();
+    type Ok<IO: Pipe, S: Side> = ();
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-    async fn on_request<'s, IO, S>(
-        &mut self,
-        _: &'s mut Session<IO, S>,
-    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
+    async fn on_request<IO, S>(&mut self, _: Session<IO, S>) -> Result<Self::Ok<IO, S>, Self::Err>
     where
         IO: Pipe,
         S: Side,

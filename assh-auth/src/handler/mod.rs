@@ -268,14 +268,14 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
     for Auth<H, N, P, PK>
 {
     type Err = H::Err;
-    type Ok<'s, IO: Pipe + 's, S: Side + 's> = H::Ok<'s, IO, S>;
+    type Ok<IO: Pipe, S: Side> = H::Ok<IO, S>;
 
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn on_request<'s, IO, S>(
+    async fn on_request<IO, S>(
         &mut self,
-        session: &'s mut Session<IO, S>,
-    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
+        mut session: Session<IO, S>,
+    ) -> Result<Self::Ok<IO, S>, Self::Err>
     where
         IO: Pipe,
         S: Side,
@@ -298,7 +298,7 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
             {
                 if self.methods.remove(*method.as_ref()) {
                     match self
-                        .handle_attempt(session, username, method, &service_name)
+                        .handle_attempt(&mut session, username, method, &service_name)
                         .await?
                     {
                         Attempt::Success => {

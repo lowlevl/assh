@@ -145,14 +145,14 @@ impl<R: Request> Auth<R> {
 
 impl<R: Request> Request for Auth<R> {
     type Err = R::Err;
-    type Ok<'s, IO: Pipe + 's, S: Side + 's> = R::Ok<'s, IO, S>;
+    type Ok<IO: Pipe, S: Side> = R::Ok<IO, S>;
 
     const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
 
-    async fn on_accept<'s, IO, S>(
+    async fn on_accept<IO, S>(
         &mut self,
-        session: &'s mut Session<IO, S>,
-    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
+        mut session: Session<IO, S>,
+    ) -> Result<Self::Ok<IO, S>, Self::Err>
     where
         IO: Pipe,
         S: Side,
@@ -160,7 +160,7 @@ impl<R: Request> Request for Auth<R> {
         let mut method = Method::None;
 
         loop {
-            let response = self.attempt_method(session, &method).await?;
+            let response = self.attempt_method(&mut session, &method).await?;
 
             if response.to::<userauth::Success>().is_ok() {
                 break self.service.on_accept(session).await;

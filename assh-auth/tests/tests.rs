@@ -25,7 +25,7 @@ async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap()],
                 ..Default::default()
             };
-            let mut server = assh::Session::new(BufStream::new(duplex.0).compat(), server).await?;
+            let server = assh::Session::new(BufStream::new(duplex.0).compat(), server).await?;
 
             server
                 .handle(
@@ -35,7 +35,7 @@ async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
         },
         async {
             let client = Client::default();
-            let mut client = assh::Session::new(BufStream::new(duplex.1).compat(), client).await?;
+            let client = assh::Session::new(BufStream::new(duplex.1).compat(), client).await?;
 
             client
                 .request(request::Auth::new("user", cookie1.clone()))
