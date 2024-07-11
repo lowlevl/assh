@@ -37,14 +37,14 @@ pub struct Service;
 
 impl service::Handler for Service {
     type Err = assh::Error;
-    type Ok<'s, IO: Pipe + 's, S: Side + 's> = connect::Connect<'s, IO, S>;
+    type Ok<IO: Pipe, S: Side> = connect::Connect<IO, S>;
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-    async fn on_request<'s, IO, S>(
+    async fn on_request<IO, S>(
         &mut self,
-        session: &'s mut Session<IO, S>,
-    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
+        session: Session<IO, S>,
+    ) -> Result<Self::Ok<IO, S>, Self::Err>
     where
         IO: Pipe,
         S: Side,
@@ -55,14 +55,14 @@ impl service::Handler for Service {
 
 impl service::Request for Service {
     type Err = assh::Error;
-    type Ok<'s, IO: Pipe + 's, S: Side + 's> = connect::Connect<'s, IO, S>;
+    type Ok<IO: Pipe, S: Side> = connect::Connect<IO, S>;
 
     const SERVICE_NAME: &'static str = SERVICE_NAME;
 
-    async fn on_accept<'s, IO, S>(
+    async fn on_accept<IO, S>(
         &mut self,
-        session: &'s mut Session<IO, S>,
-    ) -> Result<Self::Ok<'s, IO, S>, Self::Err>
+        session: Session<IO, S>,
+    ) -> Result<Self::Ok<IO, S>, Self::Err>
     where
         IO: Pipe,
         S: Side,

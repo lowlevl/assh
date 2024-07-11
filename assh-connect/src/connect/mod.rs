@@ -1,10 +1,19 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
-use std::ops::DerefMut;
+use std::{io, task::Waker};
 
 use assh::{side::Side, Pipe, Session};
-use futures::{lock::Mutex, stream::Peekable, StreamExt};
-use ssh_packet::connect;
+use dashmap::DashMap;
+use futures::{lock::Mutex, stream::Peekable, task, FutureExt, Stream, StreamExt};
+use ssh_packet::{
+    binrw::{
+        meta::{ReadEndian, ReadMagic},
+        BinRead,
+    },
+    connect,
+};
+
+use crate::Result;
 
 mod broker;
 use broker::Broker;
@@ -18,27 +27,85 @@ pub mod global_request;
 pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestContext};
 
 /// A wrapper around a [`Session`] to interract with the connect layer.
-pub struct Connect<'s, IO, S>
+pub struct Connect<IO, S>
 where
     IO: Pipe,
     S: Side,
 {
-    broker: Mutex<Peekable<Broker<'s, IO, S>>>,
+    broker: Mutex<Peekable<Broker<IO, S>>>,
+    wakers: DashMap<u8, Waker>,
 }
 
-impl<'s, IO, S> Connect<'s, IO, S>
+impl<IO, S> Connect<IO, S>
 where
     IO: Pipe,
     S: Side,
 {
-    pub(super) fn new(session: &'s mut Session<IO, S>) -> Self {
+    pub(super) fn new(session: Session<IO, S>) -> Self {
         Self {
             broker: Mutex::new(Broker::from(session).peekable()),
+            wakers: Default::default(),
         }
     }
 
-    pub async fn packets(&self) -> impl DerefMut<Target = Peekable<Broker<'s, IO, S>>> + '_ {
-        self.broker.lock().await
+    fn poll_recv<T>(&self, cx: &mut task::Context) -> task::Poll<Option<assh::Result<T>>>
+    where
+        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
+    {
+        self.poll_recv_if(cx, |_| true)
+    }
+
+    fn poll_recv_if<T>(
+        &self,
+        cx: &mut task::Context,
+        fun: impl FnMut(&T) -> bool,
+    ) -> task::Poll<Option<assh::Result<T>>>
+    where
+        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
+    {
+        tracing::info!("POLLED FOR: {:#x}", T::MAGIC);
+
+        self.wakers.insert(T::MAGIC, cx.waker().clone());
+
+        let broker = futures::ready!(self.broker.lock().poll_unpin(cx));
+        let mut broker = std::pin::Pin::new(broker);
+
+        tracing::info!("LOCKED FOR: {:#x}", T::MAGIC);
+
+        let peek = futures::ready!(broker.as_mut().poll_peek(cx)).unwrap();
+
+        match peek {
+            Ok(packet)
+                if packet.payload[0] == T::MAGIC
+                    && packet.to::<T>().as_ref().map(fun).unwrap_or_default() =>
+            {
+                let packet = futures::ready!(broker.as_mut().poll_next(cx)).unwrap()?;
+
+                tracing::info!("POPPED FOR {:#x}: {} bytes", T::MAGIC, packet.payload.len());
+
+                task::Poll::Ready(Some(Ok(packet.to()?)))
+            }
+            Ok(packet) => {
+                if let Some((_, waker)) = self.wakers.remove(&packet.payload[0]) {
+                    tracing::info!("WOKEN FOR: {:#x}", packet.payload[0]);
+
+                    waker.wake();
+                }
+
+                // TODO: Drop unhandled messages.
+
+                tracing::info!("PENDING FOR: {:#x}", T::MAGIC);
+
+                task::Poll::Pending
+            }
+            Err(_) => {
+                let err = futures::ready!(broker.as_mut().poll_next(cx))
+                    .unwrap()
+                    .unwrap_err();
+
+                task::Poll::Ready(Some(Err(err)))
+            }
+        }
     }
 
     // fn local_id(&self) -> u32 {
@@ -81,23 +148,10 @@ where
     //     }
     // }
 
-    // /// Handle global requests as they arrive from the peer.
-    // pub fn on_global_requests(
-    //     &self,
-    // ) -> impl Stream<Item = Result<global_request::GlobalRequest>> + '_ {
-    //     futures::stream::try_unfold((), |_| async move {
-    //         let mut broker = self.broker.lock().await;
-    //         let mut broker = std::pin::Pin::new(&mut *broker);
-
-    //         let packet = broker
-    //             .next_if(|packet| {
-    //                 packet
-    //                     .and_then(|packet| Ok(packet.to::<connect::GlobalRequest>()?))
-    //                     .is_ok()
-    //             })
-    //             .await;
-    //     })
-    // }
+    /// Handle _global requests_ as they arrive from the peer.
+    pub fn global_requests(&self) -> impl Stream<Item = Result<connect::GlobalRequest>> + '_ {
+        futures::stream::poll_fn(|cx| self.poll_recv(cx).map_err(Into::into))
+    }
 
     // /// Request a new _channel_ with the provided `context`.
     // pub async fn channel_open(
@@ -151,16 +205,10 @@ where
     //     }
     // }
 
-    // /// Register the hook for _channel open requests_.
-    // ///
-    // /// # Note:
-    // ///
-    // /// Blocking the hook will block the main [`Self::spin`] loop,
-    // /// which will cause new global requests and channels to stop
-    // /// being processed, as well as interrupt channel I/O.
-    // pub fn on_channel_open(&self) {
-    //     unimplemented!()
-    // }
+    /// Handle _channel open requests_ as they arrive from the peer.
+    pub fn channel_opens(&self) -> impl Stream<Item = Result<connect::ChannelOpen>> + '_ {
+        futures::stream::poll_fn(|cx| self.poll_recv(cx).map_err(Into::into))
+    }
 }
 
 #[cfg(test)]
@@ -176,15 +224,15 @@ mod tests {
     fn assert_connect_is_send() {
         fn is_send<T: Send>() {}
 
-        is_send::<Connect<'static, BufReader<Compat<TcpStream>>, Client>>();
-        is_send::<Connect<'static, BufReader<Compat<TcpStream>>, Server>>();
+        is_send::<Connect<BufReader<Compat<TcpStream>>, Client>>();
+        is_send::<Connect<BufReader<Compat<TcpStream>>, Server>>();
     }
 
     #[test]
     fn assert_connect_is_sync() {
         fn is_sync<T: Sync>() {}
 
-        is_sync::<Connect<'static, BufReader<Compat<TcpStream>>, Client>>();
-        is_sync::<Connect<'static, BufReader<Compat<TcpStream>>, Server>>();
+        is_sync::<Connect<BufReader<Compat<TcpStream>>, Client>>();
+        is_sync::<Connect<BufReader<Compat<TcpStream>>, Server>>();
     }
 }

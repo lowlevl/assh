@@ -7,14 +7,14 @@ use ssh_packet::Packet;
 
 use crate::Result;
 
-pub struct Broker<'s, IO: Pipe, S: Side> {
-    session: Arc<Mutex<&'s mut Session<IO, S>>>,
+pub struct Broker<IO: Pipe, S: Side> {
+    session: Arc<Mutex<Session<IO, S>>>,
 
-    send: Either<Option<Packet>, BoxFuture<'s, assh::Result<()>>>,
-    recv: BoxFuture<'s, assh::Result<Packet>>,
+    send: Either<Option<Packet>, BoxFuture<'static, assh::Result<()>>>,
+    recv: BoxFuture<'static, assh::Result<Packet>>,
 }
 
-impl<'s, IO, S> Sink<Packet> for Broker<'s, IO, S>
+impl<IO, S> Sink<Packet> for Broker<IO, S>
 where
     IO: Pipe,
     S: Side,
@@ -71,7 +71,7 @@ where
     }
 }
 
-impl<'s, IO, S> Stream for Broker<'s, IO, S>
+impl<IO, S> Stream for Broker<IO, S>
 where
     IO: Pipe,
     S: Side,
@@ -91,12 +91,12 @@ where
     }
 }
 
-impl<'s, IO, S> From<&'s mut Session<IO, S>> for Broker<'s, IO, S>
+impl<IO, S> From<Session<IO, S>> for Broker<IO, S>
 where
     IO: Pipe,
     S: Side,
 {
-    fn from(session: &'s mut Session<IO, S>) -> Self {
+    fn from(session: Session<IO, S>) -> Self {
         let session: Arc<_> = Mutex::new(session).into();
 
         Self {

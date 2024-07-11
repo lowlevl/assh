@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
@@ -9,7 +9,7 @@ use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    StreamExt, TryFutureExt,
+    TryFutureExt, TryStreamExt,
 };
 use ssh_packet::connect;
 use tokio::{net::TcpListener, task};
@@ -45,8 +45,7 @@ async fn main() -> eyre::Result<()> {
         task::spawn(
             async move {
                 let stream = BufReader::new(BufWriter::new(stream.compat()));
-
-                let mut session = Session::new(
+                let session = Session::new(
                     stream,
                     Server {
                         keys,
@@ -65,10 +64,39 @@ async fn main() -> eyre::Result<()> {
                     )
                     .await?;
 
-                let stream = &mut *connect.packets().await;
-                stream
-                    .for_each(|packet| async move { tracing::warn!("New message: {packet:?}") })
-                    .await;
+                let connect = Arc::new(connect);
+
+                task::spawn({
+                    let connect = connect.clone();
+
+                    async move {
+                        connect
+                            .global_requests()
+                            .try_for_each(|request| async move {
+                                Ok(tracing::warn!(
+                                    "Received GlobalRequest from peer: {request:?}"
+                                ))
+                            })
+                            .await
+                            .expect("GlobalRequest handler has failed")
+                    }
+                });
+
+                task::spawn({
+                    let connect = connect.clone();
+
+                    async move {
+                        connect
+                            .channel_opens()
+                            .try_for_each(|request| async move {
+                                Ok(tracing::warn!(
+                                    "Received ChannelOpen from peer: {request:?}"
+                                ))
+                            })
+                            .await
+                            .expect("ChannelOpen handler has failed")
+                    }
+                });
 
                 // connect
                 //     .on_channel_open(|_, channel: channel::Channel| {
