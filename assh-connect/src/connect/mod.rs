@@ -1,12 +1,12 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
-use std::{io, task::Waker};
+use std::task::Waker;
 
 use assh::{side::Side, Pipe, Session};
 use dashmap::DashMap;
 use futures::{
     lock::{Mutex, MutexGuard},
-    task, FutureExt, Stream,
+    task, FutureExt, Stream, TryStream,
 };
 use ssh_packet::{
     binrw::{
@@ -15,8 +15,6 @@ use ssh_packet::{
     },
     connect, Packet,
 };
-
-use crate::Result;
 
 mod poller;
 use poller::Poller;
@@ -163,7 +161,9 @@ where
     // }
 
     /// Handle _global requests_ as they arrive from the peer.
-    pub fn global_requests(&self) -> impl Stream<Item = Result<connect::GlobalRequest>> + '_ {
+    pub fn global_requests(
+        &self,
+    ) -> impl TryStream<Ok = connect::GlobalRequest, Error = crate::Error> + '_ {
         futures::stream::poll_fn(|cx| self.poll_take(cx).map_err(Into::into))
     }
 
@@ -220,7 +220,9 @@ where
     // }
 
     /// Handle _channel open requests_ as they arrive from the peer.
-    pub fn channel_opens(&self) -> impl Stream<Item = Result<connect::ChannelOpen>> + '_ {
+    pub fn channel_opens(
+        &self,
+    ) -> impl TryStream<Ok = connect::ChannelOpen, Error = crate::Error> + '_ {
         futures::stream::poll_fn(|cx| self.poll_take(cx).map_err(Into::into))
     }
 }
