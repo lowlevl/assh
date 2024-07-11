@@ -83,15 +83,15 @@ where
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        match futures::ready!(self.recv.poll_unpin(cx)) {
-            Err(assh::Error::Disconnected(_)) => task::Poll::Ready(None),
-            recvd => {
-                // Queue future for the next `poll_next` calls
-                let session = self.session.clone();
-                self.recv = async move { session.lock_owned().await.recv().await }.boxed();
+        let recvd = futures::ready!(self.recv.poll_unpin(cx));
 
-                task::Poll::Ready(Some(recvd))
-            }
+        // Queue future for the next `poll_next` calls
+        let session = self.session.clone();
+        self.recv = async move { session.lock_owned().await.recv().await }.boxed();
+
+        match recvd {
+            Err(assh::Error::Disconnected(_)) => task::Poll::Ready(None),
+            recvd => task::Poll::Ready(Some(recvd)),
         }
     }
 }

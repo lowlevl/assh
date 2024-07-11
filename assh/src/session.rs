@@ -110,7 +110,7 @@ where
                 ..
             }) = packet.to()
             {
-                tracing::warn!("Peer disconnected with `{reason:?}`: {}", &*description);
+                tracing::info!("Peer disconnected with `{reason:?}`: {}", &*description);
 
                 self.stream = Either::Right(DisconnectedError {
                     by: DisconnectedBy::Them,
@@ -258,11 +258,11 @@ where
 {
     fn drop(&mut self) {
         // TODO: Find out: 1. if this blocking call is an issue; 2. how to have a generic way to trigger an async task regardless of the executor
-        let err = futures::executor::block_on(
+        let _ = futures::executor::block_on(
             self.disconnect(DisconnectReason::ByApplication, "user closed the session"),
         );
 
-        tracing::debug!("Session closed with peer `{}`: {err}", self.peer_id);
+        tracing::debug!("Session closed with peer `{}`", self.peer_id);
     }
 }
 

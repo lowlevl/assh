@@ -4,13 +4,16 @@ use std::{io, task::Waker};
 
 use assh::{side::Side, Pipe, Session};
 use dashmap::DashMap;
-use futures::{lock::Mutex, stream::Peekable, task, FutureExt, Stream, StreamExt};
+use futures::{
+    lock::{Mutex, MutexGuard},
+    task, FutureExt, Stream,
+};
 use ssh_packet::{
     binrw::{
         meta::{ReadEndian, ReadMagic},
         BinRead,
     },
-    connect,
+    connect, Packet,
 };
 
 use crate::Result;
@@ -32,7 +35,9 @@ where
     IO: Pipe,
     S: Side,
 {
-    poller: Mutex<Peekable<Poller<IO, S>>>,
+    poller: Mutex<Poller<IO, S>>,
+    buffer: Mutex<Option<Packet>>,
+
     wakers: DashMap<u8, Waker>,
 }
 
@@ -43,69 +48,78 @@ where
 {
     pub(super) fn new(session: Session<IO, S>) -> Self {
         Self {
-            poller: Mutex::new(Poller::from(session).peekable()),
+            poller: Mutex::new(Poller::from(session)),
+            buffer: Default::default(),
+
             wakers: Default::default(),
         }
     }
 
-    fn poll_recv<T>(&self, cx: &mut task::Context) -> task::Poll<Option<assh::Result<T>>>
-    where
-        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
-    {
-        self.poll_recv_if(cx, |_| true)
-    }
-
-    fn poll_recv_if<T>(
+    fn poll_recv(
         &self,
         cx: &mut task::Context,
-        fun: impl FnMut(&T) -> bool,
+    ) -> task::Poll<assh::Result<MutexGuard<'_, Option<Packet>>>> {
+        let mut buffer = futures::ready!(self.buffer.lock().poll_unpin(cx));
+
+        if buffer.is_none() {
+            let broker = futures::ready!(self.poller.lock().poll_unpin(cx));
+            let mut broker = std::pin::Pin::new(broker);
+
+            if let Some(res) = futures::ready!(broker.as_mut().poll_next(cx)) {
+                *buffer = Some(res?);
+            }
+        }
+
+        task::Poll::Ready(Ok(buffer))
+    }
+
+    fn poll_take_if<T>(
+        &self,
+        cx: &mut task::Context,
+        mut fun: impl FnMut(&T) -> bool,
     ) -> task::Poll<Option<assh::Result<T>>>
     where
         T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
     {
-        tracing::info!("POLLED FOR: {:#x}", T::MAGIC);
-
         self.wakers.insert(T::MAGIC, cx.waker().clone());
 
-        let broker = futures::ready!(self.poller.lock().poll_unpin(cx));
-        let mut broker = std::pin::Pin::new(broker);
-
-        tracing::info!("LOCKED FOR: {:#x}", T::MAGIC);
-
-        let peek = futures::ready!(broker.as_mut().poll_peek(cx)).unwrap();
-
-        match peek {
-            Ok(packet)
-                if packet.payload[0] == T::MAGIC
-                    && packet.to::<T>().as_ref().map(fun).unwrap_or_default() =>
-            {
-                let packet = futures::ready!(broker.as_mut().poll_next(cx)).unwrap()?;
-
-                tracing::info!("POPPED FOR {:#x}: {} bytes", T::MAGIC, packet.payload.len());
-
-                task::Poll::Ready(Some(Ok(packet.to()?)))
-            }
-            Ok(packet) => {
-                if let Some((_, waker)) = self.wakers.remove(&packet.payload[0]) {
-                    tracing::info!("WOKEN FOR: {:#x}", packet.payload[0]);
-
-                    waker.wake();
+        let mut buffer = futures::ready!(self.poll_recv(cx))?;
+        match &*buffer {
+            None => {
+                self.wakers.remove(&T::MAGIC);
+                for refer in self.wakers.iter() {
+                    refer.value().wake_by_ref();
                 }
+                self.wakers.clear();
 
-                // TODO: Drop unhandled messages.
-
-                tracing::info!("PENDING FOR: {:#x}", T::MAGIC);
-
-                task::Poll::Pending
+                task::Poll::Ready(None)
             }
-            Err(_) => {
-                let err = futures::ready!(broker.as_mut().poll_next(cx))
-                    .unwrap()
-                    .unwrap_err();
+            Some(packet) => {
+                match packet.to::<T>() {
+                    Ok(message) if fun(&message) => {
+                        buffer.take();
 
-                task::Poll::Ready(Some(Err(err)))
+                        task::Poll::Ready(Some(Ok(message)))
+                    }
+                    _ => {
+                        if let Some((_, waker)) = self.wakers.remove(&packet.payload[0]) {
+                            waker.wake();
+                        }
+
+                        // TODO: Drop unhandled messages.
+
+                        task::Poll::Pending
+                    }
+                }
             }
         }
+    }
+
+    fn poll_take<T>(&self, cx: &mut task::Context) -> task::Poll<Option<assh::Result<T>>>
+    where
+        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
+    {
+        self.poll_take_if(cx, |_| true)
     }
 
     // fn local_id(&self) -> u32 {
@@ -150,7 +164,7 @@ where
 
     /// Handle _global requests_ as they arrive from the peer.
     pub fn global_requests(&self) -> impl Stream<Item = Result<connect::GlobalRequest>> + '_ {
-        futures::stream::poll_fn(|cx| self.poll_recv(cx).map_err(Into::into))
+        futures::stream::poll_fn(|cx| self.poll_take(cx).map_err(Into::into))
     }
 
     // /// Request a new _channel_ with the provided `context`.
@@ -207,7 +221,7 @@ where
 
     /// Handle _channel open requests_ as they arrive from the peer.
     pub fn channel_opens(&self) -> impl Stream<Item = Result<connect::ChannelOpen>> + '_ {
-        futures::stream::poll_fn(|cx| self.poll_recv(cx).map_err(Into::into))
+        futures::stream::poll_fn(|cx| self.poll_take(cx).map_err(Into::into))
     }
 }
 
