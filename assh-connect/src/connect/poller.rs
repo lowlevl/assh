@@ -7,14 +7,15 @@ use ssh_packet::Packet;
 
 use crate::Result;
 
-pub struct Broker<IO: Pipe, S: Side> {
+pub struct Poller<IO: Pipe, S: Side> {
     session: Arc<Mutex<Session<IO, S>>>,
 
+    // TODO: Investigate the feasibility of removing those two boxes and 'static lifetimes
     send: Either<Option<Packet>, BoxFuture<'static, assh::Result<()>>>,
     recv: BoxFuture<'static, assh::Result<Packet>>,
 }
 
-impl<IO, S> Sink<Packet> for Broker<IO, S>
+impl<IO, S> Sink<Packet> for Poller<IO, S>
 where
     IO: Pipe,
     S: Side,
@@ -71,7 +72,7 @@ where
     }
 }
 
-impl<IO, S> Stream for Broker<IO, S>
+impl<IO, S> Stream for Poller<IO, S>
 where
     IO: Pipe,
     S: Side,
@@ -82,16 +83,20 @@ where
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        let item = futures::ready!(self.recv.poll_unpin(cx))?;
+        match futures::ready!(self.recv.poll_unpin(cx)) {
+            Err(assh::Error::Disconnected(_)) => task::Poll::Ready(None),
+            recvd => {
+                // Queue future for the next `poll_next` calls
+                let session = self.session.clone();
+                self.recv = async move { session.lock_owned().await.recv().await }.boxed();
 
-        let session = self.session.clone();
-        self.recv = async move { session.lock_owned().await.recv().await }.boxed();
-
-        task::Poll::Ready(Some(Ok(item)))
+                task::Poll::Ready(Some(recvd))
+            }
+        }
     }
 }
 
-impl<IO, S> From<Session<IO, S>> for Broker<IO, S>
+impl<IO, S> From<Session<IO, S>> for Poller<IO, S>
 where
     IO: Pipe,
     S: Side,

@@ -15,8 +15,8 @@ use ssh_packet::{
 
 use crate::Result;
 
-mod broker;
-use broker::Broker;
+mod poller;
+use poller::Poller;
 
 pub(super) mod messages;
 
@@ -32,7 +32,7 @@ where
     IO: Pipe,
     S: Side,
 {
-    broker: Mutex<Peekable<Broker<IO, S>>>,
+    poller: Mutex<Peekable<Poller<IO, S>>>,
     wakers: DashMap<u8, Waker>,
 }
 
@@ -43,7 +43,7 @@ where
 {
     pub(super) fn new(session: Session<IO, S>) -> Self {
         Self {
-            broker: Mutex::new(Broker::from(session).peekable()),
+            poller: Mutex::new(Poller::from(session).peekable()),
             wakers: Default::default(),
         }
     }
@@ -67,7 +67,7 @@ where
 
         self.wakers.insert(T::MAGIC, cx.waker().clone());
 
-        let broker = futures::ready!(self.broker.lock().poll_unpin(cx));
+        let broker = futures::ready!(self.poller.lock().poll_unpin(cx));
         let mut broker = std::pin::Pin::new(broker);
 
         tracing::info!("LOCKED FOR: {:#x}", T::MAGIC);
