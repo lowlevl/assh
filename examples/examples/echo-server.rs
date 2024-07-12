@@ -1,8 +1,12 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use assh::{side::server::Server, Session};
+use assh::{
+    side::{server::Server, Side},
+    Pipe, Session,
+};
 use assh_auth::handler::{none, Auth};
 
+use assh_connect::channel::Channel;
 use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
@@ -56,11 +60,21 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
 
     connect
         .channel_opens()
-        .try_for_each(|request| {
-            request.reject(
-                connect::ChannelOpenFailureReason::AdministrativelyProhibited,
-                "unable to open channel",
-            )
+        .try_for_each_concurrent(None, |request| async {
+            let channel = request.accept().await?;
+
+            channel
+                .requests()
+                .try_for_each(|request| async move {
+                    tracing::info!("Received channel request: {:?}", request.cx());
+
+                    request.accept().await?;
+
+                    Ok(())
+                })
+                .await?;
+
+            Ok(())
         })
         .await?;
 

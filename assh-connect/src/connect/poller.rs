@@ -60,7 +60,12 @@ where
 
                 self.poll_flush(cx)
             }
-            Either::Right(fut) => fut.poll_unpin(cx),
+            Either::Right(fut) => {
+                futures::ready!(fut.poll_unpin(cx))?;
+
+                self.send = Either::Left(None);
+                self.poll_flush(cx)
+            }
         }
     }
 

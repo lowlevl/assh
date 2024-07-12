@@ -1,8 +1,15 @@
+use assh::{side::Side, Pipe};
 use flume::Sender;
+use futures::SinkExt;
 use ssh_packet::{
-    connect::{self, ChannelRequest, ChannelRequestContext},
-    IntoPacket, Packet,
+    connect::{self},
+    IntoPacket,
 };
+
+use super::Channel;
+use crate::Result;
+
+// TODO: Drop implementation
 
 /// A response to a channel request.
 #[derive(Debug, PartialEq, Eq)]
@@ -14,64 +21,59 @@ pub enum Response {
     Failure,
 }
 
-/// A channel request, either accepted by calling [`Self::accept`] or rejected by dropping it.
-pub struct Request {
-    remote_id: u32,
-    outgoing: Sender<Packet>,
-    inner: Option<connect::ChannelRequest>,
+/// A received _channel request_.
+pub struct Request<'a, IO: Pipe, S: Side> {
+    channel: &'a Channel<'a, IO, S>,
+    inner: connect::ChannelRequest,
 }
 
-impl Request {
-    pub(super) fn new(remote_id: u32, outgoing: Sender<Packet>, request: ChannelRequest) -> Self {
-        Self {
-            remote_id,
-            outgoing,
-            inner: Some(request),
-        }
+impl<'a, IO: Pipe, S: Side> Request<'a, IO, S> {
+    pub(super) fn new(channel: &'a Channel<'a, IO, S>, inner: connect::ChannelRequest) -> Self {
+        Self { channel, inner }
     }
 
-    /// Access the context of the current channel request.
+    /// Access the _context_ of the channel request.
     pub fn cx(&self) -> &connect::ChannelRequestContext {
-        self.inner
-            .as_ref()
-            .map(|request| &request.context)
-            .expect("Request already dropped, aborting.")
+        &self.inner.context
     }
 
-    /// Report the request as _accepted_ to the peer if it asked for a response.
-    pub async fn accept(mut self) -> ChannelRequestContext {
-        let request = self
-            .inner
-            .take()
-            .expect("Request already dropped, aborting.");
-
-        if *request.want_reply {
-            self.outgoing
-                .send_async(
-                    connect::ChannelSuccess {
-                        recipient_channel: self.remote_id,
-                    }
-                    .into_packet(),
-                )
+    /// Accept the channel request.
+    pub async fn accept(self) -> Result<()> {
+        if *self.inner.want_reply {
+            self.channel
+                .connect
+                .poller
+                .lock()
                 .await
-                .ok();
-        }
-
-        request.context
-    }
-}
-
-impl Drop for Request {
-    fn drop(&mut self) {
-        if matches!(self.inner.take(), Some(ChannelRequest { want_reply, .. }) if *want_reply) {
-            self.outgoing
-                .try_send(
-                    connect::ChannelFailure {
-                        recipient_channel: self.remote_id,
+                .send(
+                    connect::ChannelSuccess {
+                        recipient_channel: self.channel.remote_id,
                     }
                     .into_packet(),
                 )
-                .ok();
+                .await?;
         }
+
+        Ok(())
+    }
+
+    /// Reject the channel request.
+    pub async fn reject(self) -> Result<()> {
+        if *self.inner.want_reply {
+            self.channel
+                .connect
+                .poller
+                .lock()
+                .await
+                .send(
+                    connect::ChannelFailure {
+                        recipient_channel: self.channel.remote_id,
+                    }
+                    .into_packet(),
+                )
+                .await?;
+        }
+
+        Ok(())
     }
 }

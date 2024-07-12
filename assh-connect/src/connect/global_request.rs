@@ -9,43 +9,46 @@ use crate::Result;
 
 // TODO: Drop implementation ?
 
-/// The outcome to a sent _global request_.
-#[derive(Debug)]
-pub enum GlobalRequestOutcome {
-    /// _Accepted_ global request.
-    Accepted,
+// /// The outcome to a sent _global request_.
+// #[derive(Debug)]
+// pub enum GlobalRequestOutcome {
+//     /// _Accepted_ global request.
+//     Accepted,
 
-    /// _Accepted_ global request, with a bound port.
-    AcceptedPort(u32),
+//     /// _Accepted_ global request, with a bound port.
+//     AcceptedPort(u32),
 
-    /// _Rejected_ the global request.
-    Rejected,
-}
+//     /// _Rejected_ the global request.
+//     Rejected,
+// }
 
 /// A received _global request_.
-pub struct GlobalRequest<'a, IO: Pipe, S: Side>(&'a Connect<IO, S>, connect::GlobalRequest);
+pub struct GlobalRequest<'a, IO: Pipe, S: Side> {
+    connect: &'a Connect<IO, S>,
+    inner: connect::GlobalRequest,
+}
 
 impl<'a, IO: Pipe, S: Side> GlobalRequest<'a, IO, S> {
-    pub(super) fn new(connect: &'a Connect<IO, S>, cx: connect::GlobalRequest) -> Self {
-        Self(connect, cx)
+    pub(super) fn new(connect: &'a Connect<IO, S>, inner: connect::GlobalRequest) -> Self {
+        Self { connect, inner }
     }
 
     /// Access the _context_ of the global request.
     pub fn cx(&self) -> &connect::GlobalRequestContext {
-        &self.1.context
+        &self.inner.context
     }
 
     /// Accept the global request.
     pub async fn accept(self, bound_port: u32) -> Result<()> {
-        if *self.1.want_reply {
-            let packet = match self.1.context {
+        if *self.inner.want_reply {
+            let packet = match self.inner.context {
                 connect::GlobalRequestContext::TcpipForward { bind_port: 0, .. } => {
                     connect::ForwardingSuccess { bound_port }.into_packet()
                 }
                 _ => connect::RequestSuccess.into_packet(),
             };
 
-            self.0.poller.lock().await.send(packet).await?;
+            self.connect.poller.lock().await.send(packet).await?;
         }
 
         Ok(())
@@ -53,8 +56,8 @@ impl<'a, IO: Pipe, S: Side> GlobalRequest<'a, IO, S> {
 
     /// Reject the global request.
     pub async fn reject(self) -> Result<()> {
-        if *self.1.want_reply {
-            self.0
+        if *self.inner.want_reply {
+            self.connect
                 .poller
                 .lock()
                 .await

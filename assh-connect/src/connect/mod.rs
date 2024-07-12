@@ -3,7 +3,7 @@
 use std::task::Waker;
 
 use assh::{side::Side, Pipe, Session};
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use futures::{
     lock::{Mutex, MutexGuard},
     task, FutureExt, Stream, TryStream,
@@ -33,9 +33,10 @@ where
     IO: Pipe,
     S: Side,
 {
-    poller: Mutex<Poller<IO, S>>,
-    buffer: Mutex<Option<Packet>>,
+    pub(crate) poller: Mutex<Poller<IO, S>>,
+    pub(crate) channels: DashSet<u32>,
 
+    buffer: Mutex<Option<Packet>>,
     wakers: DashMap<u8, Waker>,
 }
 
@@ -44,12 +45,13 @@ where
     IO: Pipe,
     S: Side,
 {
-    pub(super) fn new(session: Session<IO, S>) -> Self {
+    pub(crate) fn new(session: Session<IO, S>) -> Self {
         Self {
             poller: Mutex::new(Poller::from(session)),
             buffer: Default::default(),
-
             wakers: Default::default(),
+
+            channels: Default::default(),
         }
     }
 
@@ -71,7 +73,7 @@ where
         task::Poll::Ready(Ok(buffer))
     }
 
-    fn poll_take_if<T>(
+    pub(crate) fn poll_take_if<T>(
         &self,
         cx: &mut task::Context,
         mut fun: impl FnMut(&T) -> bool,
@@ -113,7 +115,7 @@ where
         }
     }
 
-    fn poll_take<T>(&self, cx: &mut task::Context) -> task::Poll<Option<assh::Result<T>>>
+    pub(crate) fn poll_take<T>(&self, cx: &mut task::Context) -> task::Poll<Option<assh::Result<T>>>
     where
         T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
     {
@@ -160,14 +162,14 @@ where
     //     }
     // }
 
-    /// Handle _global requests_ as they arrive from the peer.
+    /// Iterate over the incoming _global requests_ from the peer.
     pub fn global_requests(
         &self,
     ) -> impl TryStream<Ok = global_request::GlobalRequest<'_, IO, S>, Error = crate::Error> + '_
     {
         futures::stream::poll_fn(|cx| {
             self.poll_take(cx)
-                .map_ok(|cx| global_request::GlobalRequest::new(self, cx))
+                .map_ok(|request| global_request::GlobalRequest::new(self, request))
                 .map_err(Into::into)
         })
     }
@@ -224,13 +226,13 @@ where
     //     }
     // }
 
-    /// Handle _channel open requests_ as they arrive from the peer.
+    /// Iterate over the incoming _channel open requests_ from the peer.
     pub fn channel_opens(
         &self,
     ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
         futures::stream::poll_fn(|cx| {
             self.poll_take(cx)
-                .map_ok(|cx| channel_open::ChannelOpen::new(self, cx))
+                .map_ok(|request| channel_open::ChannelOpen::new(self, request))
                 .map_err(Into::into)
         })
     }
