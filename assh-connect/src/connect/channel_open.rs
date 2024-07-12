@@ -1,13 +1,19 @@
-//! The SSH _channel open request_ hook.
+//! The SSH _channel open requests_.
 
-use ssh_packet::{arch::StringUtf8, connect};
+use assh::{side::Side, Pipe};
+use futures::SinkExt;
+use ssh_packet::{arch::StringUtf8, connect, IntoPacket};
 
-use crate::channel;
+use super::Connect;
+use crate::{
+    channel::{self, LocalWindow},
+    Result,
+};
 
-// TODO: Use a ChannelBuilder with Drop reject implementation ?
+// TODO: Drop implementation ?
 
-/// The response to a _channel open request_.
-pub enum ChannelOpen {
+/// The outcome to a sent _channel open request_.
+pub enum ChannelOpenOutcome {
     /// _Accepted_ the channel open request.
     Accepted(channel::Channel),
 
@@ -21,48 +27,62 @@ pub enum ChannelOpen {
     },
 }
 
-/// An outcome to a channel open [`Hook`].
-#[derive(Debug)]
-pub enum Outcome {
-    /// _Accept_ the channel open request.
-    Accept,
+/// A received _global request_.
+pub struct ChannelOpen<'a, IO: Pipe, S: Side>(&'a Connect<IO, S>, connect::ChannelOpen);
 
-    /// _Reject_ the channel open request.
-    Reject {
-        /// Reason for rejection.
-        reason: connect::ChannelOpenFailureReason,
-
-        /// A textual description of the reason.
-        description: StringUtf8,
-    },
-}
-
-/// A hook on channel open requests.
-pub trait Hook {
-    /// Process the channel open request.
-    fn on_request(
-        &mut self,
-        context: connect::ChannelOpenContext,
-        channel: channel::Channel,
-    ) -> Outcome;
-}
-
-impl<T: FnMut(connect::ChannelOpenContext, channel::Channel) -> Outcome> Hook for T {
-    fn on_request(
-        &mut self,
-        context: connect::ChannelOpenContext,
-        channel: channel::Channel,
-    ) -> Outcome {
-        (self)(context, channel)
+impl<'a, IO: Pipe, S: Side> ChannelOpen<'a, IO, S> {
+    pub(super) fn new(connect: &'a Connect<IO, S>, cx: connect::ChannelOpen) -> Self {
+        Self(connect, cx)
     }
-}
 
-/// A default implementation of the method that rejects all requests.
-impl Hook for () {
-    fn on_request(&mut self, _: connect::ChannelOpenContext, _: channel::Channel) -> Outcome {
-        Outcome::Reject {
-            reason: connect::ChannelOpenFailureReason::AdministrativelyProhibited,
-            description: "The channel opening is currently disabled".into(),
-        }
+    /// Access the _context_ of the channel open request.
+    pub fn cx(&self) -> &connect::ChannelOpenContext {
+        &self.1.context
+    }
+
+    /// Accept the channel open request.
+    pub async fn accept(self) -> Result<()> {
+        let local_id = 0;
+
+        self.0
+            .poller
+            .lock()
+            .await
+            .send(
+                connect::ChannelOpenConfirmation {
+                    recipient_channel: self.1.sender_channel,
+                    sender_channel: local_id,
+                    initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
+                    maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
+                }
+                .into_packet(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Reject the channel open request.
+    pub async fn reject(
+        self,
+        reason: connect::ChannelOpenFailureReason,
+        description: impl Into<StringUtf8>,
+    ) -> Result<()> {
+        self.0
+            .poller
+            .lock()
+            .await
+            .send(
+                connect::ChannelOpenFailure {
+                    recipient_channel: self.1.sender_channel,
+                    reason,
+                    description: description.into(),
+                    language: Default::default(),
+                }
+                .into_packet(),
+            )
+            .await?;
+
+        Ok(())
     }
 }

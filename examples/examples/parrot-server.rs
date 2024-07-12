@@ -87,7 +87,7 @@ async fn main() -> eyre::Result<()> {
                             .requests()
                             .take_while(|request| {
                                 futures::future::ready(matches!(
-                                    request.ctx(),
+                                    request.cx(),
                                     connect::ChannelRequestContext::Shell
                                         | connect::ChannelRequestContext::Exec { .. }
                                         | connect::ChannelRequestContext::Subsystem { .. }

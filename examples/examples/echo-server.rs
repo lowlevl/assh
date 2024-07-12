@@ -2,7 +2,6 @@ use std::{net::SocketAddr, sync::Arc};
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
-use assh_connect::{channel, connect::channel_open::Outcome};
 
 use async_compat::CompatExt;
 use clap::Parser;
@@ -49,11 +48,7 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
         async move {
             connect
                 .global_requests()
-                .try_for_each(|request| async move {
-                    Ok(tracing::warn!(
-                        "Received GlobalRequest from peer: {request:?}"
-                    ))
-                })
+                .try_for_each(|request| request.reject())
                 .await
                 .expect("GlobalRequest handler has failed")
         }
@@ -61,10 +56,11 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
 
     connect
         .channel_opens()
-        .try_for_each(|request| async move {
-            Ok(tracing::warn!(
-                "Received ChannelOpen from peer: {request:?}"
-            ))
+        .try_for_each(|request| {
+            request.reject(
+                connect::ChannelOpenFailureReason::AdministrativelyProhibited,
+                "unable to open channel",
+            )
         })
         .await?;
 

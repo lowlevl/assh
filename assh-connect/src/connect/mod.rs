@@ -163,8 +163,13 @@ where
     /// Handle _global requests_ as they arrive from the peer.
     pub fn global_requests(
         &self,
-    ) -> impl TryStream<Ok = connect::GlobalRequest, Error = crate::Error> + '_ {
-        futures::stream::poll_fn(|cx| self.poll_take(cx).map_err(Into::into))
+    ) -> impl TryStream<Ok = global_request::GlobalRequest<'_, IO, S>, Error = crate::Error> + '_
+    {
+        futures::stream::poll_fn(|cx| {
+            self.poll_take(cx)
+                .map_ok(|cx| global_request::GlobalRequest::new(self, cx))
+                .map_err(Into::into)
+        })
     }
 
     // /// Request a new _channel_ with the provided `context`.
@@ -222,8 +227,12 @@ where
     /// Handle _channel open requests_ as they arrive from the peer.
     pub fn channel_opens(
         &self,
-    ) -> impl TryStream<Ok = connect::ChannelOpen, Error = crate::Error> + '_ {
-        futures::stream::poll_fn(|cx| self.poll_take(cx).map_err(Into::into))
+    ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
+        futures::stream::poll_fn(|cx| {
+            self.poll_take(cx)
+                .map_ok(|cx| channel_open::ChannelOpen::new(self, cx))
+                .map_err(Into::into)
+        })
     }
 }
 

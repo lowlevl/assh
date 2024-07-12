@@ -31,7 +31,7 @@ impl Request {
     }
 
     /// Access the context of the current channel request.
-    pub fn ctx(&self) -> &connect::ChannelRequestContext {
+    pub fn cx(&self) -> &connect::ChannelRequestContext {
         self.inner
             .as_ref()
             .map(|request| &request.context)
