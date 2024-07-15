@@ -1,25 +1,20 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
-use std::task::Waker;
-
 use assh::{side::Side, Pipe, Session};
 use dashmap::{DashMap, DashSet};
+use defer::defer;
 use futures::{
     lock::{Mutex, MutexGuard},
-    task, FutureExt, Stream, TryStream,
+    task::{self, AtomicWaker},
+    FutureExt, Stream, TryStream,
 };
-use ssh_packet::{
-    binrw::{
-        meta::{ReadEndian, ReadMagic},
-        BinRead,
-    },
-    connect, Packet,
-};
+use ssh_packet::{connect, Packet};
 
 mod poller;
 use poller::Poller;
 
-pub(super) mod messages;
+mod interest;
+pub(crate) use interest::Interest;
 
 pub mod channel_open;
 pub mod global_request;
@@ -36,8 +31,8 @@ where
     pub(crate) poller: Mutex<Poller<IO, S>>,
     pub(crate) channels: DashSet<u32>,
 
+    interests: DashMap<Interest, AtomicWaker>,
     buffer: Mutex<Option<Packet>>,
-    wakers: DashMap<u8, Waker>,
 }
 
 impl<IO, S> Connect<IO, S>
@@ -48,10 +43,10 @@ where
     pub(crate) fn new(session: Session<IO, S>) -> Self {
         Self {
             poller: Mutex::new(Poller::from(session)),
-            buffer: Default::default(),
-            wakers: Default::default(),
-
             channels: Default::default(),
+
+            interests: Default::default(),
+            buffer: Default::default(),
         }
     }
 
@@ -62,10 +57,10 @@ where
         let mut buffer = futures::ready!(self.buffer.lock().poll_unpin(cx));
 
         if buffer.is_none() {
-            let broker = futures::ready!(self.poller.lock().poll_unpin(cx));
-            let mut broker = std::pin::Pin::new(broker);
+            let poller = futures::ready!(self.poller.lock().poll_unpin(cx));
+            let mut poller = std::pin::Pin::new(poller);
 
-            if let Some(res) = futures::ready!(broker.as_mut().poll_next(cx)) {
+            if let Some(res) = futures::ready!(poller.as_mut().poll_next(cx)) {
                 *buffer = Some(res?);
             }
         }
@@ -73,53 +68,90 @@ where
         task::Poll::Ready(Ok(buffer))
     }
 
-    pub(crate) fn poll_take_if<T>(
+    pub(crate) fn poll_take(
         &self,
         cx: &mut task::Context,
-        mut fun: impl FnMut(&T) -> bool,
-    ) -> task::Poll<Option<assh::Result<T>>>
-    where
-        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
-    {
-        self.wakers.insert(T::MAGIC, cx.waker().clone());
+        interest: Interest,
+    ) -> task::Poll<Option<assh::Result<Packet>>> {
+        tracing::trace!("POLLED ({interest:?})");
+        // This is a genuine programming error from us if this happens,
+        // which makes sense to panic!() to ensure test failure.
+        #[allow(clippy::panic)]
+        if let Some(waker) = self.interests.get(&interest) {
+            waker.register(cx.waker());
+        } else {
+            panic!("Unable to register Waker to the `{interest:?}` interest, interest is not yet declared");
+        }
 
         let mut buffer = futures::ready!(self.poll_recv(cx))?;
-        match &*buffer {
+
+        tracing::trace!("RDY ({interest:?})");
+
+        match buffer.take() {
             None => {
-                self.wakers.remove(&T::MAGIC);
-                for refer in self.wakers.iter() {
-                    refer.value().wake_by_ref();
+                self.interests.remove(&interest);
+                for waker in self.interests.iter() {
+                    waker.wake();
                 }
-                self.wakers.clear();
+                self.interests.clear();
+
+                tracing::trace!("DEAD ({interest:?})");
 
                 task::Poll::Ready(None)
             }
             Some(packet) => {
-                match packet.to::<T>() {
-                    Ok(message) if fun(&message) => {
-                        buffer.take();
+                let packet_interest = Interest::from(&packet);
 
-                        task::Poll::Ready(Some(Ok(message)))
-                    }
-                    _ => {
-                        if let Some((_, waker)) = self.wakers.remove(&packet.payload[0]) {
+                if interest == packet_interest {
+                    tracing::trace!("HIT ({interest:?})");
+
+                    task::Poll::Ready(Some(Ok(packet)))
+                } else {
+                    match (&packet_interest, self.interests.get(&packet_interest)) {
+                        (packet_interest, Some(waker)) => {
+                            tracing::trace!("MISS ({interest:?}), WOKE {packet_interest:?}");
+
+                            *buffer = Some(packet);
+
                             waker.wake();
+                            task::Poll::Pending
                         }
+                        _ => {
+                            tracing::warn!("Dropped {}bytes because interest was unregistered for `{packet_interest:?}`", packet.payload.len());
 
-                        // TODO: Drop unhandled messages.
-
-                        task::Poll::Pending
+                            cx.waker().wake_by_ref();
+                            task::Poll::Pending
+                        }
                     }
                 }
             }
         }
     }
 
-    pub(crate) fn poll_take<T>(&self, cx: &mut task::Context) -> task::Poll<Option<assh::Result<T>>>
-    where
-        T: for<'a> BinRead<Args<'a> = ()> + ReadEndian + ReadMagic<MagicType = u8>,
-    {
-        self.poll_take_if(cx, |_| true)
+    pub(crate) fn register(&self, interest: Interest) {
+        // This is a genuine programming error from the user of the crate,
+        // and could cause all sorts of runtime inconsistencies.
+        #[allow(clippy::panic)]
+        if self
+            .interests
+            .insert(interest, Default::default())
+            .is_some()
+        {
+            panic!("Unable to register multiple concurrent interests for `{interest:?}`");
+        }
+
+        tracing::trace!("Registered interest for `{interest:?}`");
+    }
+
+    pub(crate) fn unregister(&self, interest: &Interest) {
+        // This is a genuine programming error from the user of the crate,
+        // and could cause all sorts of runtime inconsistencies.
+        #[allow(clippy::panic)]
+        if self.interests.remove(interest).is_none() {
+            panic!("Interest `({interest:?})` wasn't already registered");
+        }
+
+        tracing::trace!("Unregistered interest for `{interest:?}`");
     }
 
     // fn local_id(&self) -> u32 {
@@ -167,9 +199,16 @@ where
         &self,
     ) -> impl TryStream<Ok = global_request::GlobalRequest<'_, IO, S>, Error = crate::Error> + '_
     {
-        futures::stream::poll_fn(|cx| {
-            self.poll_take(cx)
-                .map_ok(|request| global_request::GlobalRequest::new(self, request))
+        const INTEREST: Interest = Interest::GlobalRequest;
+
+        self.register(INTEREST);
+        let unregister_on_drop = defer::defer(|| self.unregister(&INTEREST));
+
+        futures::stream::poll_fn(move |cx| {
+            let _moved = &unregister_on_drop;
+
+            self.poll_take(cx, INTEREST)
+                .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
     }
@@ -230,9 +269,16 @@ where
     pub fn channel_opens(
         &self,
     ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
-        futures::stream::poll_fn(|cx| {
-            self.poll_take(cx)
-                .map_ok(|request| channel_open::ChannelOpen::new(self, request))
+        const INTEREST: Interest = Interest::ChannelOpen;
+
+        self.register(INTEREST);
+        let unregister_on_drop = defer::defer(|| self.unregister(&INTEREST));
+
+        futures::stream::poll_fn(move |cx| {
+            let _moved = &unregister_on_drop;
+
+            self.poll_take(cx, INTEREST)
+                .map_ok(|packet| channel_open::ChannelOpen::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
     }

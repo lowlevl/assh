@@ -5,35 +5,28 @@ use std::{
     task,
 };
 
-use flume::r#async::SendSink;
-use futures::SinkExt;
+use assh::{side::Side, Pipe};
+use futures::{FutureExt, Sink, SinkExt};
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use super::super::Multiplexer;
+use crate::{channel::Channel, connect::Interest};
 
-pub struct Read<'io> {
-    remote_id: u32,
+pub struct Read<'a, IO: Pipe, S: Side> {
+    channel: &'a Channel<'a, IO, S>,
     stream_id: Option<NonZeroU32>,
-
-    mux: &'io Multiplexer,
-    sender: SendSink<'io, Packet>,
 
     buffer: io::Cursor<Vec<u8>>,
 }
 
-impl<'io> Read<'io> {
-    pub fn new(
-        remote_id: u32,
-        stream_id: Option<NonZeroU32>,
-        mux: &'io Multiplexer,
-        sender: SendSink<'io, Packet>,
-    ) -> Self {
-        Self {
-            remote_id,
-            stream_id,
+impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
+    pub fn new(channel: &'a Channel<'a, IO, S>, stream_id: Option<NonZeroU32>) -> Self {
+        channel
+            .connect
+            .register(Interest::ChannelData(channel.local_id, stream_id));
 
-            mux,
-            sender,
+        Self {
+            channel,
+            stream_id,
 
             buffer: Default::default(),
         }
@@ -43,25 +36,29 @@ impl<'io> Read<'io> {
         self.buffer.position() >= self.buffer.get_ref().len() as u64
     }
 
-    fn poll_adjust_window(&mut self, cx: &mut task::Context) -> io::Result<()> {
-        if let task::Poll::Ready(res) = self.sender.poll_ready_unpin(cx) {
+    fn poll_adjust_window(
+        &mut self,
+        poller: &mut (impl Sink<Packet, Error = assh::Error> + Unpin),
+        cx: &mut task::Context,
+    ) -> io::Result<()> {
+        if let task::Poll::Ready(res) = poller.poll_ready_unpin(cx) {
             res.map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
-            if let Some(bytes_to_add) = self.mux.window().adjustable() {
+            if let Some(bytes_to_add) = self.channel.local_window.adjustable() {
                 let packet = connect::ChannelWindowAdjust {
-                    recipient_channel: self.remote_id,
+                    recipient_channel: self.channel.remote_id,
                     bytes_to_add,
                 }
                 .into_packet();
 
-                self.sender
+                poller
                     .start_send_unpin(packet)
                     .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
                 tracing::debug!(
                     "Adjusted window size by `{}` for channel %{}",
                     bytes_to_add,
-                    self.remote_id,
+                    self.channel.remote_id,
                 );
             }
         }
@@ -70,25 +67,51 @@ impl<'io> Read<'io> {
     }
 }
 
-impl futures::AsyncRead for Read<'_> {
+impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
         if self.is_empty() {
-            self.poll_adjust_window(cx)?;
+            {
+                let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
+                self.poll_adjust_window(&mut *poller, cx)?;
+            }
 
-            self.buffer = io::Cursor::new(futures::ready!(self.mux.poll_data(cx, self.stream_id)));
-
-            tracing::trace!(
-                "Received data block for stream `{:?}` on channel %{} of size `{}`",
-                self.stream_id,
-                self.remote_id,
-                self.buffer.get_ref().len()
+            let polled = self.channel.connect.poll_take(
+                cx,
+                Interest::ChannelData(self.channel.local_id, self.stream_id),
             );
+            if let Some(packet) = futures::ready!(polled) {
+                let packet =
+                    packet.map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
+
+                let data = if self.stream_id.is_none() {
+                    packet.to::<connect::ChannelData>().unwrap().data
+                } else {
+                    packet.to::<connect::ChannelExtendedData>().unwrap().data
+                };
+
+                self.buffer = io::Cursor::new(data.into_vec());
+                tracing::trace!(
+                    "Received data block for stream `{:?}` on channel %{} of size `{}`",
+                    self.stream_id,
+                    self.channel.remote_id,
+                    self.buffer.get_ref().len()
+                );
+            }
         }
 
         task::Poll::Ready(self.buffer.read(buf))
+    }
+}
+
+impl<'a, IO: Pipe, S: Side> Drop for Read<'a, IO, S> {
+    fn drop(&mut self) {
+        self.channel.connect.unregister(&Interest::ChannelData(
+            self.channel.local_id,
+            self.stream_id,
+        ));
     }
 }

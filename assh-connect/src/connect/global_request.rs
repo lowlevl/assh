@@ -23,13 +23,13 @@ use crate::Result;
 // }
 
 /// A received _global request_.
-pub struct GlobalRequest<'a, IO: Pipe, S: Side> {
-    connect: &'a Connect<IO, S>,
+pub struct GlobalRequest<'r, IO: Pipe, S: Side> {
+    connect: &'r Connect<IO, S>,
     inner: connect::GlobalRequest,
 }
 
-impl<'a, IO: Pipe, S: Side> GlobalRequest<'a, IO, S> {
-    pub(super) fn new(connect: &'a Connect<IO, S>, inner: connect::GlobalRequest) -> Self {
+impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
+    pub(super) fn new(connect: &'r Connect<IO, S>, inner: connect::GlobalRequest) -> Self {
         Self { connect, inner }
     }
 

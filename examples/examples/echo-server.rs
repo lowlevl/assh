@@ -1,21 +1,17 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
-use assh::{
-    side::{server::Server, Side},
-    Pipe, Session,
-};
+use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
 
-use assh_connect::channel::Channel;
 use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    TryFutureExt, TryStreamExt,
+    StreamExt, TryFutureExt, TryStreamExt,
 };
 use ssh_key::PrivateKey;
-use ssh_packet::connect;
+use ssh_packet::connect::{ChannelOpenContext, ChannelRequestContext};
 use tokio::{
     net::{TcpListener, TcpStream},
     task,
@@ -44,7 +40,7 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
     let authentication = Auth::new(assh_connect::Service)
         .banner("Welcome, and get echo'd back\r\n")
         .none(|_| none::Response::Accept);
-    let connect = Arc::new(session.handle(authentication).await?);
+    let connect = std::sync::Arc::new(session.handle(authentication).await?);
 
     task::spawn({
         let connect = connect.clone();
@@ -52,33 +48,50 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
         async move {
             connect
                 .global_requests()
-                .try_for_each(|request| request.reject())
+                .try_for_each(|request| async move {
+                    tracing::info!("Received Global request: {:?}", request.cx());
+
+                    request.reject().await
+                })
                 .await
-                .expect("GlobalRequest handler has failed")
         }
     });
 
     connect
         .channel_opens()
+        .err_into()
         .try_for_each_concurrent(None, |request| async {
             let channel = request.accept().await?;
 
-            channel
-                .requests()
-                .try_for_each(|request| async move {
-                    tracing::info!("Received channel request: {:?}", request.cx());
+            let request = loop {
+                let request = channel
+                    .requests()
+                    .try_next()
+                    .await?
+                    .expect("Session has been closed");
 
-                    request.accept().await?;
+                tracing::info!("Received channel request: {:?}", request.cx());
 
-                    Ok(())
-                })
-                .await?;
+                if matches!(
+                    request.cx(),
+                    ChannelRequestContext::Shell
+                        | ChannelRequestContext::Exec { .. }
+                        | ChannelRequestContext::Pty { .. }
+                ) {
+                    break request;
+                }
+
+                request.accept().await?;
+            };
+
+            request.accept().await?;
+
+            let mut stdout = futures::io::AllowStdIo::new(std::io::stdout());
+            futures::io::copy(channel.as_reader(), &mut stdout).await?;
 
             Ok(())
         })
-        .await?;
-
-    Ok(())
+        .await
 }
 
 #[tokio::main]

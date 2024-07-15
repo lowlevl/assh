@@ -1,0 +1,58 @@
+use std::num::NonZeroU32;
+
+use ssh_packet::{connect, Packet};
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum Interest {
+    GlobalRequest,
+    GlobalResponse,
+
+    ChannelOpen,
+    ChannelOpenResponse,
+
+    ChannelWindowAdjust(u32),
+    ChannelData(u32, Option<NonZeroU32>),
+    ChannelEof(u32),
+    ChannelClose(u32),
+
+    ChannelRequest(u32),
+    ChannelResponse(u32),
+
+    Unknown,
+}
+
+impl From<&Packet> for Interest {
+    fn from(packet: &Packet) -> Self {
+        if packet.to::<connect::GlobalRequest>().is_ok() {
+            Self::GlobalRequest
+        } else if packet.to::<connect::RequestSuccess>().is_ok()
+            || packet.to::<connect::RequestFailure>().is_ok()
+        {
+            Self::GlobalResponse
+        } else if packet.to::<connect::ChannelOpen>().is_ok() {
+            Self::ChannelOpen
+        } else if packet.to::<connect::ChannelOpenConfirmation>().is_ok()
+            || packet.to::<connect::ChannelOpenFailure>().is_ok()
+        {
+            Self::ChannelOpenResponse
+        } else if let Ok(message) = packet.to::<connect::ChannelWindowAdjust>() {
+            Self::ChannelWindowAdjust(message.recipient_channel)
+        } else if let Ok(message) = packet.to::<connect::ChannelData>() {
+            Self::ChannelData(message.recipient_channel, None)
+        } else if let Ok(message) = packet.to::<connect::ChannelExtendedData>() {
+            Self::ChannelData(message.recipient_channel, Some(message.data_type))
+        } else if let Ok(message) = packet.to::<connect::ChannelEof>() {
+            Self::ChannelEof(message.recipient_channel)
+        } else if let Ok(message) = packet.to::<connect::ChannelClose>() {
+            Self::ChannelClose(message.recipient_channel)
+        } else if let Ok(message) = packet.to::<connect::ChannelRequest>() {
+            Self::ChannelRequest(message.recipient_channel)
+        } else if let Ok(message) = packet.to::<connect::ChannelSuccess>() {
+            Self::ChannelResponse(message.recipient_channel)
+        } else if let Ok(message) = packet.to::<connect::ChannelFailure>() {
+            Self::ChannelResponse(message.recipient_channel)
+        } else {
+            Self::Unknown
+        }
+    }
+}

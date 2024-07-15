@@ -82,7 +82,7 @@ impl RemoteWindow {
         if let Some(size) = self.try_reserve(amount) {
             task::Poll::Ready(size)
         } else {
-            // TODO: Does this cause busy waiting ? Is it necessary ? Maybe host a collection of wakers.
+            // TODO: Is it necessary ? Maybe host a collection of wakers.
             assert!(
                 self.waker.take().is_none(),
                 "Need to rework to add a collection of wakers"

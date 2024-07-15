@@ -1,5 +1,4 @@
 use assh::{side::Side, Pipe};
-use flume::Sender;
 use futures::SinkExt;
 use ssh_packet::{
     connect::{self},
@@ -9,7 +8,7 @@ use ssh_packet::{
 use super::Channel;
 use crate::Result;
 
-// TODO: Drop implementation
+// TODO: Drop implementation ?
 
 /// A response to a channel request.
 #[derive(Debug, PartialEq, Eq)]
@@ -22,13 +21,13 @@ pub enum Response {
 }
 
 /// A received _channel request_.
-pub struct Request<'a, IO: Pipe, S: Side> {
-    channel: &'a Channel<'a, IO, S>,
+pub struct Request<'r, IO: Pipe, S: Side> {
+    channel: &'r Channel<'r, IO, S>,
     inner: connect::ChannelRequest,
 }
 
-impl<'a, IO: Pipe, S: Side> Request<'a, IO, S> {
-    pub(super) fn new(channel: &'a Channel<'a, IO, S>, inner: connect::ChannelRequest) -> Self {
+impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
+    pub(super) fn new(channel: &'r Channel<'r, IO, S>, inner: connect::ChannelRequest) -> Self {
         Self { channel, inner }
     }
 

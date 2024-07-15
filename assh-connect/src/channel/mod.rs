@@ -1,51 +1,71 @@
 //! Definition of the [`Channel`] struct that provides isolated I/O on SSH channels.
 
-use std::{num::NonZeroU32, sync::Arc};
+use std::{num::NonZeroU32, sync::atomic::AtomicBool};
 
 use assh::{side::Side, Pipe};
-use flume::{Receiver, Sender};
-use futures::{AsyncRead, AsyncWrite, Stream, StreamExt, TryStream};
-use ssh_packet::{connect, IntoPacket, Packet};
+use futures::{AsyncRead, TryStream};
+use ssh_packet::connect;
 
-use crate::{
-    connect::{messages, Connect},
-    Error, Result,
-};
+use crate::connect::{Connect, Interest};
 
 #[doc(no_inline)]
 pub use connect::ChannelRequestContext;
 
 mod io;
 
-mod mux;
-pub(super) use mux::Multiplexer;
-
 mod window;
 pub(super) use window::{LocalWindow, RemoteWindow};
-
-mod handle;
-pub(super) use handle::Handle;
 
 mod request;
 pub use request::{Request, Response};
 
 /// A reference to an opened channel in the session.
-pub struct Channel<'a, IO: Pipe, S: Side> {
-    connect: &'a Connect<IO, S>,
+pub struct Channel<'r, IO: Pipe, S: Side> {
+    connect: &'r Connect<IO, S>,
+    eof: AtomicBool,
+
     local_id: u32,
+    local_window: LocalWindow,
+
     remote_id: u32,
+    remote_window: RemoteWindow,
+    remote_maxpack: u32,
 }
 
-impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
-    pub(super) fn new(
-        connect: &'a Connect<IO, S>,
+impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
+    pub(crate) fn from_request(
+        connect: &'r Connect<IO, S>,
         local_id: u32,
-        req: connect::ChannelOpen,
+        request: connect::ChannelOpen,
     ) -> Self {
         Self {
             connect,
+            eof: Default::default(),
+
             local_id,
-            remote_id: req.sender_channel,
+            local_window: LocalWindow::default(),
+
+            remote_id: request.sender_channel,
+            remote_window: RemoteWindow::from(request.initial_window_size),
+            remote_maxpack: request.maximum_packet_size,
+        }
+    }
+
+    pub(crate) fn from_confirmation(
+        connect: &'r Connect<IO, S>,
+        local_id: u32,
+        confirmation: connect::ChannelOpenConfirmation,
+    ) -> Self {
+        Self {
+            connect,
+            eof: Default::default(),
+
+            local_id,
+            local_window: LocalWindow::default(),
+
+            remote_id: confirmation.sender_channel,
+            remote_window: RemoteWindow::from(confirmation.initial_window_size),
+            remote_maxpack: confirmation.maximum_packet_size,
         }
     }
 
@@ -53,12 +73,17 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     pub fn requests(
         &self,
     ) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = crate::Error> + '_ {
-        futures::stream::poll_fn(|cx| {
+        let interest: Interest = Interest::ChannelRequest(self.local_id);
+
+        self.connect.register(interest);
+        let unregister_on_drop = defer::defer(move || self.connect.unregister(&interest));
+
+        futures::stream::poll_fn(move |cx| {
+            let _moved = &unregister_on_drop;
+
             self.connect
-                .poll_take_if(cx, |request: &connect::ChannelRequest| {
-                    request.recipient_channel == self.local_id
-                })
-                .map_ok(|request| request::Request::new(self, request))
+                .poll_take(cx, interest)
+                .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
     }
@@ -85,17 +110,17 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     //     }
     // }
 
-    // /// Make a reader for current channel's _data_ stream.
-    // #[must_use]
-    // pub fn as_reader(&self) -> impl AsyncRead + '_ {
-    //     io::Read::new(self.remote_id, None, &self.mux, self.outgoing.sink())
-    // }
+    /// Make a reader for current channel's _data_ stream.
+    #[must_use]
+    pub fn as_reader(&self) -> impl AsyncRead + '_ {
+        io::Read::new(self, None)
+    }
 
-    // /// Make a reader for current channel's _extended data_ stream.
-    // #[must_use]
-    // pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead + '_ {
-    //     io::Read::new(self.remote_id, Some(ext), &self.mux, self.outgoing.sink())
-    // }
+    /// Make a reader for current channel's _extended data_ stream.
+    #[must_use]
+    pub fn as_reader_ext(&self, ext: NonZeroU32) -> impl AsyncRead + '_ {
+        io::Read::new(self, Some(ext))
+    }
 
     // /// Make a writer for current channel's _data_ stream.
     // ///

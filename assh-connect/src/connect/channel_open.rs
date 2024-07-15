@@ -28,13 +28,13 @@ use crate::{
 // }
 
 /// A received _global request_.
-pub struct ChannelOpen<'a, IO: Pipe, S: Side> {
-    connect: &'a Connect<IO, S>,
+pub struct ChannelOpen<'r, IO: Pipe, S: Side> {
+    connect: &'r Connect<IO, S>,
     inner: connect::ChannelOpen,
 }
 
-impl<'a, IO: Pipe, S: Side> ChannelOpen<'a, IO, S> {
-    pub(super) fn new(connect: &'a Connect<IO, S>, inner: connect::ChannelOpen) -> Self {
+impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
+    pub(super) fn new(connect: &'r Connect<IO, S>, inner: connect::ChannelOpen) -> Self {
         Self { connect, inner }
     }
 
@@ -44,7 +44,7 @@ impl<'a, IO: Pipe, S: Side> ChannelOpen<'a, IO, S> {
     }
 
     /// Accept the channel open request.
-    pub async fn accept(self) -> Result<channel::Channel<'a, IO, S>> {
+    pub async fn accept(self) -> Result<channel::Channel<'r, IO, S>> {
         // TODO: Assess the need for this loop
         let local_id = loop {
             let id = self
@@ -75,7 +75,11 @@ impl<'a, IO: Pipe, S: Side> ChannelOpen<'a, IO, S> {
             )
             .await?;
 
-        Ok(channel::Channel::new(self.connect, local_id, self.inner))
+        Ok(channel::Channel::from_request(
+            self.connect,
+            local_id,
+            self.inner,
+        ))
     }
 
     /// Reject the channel open request.
