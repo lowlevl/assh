@@ -73,7 +73,6 @@ where
         cx: &mut task::Context,
         interest: Interest,
     ) -> task::Poll<Option<assh::Result<Packet>>> {
-        tracing::trace!("POLLED ({interest:?})");
         // This is a genuine programming error from us if this happens,
         // which makes sense to panic!() to ensure test failure.
         #[allow(clippy::panic)]
@@ -85,17 +84,15 @@ where
 
         let mut buffer = futures::ready!(self.poll_recv(cx))?;
 
-        tracing::trace!("RDY ({interest:?})");
+        tracing::trace!("Ready to process incoming data for `{interest:?}`");
 
         match buffer.take() {
             None => {
-                self.interests.remove(&interest);
+                tracing::trace!("Receiver is dead, waking up all tasks");
+
                 for waker in self.interests.iter() {
                     waker.wake();
                 }
-                self.interests.clear();
-
-                tracing::trace!("DEAD ({interest:?})");
 
                 task::Poll::Ready(None)
             }
@@ -103,20 +100,22 @@ where
                 let packet_interest = Interest::from(&packet);
 
                 if interest == packet_interest {
-                    tracing::trace!("HIT ({interest:?})");
+                    tracing::trace!("Interest matched, returning packet");
 
                     task::Poll::Ready(Some(Ok(packet)))
                 } else {
-                    match (&packet_interest, self.interests.get(&packet_interest)) {
-                        (packet_interest, Some(waker)) => {
-                            tracing::trace!("MISS ({interest:?}), WOKE {packet_interest:?}");
+                    match self.interests.get(&packet_interest) {
+                        Some(waker) => {
+                            tracing::trace!(
+                                "Interest unmatched, storing packet and waking task for: {packet_interest:?}"
+                            );
 
                             *buffer = Some(packet);
 
                             waker.wake();
                             task::Poll::Pending
                         }
-                        _ => {
+                        None => {
                             tracing::warn!("Dropped {}bytes because interest was unregistered for `{packet_interest:?}`", packet.payload.len());
 
                             cx.waker().wake_by_ref();
@@ -199,15 +198,15 @@ where
         &self,
     ) -> impl TryStream<Ok = global_request::GlobalRequest<'_, IO, S>, Error = crate::Error> + '_
     {
-        const INTEREST: Interest = Interest::GlobalRequest;
+        let interest = Interest::GlobalRequest;
 
-        self.register(INTEREST);
-        let unregister_on_drop = defer::defer(|| self.unregister(&INTEREST));
+        self.register(interest);
+        let unregister_on_drop = defer::defer(move || self.unregister(&interest));
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
 
-            self.poll_take(cx, INTEREST)
+            self.poll_take(cx, interest)
                 .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
@@ -269,15 +268,15 @@ where
     pub fn channel_opens(
         &self,
     ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
-        const INTEREST: Interest = Interest::ChannelOpen;
+        let interest = Interest::ChannelOpen;
 
-        self.register(INTEREST);
-        let unregister_on_drop = defer::defer(|| self.unregister(&INTEREST));
+        self.register(interest);
+        let unregister_on_drop = defer::defer(move || self.unregister(&interest));
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
 
-            self.poll_take(cx, INTEREST)
+            self.poll_take(cx, interest)
                 .map_ok(|packet| channel_open::ChannelOpen::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })

@@ -23,6 +23,8 @@ pub enum Interest {
 
 impl From<&Packet> for Interest {
     fn from(packet: &Packet) -> Self {
+        // TODO: Maybe optimize this caracterization without using `binrw` when it is expensive to (Data mainly).
+
         if packet.to::<connect::GlobalRequest>().is_ok() {
             Self::GlobalRequest
         } else if packet.to::<connect::RequestSuccess>().is_ok()

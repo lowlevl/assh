@@ -22,7 +22,6 @@ pub use request::{Request, Response};
 /// A reference to an opened channel in the session.
 pub struct Channel<'r, IO: Pipe, S: Side> {
     connect: &'r Connect<IO, S>,
-    eof: AtomicBool,
 
     local_id: u32,
     local_window: LocalWindow,
@@ -30,6 +29,7 @@ pub struct Channel<'r, IO: Pipe, S: Side> {
     remote_id: u32,
     remote_window: RemoteWindow,
     remote_maxpack: u32,
+    remote_eof: AtomicBool,
 }
 
 impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
@@ -40,7 +40,6 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
     ) -> Self {
         Self {
             connect,
-            eof: Default::default(),
 
             local_id,
             local_window: LocalWindow::default(),
@@ -48,6 +47,7 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
             remote_id: request.sender_channel,
             remote_window: RemoteWindow::from(request.initial_window_size),
             remote_maxpack: request.maximum_packet_size,
+            remote_eof: Default::default(),
         }
     }
 
@@ -58,7 +58,6 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
     ) -> Self {
         Self {
             connect,
-            eof: Default::default(),
 
             local_id,
             local_window: LocalWindow::default(),
@@ -66,6 +65,7 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
             remote_id: confirmation.sender_channel,
             remote_window: RemoteWindow::from(confirmation.initial_window_size),
             remote_maxpack: confirmation.maximum_packet_size,
+            remote_eof: Default::default(),
         }
     }
 
@@ -73,7 +73,7 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
     pub fn requests(
         &self,
     ) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = crate::Error> + '_ {
-        let interest: Interest = Interest::ChannelRequest(self.local_id);
+        let interest = Interest::ChannelRequest(self.local_id);
 
         self.connect.register(interest);
         let unregister_on_drop = defer::defer(move || self.connect.unregister(&interest));
