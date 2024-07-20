@@ -75,10 +75,12 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
             )
             .await?;
 
-        Ok(channel::Channel::from_request(
+        Ok(channel::Channel::new(
             self.connect,
             local_id,
-            self.inner,
+            self.inner.sender_channel,
+            self.inner.initial_window_size,
+            self.inner.maximum_packet_size,
         ))
     }
 

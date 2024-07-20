@@ -79,9 +79,9 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                 self.poll_adjust_window(&mut *poller, cx)?;
             }
 
-            let polled = self.channel.connect.poll_take(
+            let polled = self.channel.poll_take(
                 cx,
-                Interest::ChannelData(self.channel.local_id, self.stream_id),
+                &Interest::ChannelData(self.channel.local_id, self.stream_id),
             );
             if let Some(packet) = futures::ready!(polled) {
                 let packet =
@@ -94,6 +94,10 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                 };
 
                 self.buffer = io::Cursor::new(data.into_vec());
+                self.channel
+                    .local_window
+                    .consume(self.buffer.get_ref().len() as u32);
+
                 tracing::trace!(
                     "Received data block for stream `{:?}` on channel %{} of size `{}`",
                     self.stream_id,

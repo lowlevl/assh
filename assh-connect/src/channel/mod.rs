@@ -1,10 +1,14 @@
 //! Definition of the [`Channel`] struct that provides isolated I/O on SSH channels.
 
-use std::{num::NonZeroU32, sync::atomic::AtomicBool};
+use core::task;
+use std::{
+    num::NonZeroU32,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use assh::{side::Side, Pipe};
 use futures::{AsyncRead, TryStream};
-use ssh_packet::connect;
+use ssh_packet::{connect, Packet};
 
 use crate::connect::{Connect, Interest};
 
@@ -29,43 +33,91 @@ pub struct Channel<'r, IO: Pipe, S: Side> {
     remote_id: u32,
     remote_window: RemoteWindow,
     remote_maxpack: u32,
-    remote_eof: AtomicBool,
 }
 
 impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
-    pub(crate) fn from_request(
+    pub(crate) fn new(
         connect: &'r Connect<IO, S>,
         local_id: u32,
-        request: connect::ChannelOpen,
+        remote_id: u32,
+        remote_window: u32,
+        remote_maxpack: u32,
     ) -> Self {
+        connect.register(Interest::ChannelClose(local_id));
+        connect.register(Interest::ChannelEof(local_id));
+        connect.register(Interest::ChannelWindowAdjust(local_id));
+
         Self {
             connect,
 
             local_id,
-            local_window: LocalWindow::default(),
+            local_window: Default::default(),
 
-            remote_id: request.sender_channel,
-            remote_window: RemoteWindow::from(request.initial_window_size),
-            remote_maxpack: request.maximum_packet_size,
-            remote_eof: Default::default(),
+            remote_id,
+            remote_window: RemoteWindow::from(remote_window),
+            remote_maxpack,
         }
     }
 
-    pub(crate) fn from_confirmation(
-        connect: &'r Connect<IO, S>,
-        local_id: u32,
-        confirmation: connect::ChannelOpenConfirmation,
-    ) -> Self {
-        Self {
-            connect,
+    fn unregister(&self) {
+        self.connect
+            .unregister(&Interest::ChannelWindowAdjust(self.local_id));
+        self.connect
+            .unregister(&Interest::ChannelEof(self.local_id));
+        self.connect
+            .unregister(&Interest::ChannelClose(self.local_id));
+    }
 
-            local_id,
-            local_window: LocalWindow::default(),
+    fn poll_take(
+        &self,
+        cx: &mut task::Context,
+        interest: &Interest,
+    ) -> task::Poll<Option<assh::Result<Packet>>> {
+        if let task::Poll::Ready(Some(result)) = self
+            .connect
+            .poll_take(cx, &Interest::ChannelClose(self.local_id))
+        {
+            result?;
 
-            remote_id: confirmation.sender_channel,
-            remote_window: RemoteWindow::from(confirmation.initial_window_size),
-            remote_maxpack: confirmation.maximum_packet_size,
-            remote_eof: Default::default(),
+            self.connect.unregister_if(
+                |interest| matches!(interest, Interest::ChannelData(id, _) if id == &self.local_id),
+            );
+            self.unregister();
+
+            tracing::debug!(
+                "Peer closed channel %{}, unregistered all streams and intrests",
+                self.local_id
+            );
+
+            self.poll_take(cx, interest)
+        } else if let task::Poll::Ready(Some(result)) = self
+            .connect
+            .poll_take(cx, &Interest::ChannelEof(self.local_id))
+        {
+            result?;
+
+            self.connect.unregister_if(
+                |interest| matches!(interest, Interest::ChannelData(id, _) if id == &self.local_id),
+            );
+
+            tracing::debug!(
+                "Peer sent an EOF for channel %{}, unregistered all streams",
+                self.local_id
+            );
+
+            self.poll_take(cx, interest)
+        } else if let task::Poll::Ready(Some(result)) = self
+            .connect
+            .poll_take(cx, &Interest::ChannelWindowAdjust(self.local_id))
+        {
+            let bytes = result?.to::<connect::ChannelWindowAdjust>()?.bytes_to_add;
+            self.remote_window.replenish(bytes);
+
+            tracing::debug!("Peer added `{bytes}` bytes for channel %{}", self.local_id);
+
+            self.poll_take(cx, interest)
+        } else {
+            self.connect.poll_take(cx, interest)
         }
     }
 
@@ -81,8 +133,7 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
 
-            self.connect
-                .poll_take(cx, interest)
+            self.poll_take(cx, &interest)
                 .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
@@ -175,17 +226,12 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
 
 impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
     fn drop(&mut self) {
-        // tracing::debug!("Reporting channel closed %{}", self.remote_id);
+        self.unregister();
 
         self.connect.channels.remove(&self.local_id);
 
-        // self.outgoing
-        //     .try_send(
-        //         connect::ChannelClose {
-        //             recipient_channel: self.remote_id,
-        //         }
-        //         .into_packet(),
-        //     )
-        //     .ok();
+        // TODO: Send channel close message.
+
+        // tracing::debug!("Reporting channel closed %{}", self.remote_id);
     }
 }
