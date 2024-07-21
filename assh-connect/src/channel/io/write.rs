@@ -1,100 +1,97 @@
 use std::{io, num::NonZeroU32, pin::Pin, task};
 
-use futures::SinkExt;
-use ssh_packet::{connect, IntoPacket, Packet};
+use assh::{side::Side, Pipe};
+use futures::{FutureExt, SinkExt};
+use ssh_packet::{connect, IntoPacket};
 
-use super::super::RemoteWindow;
+use crate::channel::Channel;
 
-pub struct Write<'io> {
-    remote_id: u32,
+pub struct Write<'a, IO: Pipe, S: Side> {
+    channel: &'a Channel<'a, IO, S>,
     stream_id: Option<NonZeroU32>,
-
-    window: &'io RemoteWindow,
-    max_size: u32,
 
     buffer: Vec<u8>,
 }
 
-// impl<'io> Write<'io> {
-//     pub fn new(
-//         remote_id: u32,
-//         stream_id: Option<NonZeroU32>,
-//         window: &'io RemoteWindow,
-//         max_size: u32,
-//     ) -> Self {
-//         Self {
-//             window,
-//             max_size,
+impl<'a, IO: Pipe, S: Side> Write<'a, IO, S> {
+    pub fn new(channel: &'a Channel<'a, IO, S>, stream_id: Option<NonZeroU32>) -> Self {
+        Self {
+            channel,
+            stream_id,
 
-//             remote_id,
-//             stream_id,
+            buffer: Default::default(),
+        }
+    }
 
-//             buffer: Default::default(),
-//         }
-//     }
+    fn poll_send(&mut self, cx: &mut task::Context) -> task::Poll<io::Result<()>> {
+        let mut sender = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
+        futures::ready!(sender.poll_ready_unpin(cx))
+            .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
-//     fn poll_send(&mut self, cx: &mut task::Context) -> task::Poll<io::Result<()>> {
-//         futures::ready!(self.sender.poll_ready_unpin(cx))
-//             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
+        let data = std::mem::take(&mut self.buffer).into();
+        let packet = if let Some(data_type) = self.stream_id {
+            connect::ChannelExtendedData {
+                recipient_channel: self.channel.remote_id,
+                data_type,
+                data,
+            }
+            .into_packet()
+        } else {
+            connect::ChannelData {
+                recipient_channel: self.channel.remote_id,
+                data,
+            }
+            .into_packet()
+        };
 
-//         let packet = if let Some(data_type) = self.stream_id {
-//             connect::ChannelExtendedData {
-//                 recipient_channel: self.remote_id,
-//                 data_type,
-//                 data: self.buffer.drain(..).collect::<Vec<_>>().into(),
-//             }
-//             .into_packet()
-//         } else {
-//             connect::ChannelData {
-//                 recipient_channel: self.remote_id,
-//                 data: self.buffer.drain(..).collect::<Vec<_>>().into(),
-//             }
-//             .into_packet()
-//         };
+        sender
+            .start_send_unpin(packet)
+            .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
-//         self.sender
-//             .start_send_unpin(packet)
-//             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
+        task::Poll::Ready(Ok(()))
+    }
+}
 
-//         task::Poll::Ready(Ok(()))
-//     }
-// }
+impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+        buf: &[u8],
+    ) -> task::Poll<io::Result<usize>> {
+        loop {
+            let writable = buf
+                .len()
+                .min(self.channel.remote_maxpack as usize - self.buffer.len());
+            if writable == 0 {
+                futures::ready!(self.poll_send(cx))?;
 
-// impl futures::AsyncWrite for Write<'_> {
-//     fn poll_write(
-//         mut self: Pin<&mut Self>,
-//         cx: &mut task::Context<'_>,
-//         buf: &[u8],
-//     ) -> task::Poll<io::Result<usize>> {
-//         loop {
-//             let writable = buf.len().min(self.max_size as usize - self.buffer.len());
-//             if writable == 0 {
-//                 futures::ready!(self.poll_send(cx))?;
+                continue;
+            }
 
-//                 continue;
-//             }
+            let reserved =
+                futures::ready!(self.channel.remote_window.poll_reserve(cx, writable as u32))
+                    as usize;
+            self.buffer.extend_from_slice(&buf[..reserved]);
 
-//             let reserved = futures::ready!(self.window.poll_reserve(cx, writable as u32)) as usize;
-//             self.buffer.extend_from_slice(&buf[..reserved]);
+            break task::Poll::Ready(Ok(reserved));
+        }
+    }
 
-//             break task::Poll::Ready(Ok(reserved));
-//         }
-//     }
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> task::Poll<io::Result<()>> {
+        if !self.buffer.is_empty() {
+            futures::ready!(self.poll_send(cx))?;
+        }
 
-//     fn poll_flush(
-//         mut self: Pin<&mut Self>,
-//         cx: &mut task::Context<'_>,
-//     ) -> task::Poll<io::Result<()>> {
-//         if !self.buffer.is_empty() {
-//             futures::ready!(self.poll_send(cx))?;
-//         }
+        let mut sender = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
+        sender
+            .poll_flush_unpin(cx)
+            .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))
+    }
 
-//         self.sender
-//             .poll_flush_unpin(cx)
-//             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))
-//     }
-
-//     fn poll_close(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<io::Result<()>> {
-//         self.poll_flush(cx)
-//     }
-// }
+    fn poll_close(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<io::Result<()>> {
+        self.poll_flush(cx)
+    }
+}

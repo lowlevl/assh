@@ -56,8 +56,9 @@ impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
                     .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
                 tracing::debug!(
-                    "Adjusted window size by `{}` for channel %{}",
+                    "Adjusted window size by `{}` for channel {}:{}",
                     bytes_to_add,
+                    self.channel.local_id,
                     self.channel.remote_id,
                 );
             }
@@ -99,10 +100,18 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                     .consume(self.buffer.get_ref().len() as u32);
 
                 tracing::trace!(
-                    "Received data block for stream `{:?}` on channel %{} of size `{}`",
+                    "Received data block for stream `{:?}` on channel {}:{} of size `{}`",
                     self.stream_id,
+                    self.channel.local_id,
                     self.channel.remote_id,
                     self.buffer.get_ref().len()
+                );
+            } else {
+                tracing::trace!(
+                    "End-of-file for stream `{:?}` on channel {}:{}",
+                    self.stream_id,
+                    self.channel.local_id,
+                    self.channel.remote_id,
                 );
             }
         }

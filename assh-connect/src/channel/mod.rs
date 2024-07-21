@@ -1,16 +1,16 @@
 //! Definition of the [`Channel`] struct that provides isolated I/O on SSH channels.
 
 use core::task;
-use std::{
-    num::NonZeroU32,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::num::NonZeroU32;
 
 use assh::{side::Side, Pipe};
-use futures::{AsyncRead, TryStream};
-use ssh_packet::{connect, Packet};
+use futures::{AsyncRead, AsyncWrite, SinkExt, TryStream};
+use ssh_packet::{connect, IntoPacket, Packet};
 
-use crate::connect::{Connect, Interest};
+use crate::{
+    connect::{Connect, Interest},
+    Error, Result,
+};
 
 #[doc(no_inline)]
 pub use connect::ChannelRequestContext;
@@ -85,8 +85,9 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
             self.unregister();
 
             tracing::debug!(
-                "Peer closed channel %{}, unregistered all streams and intrests",
-                self.local_id
+                "Peer closed channel {}:{}, unregistered all streams and intrests",
+                self.local_id,
+                self.remote_id
             );
 
             self.poll_take(cx, interest)
@@ -101,8 +102,9 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
             );
 
             tracing::debug!(
-                "Peer sent an EOF for channel %{}, unregistered all streams",
-                self.local_id
+                "Peer sent an EOF for channel {}:{}, unregistered all streams",
+                self.local_id,
+                self.remote_id
             );
 
             self.poll_take(cx, interest)
@@ -113,7 +115,11 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
             let bytes = result?.to::<connect::ChannelWindowAdjust>()?.bytes_to_add;
             self.remote_window.replenish(bytes);
 
-            tracing::debug!("Peer added `{bytes}` bytes for channel %{}", self.local_id);
+            tracing::debug!(
+                "Peer added `{bytes}` bytes for channel {}:{}",
+                self.local_id,
+                self.remote_id
+            );
 
             self.poll_take(cx, interest)
         } else {
@@ -122,9 +128,7 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
     }
 
     /// Iterate over the incoming _channel requests_ on the channel.
-    pub fn requests(
-        &self,
-    ) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = crate::Error> + '_ {
+    pub fn requests(&self) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = Error> + '_ {
         let interest = Interest::ChannelRequest(self.local_id);
 
         self.connect.register(interest);
@@ -173,50 +177,41 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
         io::Read::new(self, Some(ext))
     }
 
-    // /// Make a writer for current channel's _data_ stream.
-    // ///
-    // /// ## Note:
-    // /// The writer does not flush [`Drop`], the caller is responsible to call
-    // /// [`futures::AsyncWriteExt::flush`] before dropping.
-    // #[must_use]
-    // pub fn as_writer(&self) -> impl AsyncWrite + '_ {
-    //     io::Write::new(
-    //         self.remote_id,
-    //         None,
-    //         self.outgoing.sink(),
-    //         &self.window,
-    //         self.remote_maximum_packet_size,
-    //     )
-    // }
+    /// Make a writer for current channel's _data_ stream.
+    ///
+    /// ## Note:
+    /// The writer does not flush on [`Drop`], the caller is responsible to call
+    /// [`futures::AsyncWriteExt::flush`] before dropping.
+    #[must_use]
+    pub fn as_writer(&self) -> impl AsyncWrite + '_ {
+        io::Write::new(self, None)
+    }
 
-    // /// Make a writer for current channel's _extended data_ stream.
-    // ///
-    // /// ## Note:
-    // /// The writer does not flush [`Drop`], the caller is responsible to call
-    // /// [`futures::AsyncWriteExt::flush`] before dropping.
-    // #[must_use]
-    // pub fn as_writer_ext(&self, ext: NonZeroU32) -> impl AsyncWrite + '_ {
-    //     io::Write::new(
-    //         self.remote_id,
-    //         Some(ext),
-    //         self.outgoing.sink(),
-    //         &self.window,
-    //         self.remote_maximum_packet_size,
-    //     )
-    // }
+    /// Make a writer for current channel's _extended data_ stream.
+    ///
+    /// ## Note:
+    /// The writer does not flush on [`Drop`], the caller is responsible to call
+    /// [`futures::AsyncWriteExt::flush`] before dropping.
+    #[must_use]
+    pub fn as_writer_ext(&self, ext: NonZeroU32) -> impl AsyncWrite + '_ {
+        io::Write::new(self, Some(ext))
+    }
 
-    // /// Signal to the peer we won't send any more data in the current channel.
-    // pub async fn eof(&self) -> Result<()> {
-    //     self.outgoing
-    //         .send_async(
-    //             connect::ChannelEof {
-    //                 recipient_channel: self.remote_id,
-    //             }
-    //             .into_packet(),
-    //         )
-    //         .await
-    //         .map_err(|_| Error::ChannelClosed)
-    // }
+    /// Signal to the peer we won't send any more data in the current channel.
+    pub async fn eof(&self) -> Result<()> {
+        self.connect
+            .poller
+            .lock()
+            .await
+            .send(
+                connect::ChannelEof {
+                    recipient_channel: self.remote_id,
+                }
+                .into_packet(),
+            )
+            .await
+            .map_err(|_| Error::ChannelClosed)
+    }
 
     // /// Tells whether the channel has been closed.
     // pub async fn is_closed(&self) -> bool {
@@ -232,6 +227,10 @@ impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
 
         // TODO: Send channel close message.
 
-        // tracing::debug!("Reporting channel closed %{}", self.remote_id);
+        tracing::debug!(
+            "Reporting channel closed {}:{}",
+            self.local_id,
+            self.remote_id
+        );
     }
 }

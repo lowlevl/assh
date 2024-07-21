@@ -15,6 +15,22 @@ pub struct Poller<IO: Pipe, S: Side> {
     recv: BoxFuture<'static, assh::Result<Packet>>,
 }
 
+impl<IO, S> From<Session<IO, S>> for Poller<IO, S>
+where
+    IO: Pipe,
+    S: Side,
+{
+    fn from(session: Session<IO, S>) -> Self {
+        let session: Arc<_> = Mutex::new(session).into();
+
+        Self {
+            session: session.clone(),
+            send: Either::Left(None),
+            recv: async move { session.lock_owned().await.recv().await }.boxed(),
+        }
+    }
+}
+
 impl<IO, S> Sink<Packet> for Poller<IO, S>
 where
     IO: Pipe,
@@ -97,22 +113,6 @@ where
         match recvd {
             Err(assh::Error::Disconnected(_)) => task::Poll::Ready(None),
             recvd => task::Poll::Ready(Some(recvd)),
-        }
-    }
-}
-
-impl<IO, S> From<Session<IO, S>> for Poller<IO, S>
-where
-    IO: Pipe,
-    S: Side,
-{
-    fn from(session: Session<IO, S>) -> Self {
-        let session: Arc<_> = Mutex::new(session).into();
-
-        Self {
-            session: session.clone(),
-            send: Either::Left(None),
-            recv: async move { session.lock_owned().await.recv().await }.boxed(),
         }
     }
 }

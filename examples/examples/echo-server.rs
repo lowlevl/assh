@@ -86,8 +86,8 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
 
             request.accept().await?;
 
-            let mut stdout = futures::io::AllowStdIo::new(std::io::stdout());
-            futures::io::copy(channel.as_reader(), &mut stdout).await?;
+            futures::io::copy(channel.as_reader(), &mut channel.as_writer()).await?;
+            channel.eof().await?;
 
             Ok(())
         })
