@@ -8,7 +8,7 @@ pub enum Interest {
     GlobalResponse,
 
     ChannelOpen,
-    ChannelOpenResponse,
+    ChannelOpenResponse(u32),
 
     ChannelWindowAdjust(u32),
     ChannelData(u32, Option<NonZeroU32>),
@@ -34,10 +34,10 @@ impl From<&Packet> for Interest {
             Self::GlobalResponse
         } else if packet.to::<connect::ChannelOpen>().is_ok() {
             Self::ChannelOpen
-        } else if packet.to::<connect::ChannelOpenConfirmation>().is_ok()
-            || packet.to::<connect::ChannelOpenFailure>().is_ok()
-        {
-            Self::ChannelOpenResponse
+        } else if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
+            Self::ChannelOpenResponse(message.recipient_channel)
+        } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
+            Self::ChannelOpenResponse(message.recipient_channel)
         } else if let Ok(message) = packet.to::<connect::ChannelWindowAdjust>() {
             Self::ChannelWindowAdjust(message.recipient_channel)
         } else if let Ok(message) = packet.to::<connect::ChannelData>() {

@@ -1,3 +1,5 @@
+//! The _channel requests_ and responses.
+
 use assh::{side::Side, Pipe};
 use futures::SinkExt;
 use ssh_packet::{

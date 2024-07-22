@@ -1,4 +1,4 @@
-//! The SSH _global requests_.
+//! The _global requests_ and responses.
 
 use assh::{side::Side, Pipe};
 use futures::SinkExt;

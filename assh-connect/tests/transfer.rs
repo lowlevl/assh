@@ -15,8 +15,8 @@ use ssh_key::{Algorithm, PrivateKey};
 use tokio::io::BufStream;
 
 async fn io<SFut, CFut>(
-    mut serverside: impl FnMut(channel::Channel) -> SFut,
-    mut clientside: impl FnMut(channel::Channel) -> CFut,
+    mut serverside: impl Fn(channel::Channel) -> SFut,
+    mut clientside: impl Fn(channel::Channel) -> CFut,
 ) -> Result<(), eyre::Error>
 where
     SFut: futures::Future<Output = ()> + Send + 'static,

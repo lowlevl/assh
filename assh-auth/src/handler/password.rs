@@ -22,7 +22,7 @@ pub trait Password: Send + Sync {
     fn process(&mut self, user: String, password: String, newpassword: Option<String>) -> Response;
 }
 
-impl<T: FnMut(String, String, Option<String>) -> Response + Send + Sync> Password for T {
+impl<T: Fn(String, String, Option<String>) -> Response + Send + Sync> Password for T {
     fn process(&mut self, user: String, password: String, newpassword: Option<String>) -> Response {
         (self)(user, password, newpassword)
     }

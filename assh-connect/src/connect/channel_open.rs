@@ -1,4 +1,4 @@
-//! The SSH _channel open requests_.
+//! The _channel open requests_ and responses.
 
 use assh::{side::Side, Pipe};
 use futures::SinkExt;
@@ -12,20 +12,20 @@ use crate::{
 
 // TODO: Drop implementation ?
 
-// /// A response to a _channel open request_.
-// pub enum Response {
-//     /// _Accepted_ the channel open request.
-//     Accepted(channel::Channel),
+/// A response to a _channel open request_.
+pub enum Response<'a, IO: Pipe, S: Side> {
+    /// The request succeeded, with an opened channel.
+    Success(channel::Channel<'a, IO, S>),
 
-//     /// _Rejected_ the channel open request.
-//     Rejected {
-//         /// The reason for failure.
-//         reason: connect::ChannelOpenFailureReason,
+    /// The request failed.
+    Failure {
+        /// The reason for failure.
+        reason: connect::ChannelOpenFailureReason,
 
-//         /// A textual message to acompany the reason.
-//         message: String,
-//     },
-// }
+        /// A textual description of the failure.
+        description: String,
+    },
+}
 
 /// A received _global request_.
 pub struct ChannelOpen<'r, IO: Pipe, S: Side> {
@@ -45,20 +45,7 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
 
     /// Accept the channel open request.
     pub async fn accept(self) -> Result<channel::Channel<'r, IO, S>> {
-        // TODO: Assess the need for this loop
-        let local_id = loop {
-            let id = self
-                .connect
-                .channels
-                .iter()
-                .map(|id| *id + 1)
-                .max()
-                .unwrap_or_default();
-
-            if self.connect.channels.insert(id) {
-                break id;
-            }
-        };
+        let local_id = self.connect.local_id();
 
         self.connect
             .poller

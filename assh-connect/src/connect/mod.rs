@@ -9,7 +9,10 @@ use futures::{
 };
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use crate::{Error, Result};
+use crate::{
+    channel::{self, LocalWindow},
+    Error, Result,
+};
 
 mod poller;
 use poller::Poller;
@@ -151,7 +154,7 @@ where
         }
     }
 
-    pub(crate) fn unregister_if(&self, filter: impl FnMut(&Interest) -> bool) {
+    pub(crate) fn unregister_if(&self, filter: impl Fn(&Interest) -> bool) {
         // NOTE: We collect here to remove reference to the DashMap
         // which would deadlock on calls to `remove` in `Self::unregister`.
         for interest in self
@@ -163,6 +166,25 @@ where
         {
             self.unregister(&interest);
         }
+    }
+
+    /// Iterate over the incoming _global requests_.
+    pub fn global_requests(
+        &self,
+    ) -> impl TryStream<Ok = global_request::GlobalRequest<'_, IO, S>, Error = crate::Error> + '_
+    {
+        let interest = Interest::GlobalRequest;
+
+        self.register(interest);
+        let unregister_on_drop = defer::defer(move || self.unregister(&interest));
+
+        futures::stream::poll_fn(move |cx| {
+            let _moved = &unregister_on_drop;
+
+            self.poll_take(cx, &interest)
+                .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
+                .map_err(Into::into)
+        })
     }
 
     /// Send a _global request_.
@@ -231,78 +253,23 @@ where
         Ok(response??)
     }
 
-    /// Iterate over the incoming _global requests_ from the peer.
-    pub fn global_requests(
-        &self,
-    ) -> impl TryStream<Ok = global_request::GlobalRequest<'_, IO, S>, Error = crate::Error> + '_
-    {
-        let interest = Interest::GlobalRequest;
+    fn local_id(&self) -> u32 {
+        // TODO: Assess the need for this loop
+        loop {
+            let id = self
+                .channels
+                .iter()
+                .map(|id| *id + 1)
+                .max()
+                .unwrap_or_default();
 
-        self.register(interest);
-        let unregister_on_drop = defer::defer(move || self.unregister(&interest));
-
-        futures::stream::poll_fn(move |cx| {
-            let _moved = &unregister_on_drop;
-
-            self.poll_take(cx, &interest)
-                .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
-                .map_err(Into::into)
-        })
+            if self.channels.insert(id) {
+                break id;
+            }
+        }
     }
 
-    // /// Request a new _channel_ with the provided `context`.
-    // pub async fn channel_open(
-    //     &mut self,
-    //     context: ChannelOpenContext,
-    // ) -> Result<channel_open::ChannelOpen> {
-    //     let local_id = self.local_id();
-
-    //     self.session
-    //         .lock()
-    //         .await
-    //         .send(&connect::ChannelOpen {
-    //             sender_channel: local_id,
-    //             initial_window_size: channel::LocalWindow::INITIAL_WINDOW_SIZE,
-    //             maximum_packet_size: channel::LocalWindow::MAXIMUM_PACKET_SIZE,
-    //             context,
-    //         })
-    //         .await?;
-
-    //     let packet = self.session.lock().await.recv().await?;
-
-    //     if let Ok(open_failure) = packet.to::<connect::ChannelOpenFailure>() {
-    //         if open_failure.recipient_channel == local_id {
-    //             Ok(channel_open::ChannelOpen::Rejected {
-    //                 reason: open_failure.reason,
-    //                 message: open_failure.description.into_string(),
-    //             })
-    //         } else {
-    //             Err(assh::Error::UnexpectedMessage.into())
-    //         }
-    //     } else if let Ok(open_confirmation) = packet.to::<connect::ChannelOpenConfirmation>() {
-    //         if open_confirmation.recipient_channel == local_id {
-    //             let (channel, handle) = channel::pair(
-    //                 open_confirmation.recipient_channel,
-    //                 open_confirmation.maximum_packet_size,
-    //                 (
-    //                     channel::LocalWindow::default(),
-    //                     channel::RemoteWindow::from(open_confirmation.initial_window_size),
-    //                 ),
-    //                 self.outgoing.0.clone(),
-    //             );
-
-    //             self.channels.insert(local_id, handle);
-
-    //             Ok(channel_open::ChannelOpen::Accepted(channel))
-    //         } else {
-    //             Err(assh::Error::UnexpectedMessage.into())
-    //         }
-    //     } else {
-    //         Err(assh::Error::UnexpectedMessage.into())
-    //     }
-    // }
-
-    /// Iterate over the incoming _channel open requests_ from the peer.
+    /// Iterate over the incoming _channel open requests_.
     pub fn channel_opens(
         &self,
     ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
@@ -318,6 +285,65 @@ where
                 .map_ok(|packet| channel_open::ChannelOpen::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
+    }
+
+    /// Send a _channel open request_, and wait for it's response to return an opened channel.
+    pub async fn channel_open(
+        &self,
+        context: ChannelOpenContext,
+    ) -> Result<channel_open::Response<'_, IO, S>> {
+        // TODO: Release the id eventually if the request is rejected
+        let local_id = self.local_id();
+
+        let interest = Interest::ChannelOpenResponse(local_id);
+        self.register(interest);
+
+        self.poller
+            .lock()
+            .await
+            .send(
+                connect::ChannelOpen {
+                    sender_channel: local_id,
+                    initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
+                    maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
+                    context,
+                }
+                .into_packet(),
+            )
+            .await?;
+
+        let response = futures::future::poll_fn(|cx| {
+            let polled = futures::ready!(self.poll_take(cx, &interest));
+            let response = polled.and_then(|packet| match packet {
+                Ok(packet) => {
+                    if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
+                        Some(Ok(channel_open::Response::Success(channel::Channel::new(
+                            self,
+                            local_id,
+                            message.sender_channel,
+                            message.initial_window_size,
+                            message.maximum_packet_size,
+                        ))))
+                    } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
+                        Some(Ok(channel_open::Response::Failure {
+                            reason: message.reason,
+                            description: message.description.into_string(),
+                        }))
+                    } else {
+                        None
+                    }
+                }
+                Err(err) => Some(Err(err)),
+            });
+
+            task::Poll::Ready(response)
+        })
+        .await
+        .ok_or(Error::ChannelClosed);
+
+        self.unregister(&interest);
+
+        Ok(response??)
     }
 }
 

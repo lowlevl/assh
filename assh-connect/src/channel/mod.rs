@@ -20,12 +20,11 @@ mod io;
 mod window;
 pub(super) use window::{LocalWindow, RemoteWindow};
 
-mod request;
-pub use request::{Request, Response};
+pub mod request;
 
 /// A reference to an opened channel in the session.
-pub struct Channel<'r, IO: Pipe, S: Side> {
-    connect: &'r Connect<IO, S>,
+pub struct Channel<'a, IO: Pipe, S: Side> {
+    connect: &'a Connect<IO, S>,
 
     local_id: u32,
     local_window: LocalWindow,
@@ -35,9 +34,9 @@ pub struct Channel<'r, IO: Pipe, S: Side> {
     remote_maxpack: u32,
 }
 
-impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
+impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     pub(crate) fn new(
-        connect: &'r Connect<IO, S>,
+        connect: &'a Connect<IO, S>,
         local_id: u32,
         remote_id: u32,
         remote_window: u32,
@@ -127,6 +126,22 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
         }
     }
 
+    /// Iterate over the incoming _channel requests_.
+    pub fn requests(&self) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = Error> + '_ {
+        let interest = Interest::ChannelRequest(self.local_id);
+
+        self.connect.register(interest);
+        let unregister_on_drop = defer::defer(move || self.connect.unregister(&interest));
+
+        futures::stream::poll_fn(move |cx| {
+            let _moved = &unregister_on_drop;
+
+            self.poll_take(cx, &interest)
+                .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
+                .map_err(Into::into)
+        })
+    }
+
     /// Send a _channel request_.
     pub async fn request(&self, context: ChannelRequestContext) -> Result<()> {
         self.connect
@@ -188,22 +203,6 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
         self.connect.unregister(&interest);
 
         Ok(response??)
-    }
-
-    /// Iterate over the incoming _channel requests_.
-    pub fn requests(&self) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = Error> + '_ {
-        let interest = Interest::ChannelRequest(self.local_id);
-
-        self.connect.register(interest);
-        let unregister_on_drop = defer::defer(move || self.connect.unregister(&interest));
-
-        futures::stream::poll_fn(move |cx| {
-            let _moved = &unregister_on_drop;
-
-            self.poll_take(cx, &interest)
-                .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
-                .map_err(Into::into)
-        })
     }
 
     /// Make a reader for current channel's _data_ stream.
