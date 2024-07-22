@@ -127,7 +127,70 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
         }
     }
 
-    /// Iterate over the incoming _channel requests_ on the channel.
+    /// Send a _channel request_.
+    pub async fn request(&self, context: ChannelRequestContext) -> Result<()> {
+        self.connect
+            .poller
+            .lock()
+            .await
+            .send(
+                connect::ChannelRequest {
+                    recipient_channel: self.remote_id,
+                    want_reply: false.into(),
+                    context,
+                }
+                .into_packet(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// Send a _channel request_, and wait for the peer's response.
+    pub async fn request_wait(&self, context: ChannelRequestContext) -> Result<request::Response> {
+        let interest = Interest::ChannelResponse(self.local_id);
+        self.connect.register(interest);
+
+        self.connect
+            .poller
+            .lock()
+            .await
+            .send(
+                connect::ChannelRequest {
+                    recipient_channel: self.remote_id,
+                    want_reply: true.into(),
+                    context,
+                }
+                .into_packet(),
+            )
+            .await?;
+
+        let response = futures::future::poll_fn(|cx| {
+            let polled = futures::ready!(self.poll_take(cx, &interest));
+            let response = polled.and_then(|packet| match packet {
+                Ok(packet) => {
+                    if packet.to::<connect::ChannelSuccess>().is_ok() {
+                        Some(Ok(request::Response::Success))
+                    } else if packet.to::<connect::ChannelFailure>().is_ok() {
+                        Some(Ok(request::Response::Failure))
+                    } else {
+                        None
+                    }
+                }
+                Err(err) => Some(Err(err)),
+            });
+
+            task::Poll::Ready(response)
+        })
+        .await
+        .ok_or(Error::ChannelClosed);
+
+        self.connect.unregister(&interest);
+
+        Ok(response??)
+    }
+
+    /// Iterate over the incoming _channel requests_.
     pub fn requests(&self) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = Error> + '_ {
         let interest = Interest::ChannelRequest(self.local_id);
 
@@ -142,28 +205,6 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
                 .map_err(Into::into)
         })
     }
-
-    // /// Send a request in the current channel.
-    // pub async fn request(&self, context: ChannelRequestContext) -> Result<Response> {
-    //     self.outgoing
-    //         .send_async(
-    //             connect::ChannelRequest {
-    //                 recipient_channel: self.remote_id,
-    //                 want_reply: true.into(),
-    //                 context,
-    //             }
-    //             .into_packet(),
-    //         )
-    //         .await
-    //         .map_err(|_| Error::ChannelClosed)?;
-
-    //     match self.incoming.recv_async().await {
-    //         Ok(messages::Control::Success(_)) => Ok(Response::Success),
-    //         Ok(messages::Control::Failure(_)) => Ok(Response::Failure),
-    //         Ok(_) => Err(assh::Error::UnexpectedMessage.into()),
-    //         Err(_) => Err(Error::ChannelClosed),
-    //     }
-    // }
 
     /// Make a reader for current channel's _data_ stream.
     #[must_use]
