@@ -12,8 +12,8 @@ use crate::{
 
 // TODO: Drop implementation ?
 
-// /// The outcome to a sent _channel open request_.
-// pub enum ChannelOpenOutcome {
+// /// A response to a _channel open request_.
+// pub enum Response {
 //     /// _Accepted_ the channel open request.
 //     Accepted(channel::Channel),
 

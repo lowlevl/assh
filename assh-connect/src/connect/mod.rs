@@ -5,9 +5,11 @@ use dashmap::{DashMap, DashSet};
 use futures::{
     lock::{Mutex, MutexGuard},
     task::{self, AtomicWaker},
-    FutureExt, Stream, TryStream,
+    FutureExt, SinkExt, Stream, TryStream,
 };
-use ssh_packet::{connect, Packet};
+use ssh_packet::{connect, IntoPacket, Packet};
+
+use crate::{Error, Result};
 
 mod poller;
 use poller::Poller;
@@ -163,45 +165,71 @@ where
         }
     }
 
-    // fn local_id(&self) -> u32 {
-    //     self.channels
-    //         .keys()
-    //         .max()
-    //         .map(|x| x + 1)
-    //         .unwrap_or_default()
-    // }
+    /// Send a _global request_.
+    pub async fn global_request(&self, context: GlobalRequestContext) -> Result<()> {
+        self.poller
+            .lock()
+            .await
+            .send(
+                connect::GlobalRequest {
+                    want_reply: false.into(),
+                    context,
+                }
+                .into_packet(),
+            )
+            .await?;
 
-    // /// Make a _global request_ with the provided `context`.
-    // pub async fn global_request(
-    //     &self,
-    //     context: GlobalRequestContext,
-    // ) -> Result<global_request::GlobalRequest> {
-    //     let with_port = matches!(context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+        Ok(())
+    }
 
-    //     self.session
-    //         .lock()
-    //         .await
-    //         .send(&connect::GlobalRequest {
-    //             want_reply: true.into(),
-    //             context,
-    //         })
-    //         .await?;
+    /// Send a _global request_, and wait for it's response.
+    pub async fn global_request_wait(
+        &self,
+        context: GlobalRequestContext,
+    ) -> Result<global_request::Response> {
+        let interest = Interest::GlobalResponse;
+        self.register(interest);
 
-    //     let packet = self.recv().await?;
-    //     if let Ok(connect::RequestFailure) = packet.to() {
-    //         Ok(global_request::GlobalRequest::Rejected)
-    //     } else if with_port {
-    //         if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
-    //             Ok(global_request::GlobalRequest::AcceptedPort(bound_port))
-    //         } else {
-    //             Err(assh::Error::UnexpectedMessage.into())
-    //         }
-    //     } else if let Ok(connect::RequestSuccess) = packet.to() {
-    //         Ok(global_request::GlobalRequest::Accepted)
-    //     } else {
-    //         Err(assh::Error::UnexpectedMessage.into())
-    //     }
-    // }
+        let with_port = matches!(context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+
+        self.poller
+            .lock()
+            .await
+            .send(
+                connect::GlobalRequest {
+                    want_reply: false.into(),
+                    context,
+                }
+                .into_packet(),
+            )
+            .await?;
+
+        let response = futures::future::poll_fn(|cx| {
+            let polled = futures::ready!(self.poll_take(cx, &interest));
+            let response = polled.and_then(|packet| match packet {
+                Ok(packet) => {
+                    if !with_port && packet.to::<connect::RequestSuccess>().is_ok() {
+                        Some(Ok(global_request::Response::Success(None)))
+                    } else if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
+                        Some(Ok(global_request::Response::Success(Some(bound_port))))
+                    } else if packet.to::<connect::RequestFailure>().is_ok() {
+                        Some(Ok(global_request::Response::Failure))
+                    } else {
+                        None
+                    }
+                }
+                Err(err) => Some(Err(err)),
+            });
+
+            task::Poll::Ready(response)
+        })
+        .await
+        .ok_or(Error::ChannelClosed);
+
+        self.unregister(&interest);
+
+        Ok(response??)
+    }
 
     /// Iterate over the incoming _global requests_ from the peer.
     pub fn global_requests(

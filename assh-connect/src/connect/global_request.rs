@@ -9,18 +9,15 @@ use crate::Result;
 
 // TODO: Drop implementation ?
 
-// /// The outcome to a sent _global request_.
-// #[derive(Debug)]
-// pub enum GlobalRequestOutcome {
-//     /// _Accepted_ global request.
-//     Accepted,
+/// A response to a _global request_.
+#[derive(Debug)]
+pub enum Response {
+    /// The request succeeded, with optionally a bound port.
+    Success(Option<u32>),
 
-//     /// _Accepted_ global request, with a bound port.
-//     AcceptedPort(u32),
-
-//     /// _Rejected_ the global request.
-//     Rejected,
-// }
+    /// The request failed.
+    Failure,
+}
 
 /// A received _global request_.
 pub struct GlobalRequest<'r, IO: Pipe, S: Side> {

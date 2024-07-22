@@ -28,6 +28,7 @@ impl From<&Packet> for Interest {
         if packet.to::<connect::GlobalRequest>().is_ok() {
             Self::GlobalRequest
         } else if packet.to::<connect::RequestSuccess>().is_ok()
+            || packet.to::<connect::ForwardingSuccess>().is_ok()
             || packet.to::<connect::RequestFailure>().is_ok()
         {
             Self::GlobalResponse

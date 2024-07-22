@@ -10,7 +10,7 @@ use crate::Result;
 
 // TODO: Drop implementation ?
 
-/// A response to a channel request.
+/// A response to a _channel request_.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Response {
     /// The request succeeded.

@@ -146,7 +146,7 @@ impl<'r, IO: Pipe, S: Side> Channel<'r, IO, S> {
         Ok(())
     }
 
-    /// Send a _channel request_, and wait for the peer's response.
+    /// Send a _channel request_, and wait for it's response.
     pub async fn request_wait(&self, context: ChannelRequestContext) -> Result<request::Response> {
         let interest = Interest::ChannelResponse(self.local_id);
         self.connect.register(interest);
