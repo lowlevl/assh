@@ -26,7 +26,7 @@ mod private {
 }
 
 /// A side of the SSH protocol, either [`Client`] or [`Server`].
-pub trait Side: private::Sealed + Send + Sync + 'static {
+pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
     /// Get the [`Id`] for this session.
     fn id(&self) -> &Id;
 
