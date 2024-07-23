@@ -30,7 +30,18 @@ impl LocalWindow {
     }
 
     pub fn consume(&self, size: u32) {
-        self.inner.fetch_sub(size, Ordering::SeqCst);
+        let previous = self.inner.fetch_sub(size, Ordering::SeqCst);
+
+        // This is a really unexpected case which would happen only with
+        // non-compliant peers, so panicking could be a solution.
+        #[allow(clippy::panic)]
+        if size > previous {
+            // TODO: Evaluate whether panicking here is an acceptable solution.
+            panic!(
+                "Peer sent more data than the window size allowed, by {}bytes",
+                size - previous
+            );
+        }
     }
 }
 
