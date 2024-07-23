@@ -23,7 +23,14 @@
 const SERVICE_NAME: &str = "ssh-connection";
 
 pub mod channel;
-pub mod connect;
+pub mod channel_open;
+pub mod global_request;
+
+mod interest;
+mod poller;
+
+mod connect;
+pub use connect::Connect;
 
 mod error;
 pub use error::{Error, Result};
@@ -32,7 +39,7 @@ pub use error::{Error, Result};
 
 use assh::{service, side::Side, Pipe, Session};
 
-/// An implementation of [`service::Handler`] and [`service::Request`] that yields a [`connect::Connect`] instance.
+/// An [`assh::service`] that yields a [`connect::Connect`].
 pub struct Service;
 
 impl service::Handler for Service {

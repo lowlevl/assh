@@ -4,7 +4,7 @@ use assh::{side::Side, Pipe};
 use futures::{FutureExt, SinkExt};
 use ssh_packet::{connect, IntoPacket};
 
-use crate::{channel::Channel, connect::Interest};
+use crate::{channel::Channel, interest::Interest};
 
 pub struct Write<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,

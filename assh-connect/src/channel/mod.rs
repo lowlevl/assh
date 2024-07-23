@@ -1,4 +1,4 @@
-//! Definition of the [`Channel`] struct that provides isolated I/O on SSH channels.
+//! Multiplexed I/O and requests on _channels_.
 
 use core::task;
 use std::num::NonZeroU32;
@@ -7,13 +7,7 @@ use assh::{side::Side, Pipe};
 use futures::{AsyncRead, AsyncWrite, SinkExt, TryStream};
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use crate::{
-    connect::{Connect, Interest},
-    Error, Result,
-};
-
-#[doc(no_inline)]
-pub use connect::ChannelRequestContext;
+use crate::{connect::Connect, interest::Interest, Error, Result};
 
 mod io;
 
@@ -150,7 +144,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     }
 
     /// Send a _channel request_.
-    pub async fn request(&self, context: ChannelRequestContext) -> Result<()> {
+    pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<()> {
         self.connect
             .poller
             .lock()
@@ -169,7 +163,10 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     }
 
     /// Send a _channel request_, and wait for it's response.
-    pub async fn request_wait(&self, context: ChannelRequestContext) -> Result<request::Response> {
+    pub async fn request_wait(
+        &self,
+        context: connect::ChannelRequestContext,
+    ) -> Result<request::Response> {
         let interest = Interest::ChannelResponse(self.local_id);
         self.connect.register(interest);
 

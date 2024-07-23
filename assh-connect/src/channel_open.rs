@@ -10,12 +10,15 @@ use crate::{
     Result,
 };
 
+#[doc(no_inline)]
+pub use ssh_packet::connect::{ChannelOpenContext, ChannelOpenFailureReason};
+
 // TODO: Drop implementation ?
 
 /// A response to a _channel open request_.
-pub enum Response<'a, IO: Pipe, S: Side> {
+pub enum Response<'r, IO: Pipe, S: Side> {
     /// The request succeeded, with an opened channel.
-    Success(channel::Channel<'a, IO, S>),
+    Success(channel::Channel<'r, IO, S>),
 
     /// The request failed.
     Failure {
@@ -27,7 +30,7 @@ pub enum Response<'a, IO: Pipe, S: Side> {
     },
 }
 
-/// A received _global request_.
+/// A received _channel open request_.
 pub struct ChannelOpen<'r, IO: Pipe, S: Side> {
     connect: &'r Connect<IO, S>,
     inner: connect::ChannelOpen,

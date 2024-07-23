@@ -11,20 +11,11 @@ use ssh_packet::{connect, IntoPacket, Packet};
 
 use crate::{
     channel::{self, LocalWindow},
+    channel_open, global_request,
+    interest::Interest,
+    poller::Poller,
     Error, Result,
 };
-
-mod poller;
-use poller::Poller;
-
-mod interest;
-pub(crate) use interest::Interest;
-
-pub mod channel_open;
-pub mod global_request;
-
-#[doc(no_inline)]
-pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestContext};
 
 // TODO: Flush Poller Sink on Drop ?
 
@@ -191,7 +182,7 @@ where
     }
 
     /// Send a _global request_.
-    pub async fn global_request(&self, context: GlobalRequestContext) -> Result<()> {
+    pub async fn global_request(&self, context: connect::GlobalRequestContext) -> Result<()> {
         self.poller
             .lock()
             .await
@@ -210,12 +201,12 @@ where
     /// Send a _global request_, and wait for it's response.
     pub async fn global_request_wait(
         &self,
-        context: GlobalRequestContext,
+        context: connect::GlobalRequestContext,
     ) -> Result<global_request::Response> {
         let interest = Interest::GlobalResponse;
         self.register(interest);
 
-        let with_port = matches!(context, GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
+        let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
         self.poller
             .lock()
@@ -256,7 +247,7 @@ where
         Ok(response??)
     }
 
-    fn local_id(&self) -> u32 {
+    pub(crate) fn local_id(&self) -> u32 {
         // TODO: Assess the need for this loop
         loop {
             let id = self
@@ -293,7 +284,7 @@ where
     /// Send a _channel open request_, and wait for it's response to return an opened channel.
     pub async fn channel_open(
         &self,
-        context: ChannelOpenContext,
+        context: connect::ChannelOpenContext,
     ) -> Result<channel_open::Response<'_, IO, S>> {
         // TODO: Release the id eventually if the request is rejected
         let local_id = self.local_id();

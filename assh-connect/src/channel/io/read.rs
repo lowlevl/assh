@@ -10,7 +10,7 @@ use assh::{side::Side, Pipe};
 use futures::{FutureExt, Sink, SinkExt};
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use crate::{channel::Channel, connect::Interest};
+use crate::{channel::Channel, interest::Interest};
 
 pub struct Read<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,

@@ -10,6 +10,9 @@ use ssh_packet::{
 use super::Channel;
 use crate::Result;
 
+#[doc(no_inline)]
+pub use connect::ChannelRequestContext;
+
 // TODO: Drop implementation ?
 
 /// A response to a _channel request_.

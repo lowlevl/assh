@@ -7,6 +7,9 @@ use ssh_packet::{connect, IntoPacket};
 use super::Connect;
 use crate::Result;
 
+#[doc(no_inline)]
+pub use ssh_packet::connect::GlobalRequestContext;
+
 // TODO: Drop implementation ?
 
 /// A response to a _global request_.
