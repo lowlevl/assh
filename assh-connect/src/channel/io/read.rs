@@ -67,12 +67,14 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
         cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
-        if self.is_empty() {
-            {
-                let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
-                self.adjust_window(&mut *poller)?;
-            }
+        tracing::warn!("POLLIN");
 
+        {
+            let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
+            self.adjust_window(&mut *poller)?;
+        }
+
+        if self.is_empty() {
             let polled = self.channel.poll_take(
                 cx,
                 &Interest::ChannelData(self.channel.local_id, self.stream_id),
@@ -109,7 +111,11 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
             }
         }
 
-        task::Poll::Ready(self.buffer.read(buf))
+        let count = self.buffer.read(buf);
+
+        tracing::warn!("READ: {count:?}");
+
+        task::Poll::Ready(count)
     }
 }
 

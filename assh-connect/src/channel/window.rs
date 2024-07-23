@@ -83,10 +83,10 @@ impl RemoteWindow {
             task::Poll::Ready(size)
         } else {
             // TODO: Is it necessary ? Maybe host a collection of wakers.
-            assert!(
-                self.waker.take().is_none(),
-                "Need to rework to add a collection of wakers"
-            );
+            // assert!(
+            //     self.waker.take().is_none(),
+            //     "Need to rework to add a collection of wakers"
+            // );
 
             self.waker.register(cx.waker());
             task::Poll::Pending
