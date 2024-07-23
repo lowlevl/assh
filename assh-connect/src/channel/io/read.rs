@@ -36,32 +36,25 @@ impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
         self.buffer.position() >= self.buffer.get_ref().len() as u64
     }
 
-    fn poll_adjust_window(
+    fn adjust_window(
         &mut self,
         poller: &mut (impl Sink<Packet, Error = assh::Error> + Unpin),
-        cx: &mut task::Context,
     ) -> io::Result<()> {
-        if let task::Poll::Ready(res) = poller.poll_ready_unpin(cx) {
-            res.map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
-
-            if let Some(bytes_to_add) = self.channel.local_window.adjustable() {
-                let packet = connect::ChannelWindowAdjust {
-                    recipient_channel: self.channel.remote_id,
-                    bytes_to_add,
-                }
-                .into_packet();
-
-                poller
-                    .start_send_unpin(packet)
-                    .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
-
-                tracing::debug!(
-                    "Adjusted window size by `{}` for channel {}:{}",
-                    bytes_to_add,
-                    self.channel.local_id,
-                    self.channel.remote_id,
-                );
+        if let Some(bytes_to_add) = self.channel.local_window.adjustable() {
+            let packet = connect::ChannelWindowAdjust {
+                recipient_channel: self.channel.remote_id,
+                bytes_to_add,
             }
+            .into_packet();
+
+            poller.start_send_unpin(packet).ok();
+
+            tracing::debug!(
+                "Adjusted window size by `{}` for channel {}:{}",
+                bytes_to_add,
+                self.channel.local_id,
+                self.channel.remote_id,
+            );
         }
 
         Ok(())
@@ -77,7 +70,7 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
         if self.is_empty() {
             {
                 let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
-                self.poll_adjust_window(&mut *poller, cx)?;
+                self.adjust_window(&mut *poller)?;
             }
 
             let polled = self.channel.poll_take(

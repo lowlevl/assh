@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use assh::{side::Side, Pipe, Session};
 use futures::{future::BoxFuture, task, FutureExt, Sink, Stream};
 use ssh_packet::Packet;
@@ -9,7 +11,7 @@ type RecvFut<IO, S> = BoxFuture<'static, (assh::Result<Packet>, Box<Session<IO, 
 
 enum State<IO: Pipe, S: Side> {
     /// Idling and waiting for tasks.
-    Idle(Box<Session<IO, S>>),
+    Idle(Option<Box<Session<IO, S>>>),
 
     /// Polling to send a packet.
     Sending(SendFut<IO, S>),
@@ -19,7 +21,8 @@ enum State<IO: Pipe, S: Side> {
 }
 
 pub struct Poller<IO: Pipe, S: Side> {
-    inner: State<IO, S>,
+    state: State<IO, S>,
+    queue: VecDeque<Packet>,
 }
 
 impl<IO, S> From<Session<IO, S>> for Poller<IO, S>
@@ -29,7 +32,8 @@ where
 {
     fn from(session: Session<IO, S>) -> Self {
         Self {
-            inner: State::Idle(session.into()),
+            state: State::Idle(Some(session.into())),
+            queue: Default::default(),
         }
     }
 }
@@ -42,53 +46,60 @@ where
     type Error = assh::Error;
 
     fn poll_ready(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut task::Context<'_>,
+    ) -> task::Poll<Result<(), Self::Error>> {
+        // We are always ready to receive a Packet in the sink,
+        // because it is backed with a FIFO queue to hold pending packets.
+
+        task::Poll::Ready(Ok(()))
+    }
+
+    fn start_send(mut self: std::pin::Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
+        self.queue.push_front(item);
+
+        Ok(())
+    }
+
+    fn poll_flush(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Result<(), Self::Error>> {
-        match &mut self.inner {
-            State::Sending(fut) => {
+        let empty_queue = self.queue.is_empty();
+
+        match self.state {
+            State::Idle(ref mut session) if !empty_queue => {
+                let Some(mut session) = session.take() else {
+                    unreachable!()
+                };
+
+                if let Some(item) = self.queue.pop_back() {
+                    self.state =
+                        State::Sending(async move { (session.send(item).await, session) }.boxed());
+                } else {
+                    unreachable!()
+                }
+
+                cx.waker().wake_by_ref();
+                task::Poll::Pending
+            }
+            State::Sending(ref mut fut) => {
                 let (result, session) = futures::ready!(fut.poll_unpin(cx));
 
-                self.inner = State::Idle(session);
+                self.state = State::Idle(Some(session));
                 result?;
 
                 cx.waker().wake_by_ref();
                 task::Poll::Pending
             }
             State::Recving(_) => {
-                tracing::warn!("Busy waiting on sender in Poller::poll_ready");
+                tracing::warn!("Busy waiting in Poller::poll_flush");
 
                 cx.waker().wake_by_ref();
                 task::Poll::Pending
             }
             _ => task::Poll::Ready(Ok(())),
         }
-    }
-
-    fn start_send(mut self: std::pin::Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
-        replace_with::replace_with_or_abort(&mut self.inner, |inner| {
-            match inner {
-                State::Idle(mut session) => {
-                    State::Sending(async move { (session.send(item).await, session) }.boxed())
-                }
-
-                // This is a genuine programming error from us if this happens,
-                // which makes sense to panic!() to ensure test failure.
-                #[allow(clippy::panic)]
-                _ => {
-                    panic!("Called `Sink::start_send` without calling `Sink::poll_ready` before");
-                }
-            }
-        });
-
-        Ok(())
-    }
-
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-    ) -> task::Poll<Result<(), Self::Error>> {
-        self.poll_ready(cx)
     }
 
     fn poll_close(
@@ -110,57 +121,39 @@ where
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        replace_with::replace_with_or_abort_and_return(
-            &mut self.as_mut().inner,
-            |inner| match inner {
-                State::Idle(mut session) => {
-                    let mut fut = session.readable().boxed();
+        if !matches!(self.state, State::Recving(_)) {
+            futures::ready!(self.as_mut().poll_flush(cx))?;
+        }
 
-                    if fut.poll_unpin(cx).is_ready() {
-                        drop(fut);
+        match &mut self.state {
+            State::Recving(fut) => {
+                let (result, session) = futures::ready!(fut.poll_unpin(cx));
 
-                        cx.waker().wake_by_ref();
-                        (
-                            task::Poll::Pending,
-                            State::Recving(async move { (session.recv().await, session) }.boxed()),
-                        )
-                    } else {
-                        drop(fut);
+                self.state = State::Idle(Some(session));
 
-                        (task::Poll::Pending, State::Idle(session))
-                    }
+                task::Poll::Ready(match result {
+                    Err(assh::Error::Disconnected(_)) => None,
+                    other => Some(other),
+                })
+            }
+            State::Idle(session) => {
+                let Some(mut session) = session.take() else {
+                    unreachable!()
+                };
+
+                if session.readable().boxed().poll_unpin(cx).is_ready() {
+                    self.state =
+                        State::Recving(async move { (session.recv().await, session) }.boxed());
+
+                    cx.waker().wake_by_ref();
+                    task::Poll::Pending
+                } else {
+                    self.state = State::Idle(Some(session));
+
+                    task::Poll::Pending
                 }
-                State::Recving(mut fut) => {
-                    if let task::Poll::Ready((result, session)) = fut.as_mut().poll_unpin(cx) {
-                        (
-                            task::Poll::Ready(match result {
-                                Err(assh::Error::Disconnected(_)) => None,
-                                item => Some(item),
-                            }),
-                            State::Idle(session),
-                        )
-                    } else {
-                        (task::Poll::Pending, State::Recving(fut))
-                    }
-                }
-                State::Sending(mut fut) => {
-                    if let task::Poll::Ready((result, session)) = fut.as_mut().poll_unpin(cx) {
-                        (
-                            match result {
-                                Err(assh::Error::Disconnected(_)) => task::Poll::Ready(None),
-                                Err(err) => task::Poll::Ready(Some(Err(err))),
-                                Ok(_) => {
-                                    cx.waker().wake_by_ref();
-                                    task::Poll::Pending
-                                }
-                            },
-                            State::Idle(session),
-                        )
-                    } else {
-                        (task::Poll::Pending, State::Sending(fut))
-                    }
-                }
-            },
-        )
+            }
+            _ => unreachable!(),
+        }
     }
 }

@@ -48,8 +48,8 @@ pub struct RemoteWindow {
 }
 
 impl RemoteWindow {
-    pub fn replenish(&self, size: u32) {
-        self.inner.fetch_add(size, Ordering::Relaxed);
+    pub fn replenish(&self, bytes_to_add: u32) {
+        self.inner.fetch_add(bytes_to_add, Ordering::Relaxed);
         self.waker.wake();
     }
 

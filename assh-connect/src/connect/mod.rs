@@ -26,6 +26,8 @@ pub mod global_request;
 #[doc(no_inline)]
 pub use connect::{ChannelOpenContext, ChannelOpenFailureReason, GlobalRequestContext};
 
+// TODO: Flush Poller Sink on Drop ?
+
 /// A wrapper around a [`Session`] to interract with the connect layer.
 pub struct Connect<IO, S>
 where
@@ -80,18 +82,18 @@ where
         if let Some(waker) = self.interests.get(interest) {
             waker.register(cx.waker());
         } else {
-            tracing::trace!("Polled for unregistered `{interest:?}` interest, returning None");
+            tracing::trace!("{interest:?}: Polled for unregistered interest, returning `None`");
 
             return task::Poll::Ready(None);
         }
 
         let mut buffer = futures::ready!(self.poll_recv(cx))?;
 
-        tracing::trace!("Polling incoming data for `{interest:?}`");
+        tracing::trace!("{interest:?}: Polled data");
 
         match buffer.take() {
             None => {
-                tracing::trace!("Receiver is dead, waking up all awaiting tasks");
+                tracing::trace!("{interest:?}: Receiver dead, waking up tasks for cleanup");
 
                 for waker in self.interests.iter() {
                     waker.wake();
@@ -103,15 +105,13 @@ where
                 let packet_interest = Interest::from(&packet);
 
                 if interest == &packet_interest {
-                    tracing::trace!("Interest `{interest:?}` matched, popping packet");
+                    tracing::trace!("{interest:?}: Matched, popping packet");
 
                     task::Poll::Ready(Some(Ok(packet)))
                 } else {
                     match self.interests.get(&packet_interest) {
                         Some(waker) => {
-                            tracing::trace!(
-                                "Interest unmatched, storing packet and waking task for: {packet_interest:?}"
-                            );
+                            tracing::trace!("{interest:?} != {packet_interest:?}: Storing packet and waking task");
 
                             *buffer = Some(packet);
 
@@ -119,7 +119,10 @@ where
                             task::Poll::Pending
                         }
                         None => {
-                            tracing::warn!("Dropped {}bytes because interest was unregistered for `{packet_interest:?}`", packet.payload.len());
+                            tracing::warn!(
+                                "!{packet_interest:?}: Dropping {}bytes, unregistered interest",
+                                packet.payload.len()
+                            );
 
                             cx.waker().wake_by_ref();
                             task::Poll::Pending

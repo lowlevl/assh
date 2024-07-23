@@ -18,7 +18,7 @@ pub enum Interest {
     ChannelRequest(u32),
     ChannelResponse(u32),
 
-    Unknown,
+    None,
 }
 
 impl From<&Packet> for Interest {
@@ -55,7 +55,7 @@ impl From<&Packet> for Interest {
         } else if let Ok(message) = packet.to::<connect::ChannelFailure>() {
             Self::ChannelResponse(message.recipient_channel)
         } else {
-            Self::Unknown
+            Self::None
         }
     }
 }

@@ -89,7 +89,8 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
                 self.remote_id
             );
 
-            self.poll_take(cx, interest)
+            cx.waker().wake_by_ref();
+            task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .connect
             .poll_take(cx, &Interest::ChannelEof(self.local_id))
@@ -106,21 +107,24 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
                 self.remote_id
             );
 
-            self.poll_take(cx, interest)
+            cx.waker().wake_by_ref();
+            task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .connect
             .poll_take(cx, &Interest::ChannelWindowAdjust(self.local_id))
         {
-            let bytes = result?.to::<connect::ChannelWindowAdjust>()?.bytes_to_add;
-            self.remote_window.replenish(bytes);
+            let bytes_to_add = result?.to::<connect::ChannelWindowAdjust>()?.bytes_to_add;
+            self.remote_window.replenish(bytes_to_add);
 
             tracing::debug!(
-                "Peer added `{bytes}` bytes for channel {}:{}",
+                "Peer extended data window by `{}` bytes for channel {}:{}",
+                bytes_to_add,
                 self.local_id,
                 self.remote_id
             );
 
-            self.poll_take(cx, interest)
+            cx.waker().wake_by_ref();
+            task::Poll::Pending
         } else {
             self.connect.poll_take(cx, interest)
         }
@@ -262,13 +266,26 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
 impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
     fn drop(&mut self) {
         self.unregister();
-
         self.connect.channels.remove(&self.local_id);
 
-        // TODO: Send channel close message.
+        // TODO: Find a better way than this "bad bad loop™"
+        loop {
+            if let Some(mut poller) = self.connect.poller.try_lock() {
+                poller
+                    .start_send_unpin(
+                        connect::ChannelClose {
+                            recipient_channel: self.remote_id,
+                        }
+                        .into_packet(),
+                    )
+                    .ok();
+
+                break;
+            }
+        }
 
         tracing::debug!(
-            "Reporting channel closed {}:{}",
+            "Reporting channel {}:{} as closed",
             self.local_id,
             self.remote_id
         );
