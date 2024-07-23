@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use futures::task;
 
-// TODO: Confirm memory ordering is correct
+// TODO: Evaluate memory ordering constraints to elliviate SeqCst ordering if possible.
 
 pub struct LocalWindow {
     inner: AtomicU32,
@@ -17,7 +17,7 @@ impl LocalWindow {
     pub fn adjustable(&self) -> Option<u32> {
         let previous = self
             .inner
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |window| {
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |window| {
                 if window <= Self::ADJUST_THRESHOLD {
                     Some(Self::INITIAL_WINDOW_SIZE)
                 } else {
@@ -30,7 +30,7 @@ impl LocalWindow {
     }
 
     pub fn consume(&self, size: u32) {
-        self.inner.fetch_sub(size, Ordering::Relaxed);
+        self.inner.fetch_sub(size, Ordering::SeqCst);
     }
 }
 
@@ -49,14 +49,14 @@ pub struct RemoteWindow {
 
 impl RemoteWindow {
     pub fn replenish(&self, bytes_to_add: u32) {
-        self.inner.fetch_add(bytes_to_add, Ordering::Relaxed);
+        self.inner.fetch_add(bytes_to_add, Ordering::SeqCst);
         self.waker.wake();
     }
 
     fn try_reserve(&self, mut amount: u32) -> Option<u32> {
         let reserved = self
             .inner
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |window| {
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |window| {
                 if amount <= window {
                     Some(window - amount)
                 } else {
