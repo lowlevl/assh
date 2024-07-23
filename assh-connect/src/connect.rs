@@ -181,6 +181,8 @@ where
         })
     }
 
+    // TODO: Compact `Self::global_request`, `Self::global_request_wait` with a trait ?
+
     /// Send a _global request_.
     pub async fn global_request(&self, context: connect::GlobalRequestContext) -> Result<()> {
         self.poller
