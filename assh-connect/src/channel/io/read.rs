@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     io::{self, Read as _},
     num::NonZeroU32,
     pin::Pin,
@@ -15,7 +16,7 @@ pub struct Read<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,
     stream_id: Option<NonZeroU32>,
 
-    buffer: io::Cursor<Vec<u8>>,
+    buffer: VecDeque<u8>,
 }
 
 impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
@@ -30,10 +31,6 @@ impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
 
             buffer: Default::default(),
         }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.buffer.position() >= self.buffer.get_ref().len() as u64
     }
 
     fn adjust_window(
@@ -74,7 +71,7 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
             self.adjust_window(&mut *poller)?;
         }
 
-        if self.is_empty() {
+        if self.buffer.is_empty() {
             let polled = self.channel.poll_take(
                 cx,
                 &Interest::ChannelData(self.channel.local_id, self.stream_id),
@@ -89,17 +86,15 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                     packet.to::<connect::ChannelExtendedData>().unwrap().data
                 };
 
-                self.buffer = io::Cursor::new(data.into_vec());
-                self.channel
-                    .local_window
-                    .consume(self.buffer.get_ref().len() as u32);
+                self.buffer.extend(data.iter());
+                self.channel.local_window.consume(data.len() as u32);
 
                 tracing::trace!(
                     "Received data block for stream `{:?}` on channel {}:{} of size `{}`",
                     self.stream_id,
                     self.channel.local_id,
                     self.channel.remote_id,
-                    self.buffer.get_ref().len()
+                    data.len()
                 );
             } else {
                 tracing::trace!(
