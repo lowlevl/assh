@@ -58,13 +58,21 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         }
     }
 
-    fn unregister(&self) {
+    fn unregister_all(&self) {
+        self.unregister_streams();
+
         self.connect
             .unregister(&Interest::ChannelWindowAdjust(self.local_id));
         self.connect
             .unregister(&Interest::ChannelEof(self.local_id));
         self.connect
             .unregister(&Interest::ChannelClose(self.local_id));
+    }
+
+    fn unregister_streams(&self) {
+        self.connect.unregister_if(
+            |interest| matches!(interest, Interest::ChannelData(id, _) if id == &self.local_id),
+        );
     }
 
     fn poll_take(
@@ -78,13 +86,10 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         {
             result?;
 
-            self.connect.unregister_if(
-                |interest| matches!(interest, Interest::ChannelData(id, _) if id == &self.local_id),
-            );
-            self.unregister();
+            self.unregister_all();
 
             tracing::debug!(
-                "Peer closed channel {}:{}, unregistered all streams and intrests",
+                "Peer closed channel {}:{}, unregistered all streams and interests",
                 self.local_id,
                 self.remote_id
             );
@@ -97,9 +102,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         {
             result?;
 
-            self.connect.unregister_if(
-                |interest| matches!(interest, Interest::ChannelData(id, _) if id == &self.local_id),
-            );
+            self.unregister_streams();
 
             tracing::debug!(
                 "Peer sent an EOF for channel {}:{}, unregistered all streams",
@@ -256,17 +259,17 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             .await
             .map_err(|_| Error::ChannelClosed)
     }
-
-    // /// Tells whether the channel has been closed.
-    // pub async fn is_closed(&self) -> bool {
-    //     self.incoming.is_disconnected()
-    // }
 }
 
 impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
     fn drop(&mut self) {
-        self.unregister();
-        self.connect.channels.remove(&self.local_id);
+        self.unregister_all();
+
+        tracing::debug!(
+            "Reporting channel {}:{} as closed",
+            self.local_id,
+            self.remote_id
+        );
 
         // TODO: Find a better way than this "bad bad loop™"
         loop {
@@ -283,11 +286,5 @@ impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
                 break;
             }
         }
-
-        tracing::debug!(
-            "Reporting channel {}:{} as closed",
-            self.local_id,
-            self.remote_id
-        );
     }
 }
