@@ -79,6 +79,11 @@ where
     }
 
     fn start_send(mut self: std::pin::Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
+        tracing::trace!(
+            "Queueing message in the sender of type ^{:#x}",
+            item.payload[0]
+        );
+
         self.queue.push_front(item);
 
         Ok(())
@@ -116,6 +121,7 @@ where
                 task::Poll::Pending
             }
             State::Recving(_) => {
+                // TODO: Fix this with an AtomicWaker
                 tracing::warn!("Busy waiting in Poller::poll_flush");
 
                 cx.waker().wake_by_ref();

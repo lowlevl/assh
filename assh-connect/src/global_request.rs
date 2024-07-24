@@ -1,7 +1,6 @@
 //! The _global requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use futures::SinkExt;
 use ssh_packet::{connect, IntoPacket};
 
 use super::Connect;
@@ -48,7 +47,7 @@ impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
                 _ => connect::RequestSuccess.into_packet(),
             };
 
-            self.connect.poller.lock().await.send(packet).await?;
+            self.connect.send(packet).await?;
         }
 
         Ok(())
@@ -58,9 +57,6 @@ impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
     pub async fn reject(self) -> Result<()> {
         if *self.inner.want_reply {
             self.connect
-                .poller
-                .lock()
-                .await
                 .send(connect::RequestFailure.into_packet())
                 .await?;
         }

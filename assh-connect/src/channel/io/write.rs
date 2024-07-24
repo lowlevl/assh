@@ -54,7 +54,7 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
         cx: &mut task::Context<'_>,
         buf: &[u8],
     ) -> task::Poll<io::Result<usize>> {
-        futures::ready!(self.channel.poll_take(cx, &Interest::None))
+        futures::ready!(self.channel.poll_for(cx, &Interest::None))
             .transpose()
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 

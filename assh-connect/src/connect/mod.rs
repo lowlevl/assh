@@ -1,6 +1,6 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
-use assh::{side::Side, Pipe, Session};
+use assh::{side::Side, Pipe};
 use dashmap::{DashMap, DashSet};
 use futures::{lock::Mutex, task, FutureExt, SinkExt, TryStream};
 use ssh_packet::{connect, IntoPacket, Packet};
@@ -13,9 +13,12 @@ use crate::{
     Error, Result,
 };
 
+mod service;
+pub use service::Service;
+
 // TODO: Flush Poller Sink on Drop ?
 
-/// A wrapper around a [`Session`] to interract with the connect layer.
+/// A wrapper around [`assh::Session`] to interract with the connect layer.
 pub struct Connect<IO, S>
 where
     IO: Pipe,
@@ -32,7 +35,7 @@ where
     IO: Pipe,
     S: Side,
 {
-    pub(crate) fn new(session: Session<IO, S>) -> Self {
+    fn new(session: assh::Session<IO, S>) -> Self {
         Self {
             poller: Mutex::new(Poller::from(session)),
             channels: Default::default(),
@@ -41,14 +44,30 @@ where
         }
     }
 
-    pub(crate) fn poll_take(
+    pub(crate) async fn send(&self, item: Packet) -> assh::Result<()> {
+        self.poller.lock().await.feed(item).await?;
+
+        futures::future::poll_fn(|cx| {
+            let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
+
+            poller.poll_flush_unpin(cx)
+        })
+        .await
+    }
+
+    // TODO: Revert to last keeping some of the beneficial changes.
+    pub(crate) fn poll_for(
         &self,
         cx: &mut task::Context,
         interest: &Interest,
     ) -> task::Poll<Option<assh::Result<Packet>>> {
-        if let Some(waker) = self.interests.get(interest) {
-            waker.register(cx.waker());
-        } else {
+        if self
+            .interests
+            .get(interest)
+            .as_deref()
+            .map(|waker| waker.register(cx.waker()))
+            .is_none()
+        {
             tracing::trace!("{interest:?}: Polled for unregistered interest, returning `None`");
 
             return task::Poll::Ready(None);
@@ -77,7 +96,7 @@ where
 
                     task::Poll::Ready(Some(Ok(packet)))
                 } else {
-                    match self.interests.get(&packet_interest) {
+                    match self.interests.get(&packet_interest).as_deref() {
                         Some(waker) => {
                             tracing::trace!("{interest:?} != {packet_interest:?}: Storing packet and waking task");
 
@@ -152,7 +171,7 @@ where
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
 
-            self.poll_take(cx, &interest)
+            self.poll_for(cx, &interest)
                 .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
@@ -200,7 +219,7 @@ where
             .await?;
 
         let response = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.poll_take(cx, &interest));
+            let polled = futures::ready!(self.poll_for(cx, &interest));
             let response = polled.and_then(|packet| match packet {
                 Ok(packet) => {
                     if !with_port && packet.to::<connect::RequestSuccess>().is_ok() {
@@ -254,7 +273,7 @@ where
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
 
-            self.poll_take(cx, &interest)
+            self.poll_for(cx, &interest)
                 .map_ok(|packet| channel_open::ChannelOpen::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
@@ -286,7 +305,7 @@ where
             .await?;
 
         let response = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.poll_take(cx, &interest));
+            let polled = futures::ready!(self.poll_for(cx, &interest));
             let response = polled.and_then(|packet| match packet {
                 Ok(packet) => {
                     if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {

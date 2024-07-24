@@ -63,12 +63,9 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
         .try_for_each_concurrent(None, |request| async {
             let channel = request.accept().await?;
 
+            let mut requests = channel.requests();
             let request = loop {
-                let request = channel
-                    .requests()
-                    .try_next()
-                    .await?
-                    .expect("Session has been closed");
+                let request = requests.try_next().await?.expect("Session has been closed");
 
                 tracing::info!("Received channel request: {:?}", request.cx());
 

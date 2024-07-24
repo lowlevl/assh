@@ -1,7 +1,6 @@
 //! The _channel requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use futures::SinkExt;
 use ssh_packet::{
     connect::{self},
     IntoPacket,
@@ -46,9 +45,6 @@ impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
         if *self.inner.want_reply {
             self.channel
                 .connect
-                .poller
-                .lock()
-                .await
                 .send(
                     connect::ChannelSuccess {
                         recipient_channel: self.channel.remote_id,
@@ -66,9 +62,6 @@ impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
         if *self.inner.want_reply {
             self.channel
                 .connect
-                .poller
-                .lock()
-                .await
                 .send(
                     connect::ChannelFailure {
                         recipient_channel: self.channel.remote_id,

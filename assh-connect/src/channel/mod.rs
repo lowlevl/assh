@@ -16,7 +16,7 @@ pub(super) use window::{LocalWindow, RemoteWindow};
 
 pub mod request;
 
-/// A reference to an opened channel in the session.
+/// A reference to an opened _channel_.
 pub struct Channel<'a, IO: Pipe, S: Side> {
     connect: &'a Connect<IO, S>,
 
@@ -69,14 +69,14 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         );
     }
 
-    fn poll_take(
+    fn poll_for(
         &self,
         cx: &mut task::Context,
         interest: &Interest,
     ) -> task::Poll<Option<assh::Result<Packet>>> {
         if let task::Poll::Ready(Some(result)) = self
             .connect
-            .poll_take(cx, &Interest::ChannelClose(self.local_id))
+            .poll_for(cx, &Interest::ChannelClose(self.local_id))
         {
             result?;
 
@@ -92,7 +92,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .connect
-            .poll_take(cx, &Interest::ChannelEof(self.local_id))
+            .poll_for(cx, &Interest::ChannelEof(self.local_id))
         {
             result?;
 
@@ -108,7 +108,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .connect
-            .poll_take(cx, &Interest::ChannelWindowAdjust(self.local_id))
+            .poll_for(cx, &Interest::ChannelWindowAdjust(self.local_id))
         {
             let bytes_to_add = result?.to::<connect::ChannelWindowAdjust>()?.bytes_to_add;
             self.remote_window.replenish(bytes_to_add);
@@ -123,7 +123,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             cx.waker().wake_by_ref();
             task::Poll::Pending
         } else {
-            self.connect.poll_take(cx, interest)
+            self.connect.poll_for(cx, interest)
         }
     }
 
@@ -137,7 +137,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
 
-            self.poll_take(cx, &interest)
+            self.poll_for(cx, &interest)
                 .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
@@ -148,9 +148,6 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     /// Send a _channel request_.
     pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<()> {
         self.connect
-            .poller
-            .lock()
-            .await
             .send(
                 connect::ChannelRequest {
                     recipient_channel: self.remote_id,
@@ -173,9 +170,6 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         self.connect.register(interest);
 
         self.connect
-            .poller
-            .lock()
-            .await
             .send(
                 connect::ChannelRequest {
                     recipient_channel: self.remote_id,
@@ -187,7 +181,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             .await?;
 
         let response = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.poll_take(cx, &interest));
+            let polled = futures::ready!(self.poll_for(cx, &interest));
             let response = polled.and_then(|packet| match packet {
                 Ok(packet) => {
                     if packet.to::<connect::ChannelSuccess>().is_ok() {
@@ -246,9 +240,6 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     /// Signal to the peer we won't send any more data in the current channel.
     pub async fn eof(&self) -> Result<()> {
         self.connect
-            .poller
-            .lock()
-            .await
             .send(
                 connect::ChannelEof {
                     recipient_channel: self.remote_id,

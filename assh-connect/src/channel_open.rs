@@ -1,7 +1,6 @@
 //! The _channel open requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use futures::SinkExt;
 use ssh_packet::{arch::StringUtf8, connect, IntoPacket};
 
 use super::Connect;
@@ -51,9 +50,6 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
         let local_id = self.connect.local_id();
 
         self.connect
-            .poller
-            .lock()
-            .await
             .send(
                 connect::ChannelOpenConfirmation {
                     recipient_channel: self.inner.sender_channel,
@@ -81,9 +77,6 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
         description: impl Into<StringUtf8>,
     ) -> Result<()> {
         self.connect
-            .poller
-            .lock()
-            .await
             .send(
                 connect::ChannelOpenFailure {
                     recipient_channel: self.inner.sender_channel,
