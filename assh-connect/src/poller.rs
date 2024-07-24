@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use assh::{side::Side, Pipe, Session};
-use futures::{future::BoxFuture, task, FutureExt, Sink, Stream};
+use futures::{future::BoxFuture, task, FutureExt, Sink, Stream, StreamExt};
 use ssh_packet::Packet;
 
 use crate::Result;
@@ -22,7 +22,9 @@ enum State<IO: Pipe, S: Side> {
 
 pub struct Poller<IO: Pipe, S: Side> {
     state: State<IO, S>,
+
     queue: VecDeque<Packet>,
+    buffer: Option<Packet>,
 }
 
 impl<IO, S> From<Session<IO, S>> for Poller<IO, S>
@@ -33,8 +35,29 @@ where
     fn from(session: Session<IO, S>) -> Self {
         Self {
             state: State::Idle(Some(session.into())),
+
             queue: Default::default(),
+            buffer: Default::default(),
         }
+    }
+}
+
+impl<IO, S> Poller<IO, S>
+where
+    IO: Pipe,
+    S: Side,
+{
+    pub fn poll_peek(
+        &mut self,
+        cx: &mut task::Context,
+    ) -> task::Poll<assh::Result<&mut Option<Packet>>> {
+        if self.buffer.is_none() {
+            if let Some(result) = futures::ready!(self.poll_next_unpin(cx)) {
+                self.buffer = Some(result?);
+            }
+        }
+
+        task::Poll::Ready(Ok(&mut self.buffer))
     }
 }
 

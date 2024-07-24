@@ -2,11 +2,7 @@
 
 use assh::{side::Side, Pipe, Session};
 use dashmap::{DashMap, DashSet};
-use futures::{
-    lock::{Mutex, MutexGuard},
-    task::{self, AtomicWaker},
-    FutureExt, SinkExt, Stream, TryStream,
-};
+use futures::{lock::Mutex, task, FutureExt, SinkExt, TryStream};
 use ssh_packet::{connect, IntoPacket, Packet};
 
 use crate::{
@@ -28,8 +24,7 @@ where
     pub(crate) poller: Mutex<Poller<IO, S>>,
     pub(crate) channels: DashSet<u32>,
 
-    interests: DashMap<Interest, AtomicWaker>,
-    buffer: Mutex<Option<Packet>>,
+    interests: DashMap<Interest, task::AtomicWaker>,
 }
 
 impl<IO, S> Connect<IO, S>
@@ -43,26 +38,7 @@ where
             channels: Default::default(),
 
             interests: Default::default(),
-            buffer: Default::default(),
         }
-    }
-
-    fn poll_recv(
-        &self,
-        cx: &mut task::Context,
-    ) -> task::Poll<assh::Result<MutexGuard<'_, Option<Packet>>>> {
-        let mut buffer = futures::ready!(self.buffer.lock().poll_unpin(cx));
-
-        if buffer.is_none() {
-            let poller = futures::ready!(self.poller.lock().poll_unpin(cx));
-            let mut poller = std::pin::Pin::new(poller);
-
-            if let Some(res) = futures::ready!(poller.as_mut().poll_next(cx)) {
-                *buffer = Some(res?);
-            }
-        }
-
-        task::Poll::Ready(Ok(buffer))
     }
 
     pub(crate) fn poll_take(
@@ -78,7 +54,8 @@ where
             return task::Poll::Ready(None);
         }
 
-        let mut buffer = futures::ready!(self.poll_recv(cx))?;
+        let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
+        let buffer = futures::ready!(poller.poll_peek(cx))?;
 
         tracing::trace!("{interest:?}: Polled data");
 

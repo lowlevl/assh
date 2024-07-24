@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use futures::task;
 
 // TODO: Evaluate memory ordering constraints to elliviate SeqCst ordering if possible.
+// TODO: Do unit tests using `loom`.
 
 pub struct LocalWindow {
     inner: AtomicU32,

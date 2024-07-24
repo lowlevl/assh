@@ -8,10 +8,10 @@ use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    StreamExt, TryFutureExt, TryStreamExt,
+    TryFutureExt, TryStreamExt,
 };
 use ssh_key::PrivateKey;
-use ssh_packet::connect::{ChannelOpenContext, ChannelRequestContext};
+use ssh_packet::connect::ChannelRequestContext;
 use tokio::{
     net::{TcpListener, TcpStream},
     task,
