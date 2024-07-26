@@ -74,6 +74,11 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         cx: &mut task::Context,
         interest: &Interest,
     ) -> task::Poll<Option<assh::Result<Packet>>> {
+        tracing::trace!(
+            "Polled with interest `{interest:?}` for channel {}",
+            self.local_id
+        );
+
         if let task::Poll::Ready(Some(result)) = self
             .connect
             .poll_for(cx, &Interest::ChannelClose(self.local_id))
@@ -83,9 +88,8 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             self.unregister_all();
 
             tracing::debug!(
-                "Peer closed channel {}:{}, unregistered all streams and interests",
-                self.local_id,
-                self.remote_id
+                "Peer closed channel {}, unregistered all streams and interests",
+                self.local_id
             );
 
             cx.waker().wake_by_ref();
@@ -99,9 +103,8 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             self.unregister_streams();
 
             tracing::debug!(
-                "Peer sent an EOF for channel {}:{}, unregistered all streams",
-                self.local_id,
-                self.remote_id
+                "Peer sent an EOF for channel {}, unregistered all streams",
+                self.local_id
             );
 
             cx.waker().wake_by_ref();
@@ -114,10 +117,9 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             self.remote_window.replenish(bytes_to_add);
 
             tracing::debug!(
-                "Peer extended data window by `{}` bytes for channel {}:{}",
+                "Peer extended data window by `{}` bytes for channel {}",
                 bytes_to_add,
-                self.local_id,
-                self.remote_id
+                self.local_id
             );
 
             cx.waker().wake_by_ref();
@@ -136,6 +138,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
+            let _span = tracing::debug_span!("channel::Request", channel = self.local_id).entered();
 
             self.poll_for(cx, &interest)
                 .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
@@ -181,19 +184,19 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             .await?;
 
         let response = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.poll_for(cx, &interest));
-            let response = polled.and_then(|packet| match packet {
-                Ok(packet) => {
-                    if packet.to::<connect::ChannelSuccess>().is_ok() {
-                        Some(Ok(request::Response::Success))
-                    } else if packet.to::<connect::ChannelFailure>().is_ok() {
-                        Some(Ok(request::Response::Failure))
-                    } else {
-                        None
+            let response =
+                futures::ready!(self.poll_for(cx, &interest)).and_then(|packet| match packet {
+                    Ok(packet) => {
+                        if packet.to::<connect::ChannelSuccess>().is_ok() {
+                            Some(Ok(request::Response::Success))
+                        } else if packet.to::<connect::ChannelFailure>().is_ok() {
+                            Some(Ok(request::Response::Failure))
+                        } else {
+                            None
+                        }
                     }
-                }
-                Err(err) => Some(Err(err)),
-            });
+                    Err(err) => Some(Err(err)),
+                });
 
             task::Poll::Ready(response)
         })
@@ -255,11 +258,7 @@ impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
     fn drop(&mut self) {
         self.unregister_all();
 
-        tracing::debug!(
-            "Reporting channel {}:{} as closed",
-            self.local_id,
-            self.remote_id
-        );
+        tracing::debug!("Reporting channel {} as closed", self.local_id);
 
         // TODO: Find a better way than this "bad bad loop™"
         loop {

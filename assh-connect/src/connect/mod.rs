@@ -61,6 +61,8 @@ where
         cx: &mut task::Context,
         interest: &Interest,
     ) -> task::Poll<Option<assh::Result<Packet>>> {
+        tracing::trace!("Polled with interest `{interest:?}`");
+
         if self
             .interests
             .get(interest)
@@ -75,8 +77,6 @@ where
 
         let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
         let buffer = futures::ready!(poller.poll_peek(cx))?;
-
-        tracing::trace!("{interest:?}: Polled data");
 
         match buffer.take() {
             None => {
@@ -101,8 +101,8 @@ where
                             tracing::trace!("{interest:?} != {packet_interest:?}: Storing packet and waking task");
 
                             *buffer = Some(packet);
-
                             waker.wake();
+
                             task::Poll::Pending
                         }
                         None => {
@@ -170,6 +170,7 @@ where
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
+            let _span = tracing::debug_span!("GlobalRequest").entered();
 
             self.poll_for(cx, &interest)
                 .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
@@ -181,17 +182,14 @@ where
 
     /// Send a _global request_.
     pub async fn global_request(&self, context: connect::GlobalRequestContext) -> Result<()> {
-        self.poller
-            .lock()
-            .await
-            .send(
-                connect::GlobalRequest {
-                    want_reply: false.into(),
-                    context,
-                }
-                .into_packet(),
-            )
-            .await?;
+        self.send(
+            connect::GlobalRequest {
+                want_reply: false.into(),
+                context,
+            }
+            .into_packet(),
+        )
+        .await?;
 
         Ok(())
     }
@@ -206,34 +204,31 @@ where
 
         let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
-        self.poller
-            .lock()
-            .await
-            .send(
-                connect::GlobalRequest {
-                    want_reply: false.into(),
-                    context,
-                }
-                .into_packet(),
-            )
-            .await?;
+        self.send(
+            connect::GlobalRequest {
+                want_reply: false.into(),
+                context,
+            }
+            .into_packet(),
+        )
+        .await?;
 
         let response = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.poll_for(cx, &interest));
-            let response = polled.and_then(|packet| match packet {
-                Ok(packet) => {
-                    if !with_port && packet.to::<connect::RequestSuccess>().is_ok() {
-                        Some(Ok(global_request::Response::Success(None)))
-                    } else if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
-                        Some(Ok(global_request::Response::Success(Some(bound_port))))
-                    } else if packet.to::<connect::RequestFailure>().is_ok() {
-                        Some(Ok(global_request::Response::Failure))
-                    } else {
-                        None
+            let response =
+                futures::ready!(self.poll_for(cx, &interest)).and_then(|packet| match packet {
+                    Ok(packet) => {
+                        if !with_port && packet.to::<connect::RequestSuccess>().is_ok() {
+                            Some(Ok(global_request::Response::Success(None)))
+                        } else if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
+                            Some(Ok(global_request::Response::Success(Some(bound_port))))
+                        } else if packet.to::<connect::RequestFailure>().is_ok() {
+                            Some(Ok(global_request::Response::Failure))
+                        } else {
+                            None
+                        }
                     }
-                }
-                Err(err) => Some(Err(err)),
-            });
+                    Err(err) => Some(Err(err)),
+                });
 
             task::Poll::Ready(response)
         })
@@ -272,6 +267,7 @@ where
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
+            let _span = tracing::debug_span!("ChannelOpen").entered();
 
             self.poll_for(cx, &interest)
                 .map_ok(|packet| channel_open::ChannelOpen::new(self, packet.to().unwrap()))
@@ -290,43 +286,40 @@ where
         let interest = Interest::ChannelOpenResponse(local_id);
         self.register(interest);
 
-        self.poller
-            .lock()
-            .await
-            .send(
-                connect::ChannelOpen {
-                    sender_channel: local_id,
-                    initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
-                    maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
-                    context,
-                }
-                .into_packet(),
-            )
-            .await?;
+        self.send(
+            connect::ChannelOpen {
+                sender_channel: local_id,
+                initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
+                maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
+                context,
+            }
+            .into_packet(),
+        )
+        .await?;
 
         let response = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.poll_for(cx, &interest));
-            let response = polled.and_then(|packet| match packet {
-                Ok(packet) => {
-                    if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
-                        Some(Ok(channel_open::Response::Success(channel::Channel::new(
-                            self,
-                            local_id,
-                            message.sender_channel,
-                            message.initial_window_size,
-                            message.maximum_packet_size,
-                        ))))
-                    } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
-                        Some(Ok(channel_open::Response::Failure {
-                            reason: message.reason,
-                            description: message.description.into_string(),
-                        }))
-                    } else {
-                        None
+            let response =
+                futures::ready!(self.poll_for(cx, &interest)).and_then(|packet| match packet {
+                    Ok(packet) => {
+                        if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
+                            Some(Ok(channel_open::Response::Success(channel::Channel::new(
+                                self,
+                                local_id,
+                                message.sender_channel,
+                                message.initial_window_size,
+                                message.maximum_packet_size,
+                            ))))
+                        } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
+                            Some(Ok(channel_open::Response::Failure {
+                                reason: message.reason,
+                                description: message.description.into_string(),
+                            }))
+                        } else {
+                            None
+                        }
                     }
-                }
-                Err(err) => Some(Err(err)),
-            });
+                    Err(err) => Some(Err(err)),
+                });
 
             task::Poll::Ready(response)
         })

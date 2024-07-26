@@ -54,6 +54,13 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
         cx: &mut task::Context<'_>,
         buf: &[u8],
     ) -> task::Poll<io::Result<usize>> {
+        let _span = tracing::debug_span!(
+            "io::Write",
+            channel = self.channel.local_id,
+            stream = self.stream_id
+        )
+        .entered();
+
         futures::ready!(self.channel.poll_for(cx, &Interest::None))
             .transpose()
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
@@ -79,6 +86,13 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<io::Result<()>> {
+        let _span = tracing::debug_span!(
+            "io::Write",
+            channel = self.channel.local_id,
+            stream = self.stream_id
+        )
+        .entered();
+
         if !self.buffer.is_empty() {
             futures::ready!(self.poll_send(cx))?;
         }

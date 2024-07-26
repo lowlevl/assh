@@ -47,10 +47,9 @@ impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
             poller.start_send_unpin(packet).ok();
 
             tracing::debug!(
-                "Adjusted window size by `{}` for channel {}:{}",
+                "Adjusted window size by `{}` for channel {}",
                 bytes_to_add,
                 self.channel.local_id,
-                self.channel.remote_id,
             );
         }
 
@@ -64,6 +63,13 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
         cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
+        let _span = tracing::debug_span!(
+            "io::Read",
+            channel = self.channel.local_id,
+            stream = self.stream_id
+        )
+        .entered();
+
         {
             let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
             self.adjust_window(&mut *poller)?;
@@ -88,18 +94,16 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                 self.channel.local_window.consume(data.len() as u32);
 
                 tracing::trace!(
-                    "Received data block for stream `{:?}` on channel {}:{} of size `{}`",
+                    "Received data block for stream `{:?}` on channel {} of size `{}`",
                     self.stream_id,
                     self.channel.local_id,
-                    self.channel.remote_id,
                     data.len()
                 );
             } else {
                 tracing::trace!(
-                    "End-of-file for stream `{:?}` on channel {}:{}",
+                    "End-of-file for stream `{:?}` on channel {}",
                     self.stream_id,
-                    self.channel.local_id,
-                    self.channel.remote_id,
+                    self.channel.local_id
                 );
             }
         }

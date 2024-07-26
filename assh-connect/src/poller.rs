@@ -84,7 +84,7 @@ where
             item.payload[0]
         );
 
-        self.queue.push_front(item);
+        self.queue.push_back(item);
 
         Ok(())
     }
@@ -93,25 +93,8 @@ where
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Result<(), Self::Error>> {
-        let empty_queue = self.queue.is_empty();
-
-        match self.state {
-            State::Idle(ref mut session) if !empty_queue => {
-                let Some(mut session) = session.take() else {
-                    unreachable!()
-                };
-
-                if let Some(item) = self.queue.pop_back() {
-                    self.state =
-                        State::Sending(async move { (session.send(item).await, session) }.boxed());
-                } else {
-                    unreachable!()
-                }
-
-                cx.waker().wake_by_ref();
-                task::Poll::Pending
-            }
-            State::Sending(ref mut fut) => {
+        match &mut self.state {
+            State::Sending(fut) => {
                 let (result, session) = futures::ready!(fut.poll_unpin(cx));
 
                 self.state = State::Idle(Some(session));
@@ -120,14 +103,40 @@ where
                 cx.waker().wake_by_ref();
                 task::Poll::Pending
             }
+
+            State::Idle(session) => {
+                let Some(mut session) = session.take() else {
+                    unreachable!()
+                };
+
+                if let Some(item) = self.queue.pop_front() {
+                    let span = tracing::debug_span!("State::Sending");
+
+                    self.state = State::Sending(
+                        async move {
+                            let _entered = span.enter();
+
+                            (session.send(item).await, session)
+                        }
+                        .boxed(),
+                    );
+
+                    cx.waker().wake_by_ref();
+                    task::Poll::Pending
+                } else {
+                    self.state = State::Idle(Some(session));
+
+                    task::Poll::Ready(Ok(()))
+                }
+            }
+
             State::Recving(_) => {
-                // TODO: Fix this with an AtomicWaker
+                // TODO: Fix this with an AtomicWaker.
                 tracing::warn!("Busy waiting in Poller::poll_flush");
 
                 cx.waker().wake_by_ref();
                 task::Poll::Pending
             }
-            _ => task::Poll::Ready(Ok(())),
         }
     }
 
@@ -158,6 +167,11 @@ where
             State::Recving(fut) => {
                 let (result, session) = futures::ready!(fut.poll_unpin(cx));
 
+                tracing::trace!(
+                    "Polled incoming data from peer: ^{:x?}",
+                    result.as_ref().map(|packet| packet.payload[0])
+                );
+
                 self.state = State::Idle(Some(session));
 
                 task::Poll::Ready(match result {
@@ -165,14 +179,24 @@ where
                     other => Some(other),
                 })
             }
+
             State::Idle(session) => {
                 let Some(mut session) = session.take() else {
                     unreachable!()
                 };
 
-                if session.readable().boxed().poll_unpin(cx).is_ready() {
-                    self.state =
-                        State::Recving(async move { (session.recv().await, session) }.boxed());
+                // TODO: Fix this call, it seems to never wake task in some cases.
+                if session.readable().boxed_local().poll_unpin(cx).is_ready() {
+                    let span = tracing::debug_span!("State::Recving");
+
+                    self.state = State::Recving(
+                        async move {
+                            let _entered = span.enter();
+
+                            (session.recv().await, session)
+                        }
+                        .boxed(),
+                    );
 
                     cx.waker().wake_by_ref();
                     task::Poll::Pending
@@ -182,6 +206,7 @@ where
                     task::Poll::Pending
                 }
             }
+
             _ => unreachable!(),
         }
     }

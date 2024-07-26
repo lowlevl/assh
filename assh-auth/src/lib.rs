@@ -23,4 +23,7 @@
 const SERVICE_NAME: &str = "ssh-userauth";
 
 pub mod handler;
+pub use handler::Auth as AuthHandler;
+
 pub mod request;
+pub use request::Auth as AuthRequest;
