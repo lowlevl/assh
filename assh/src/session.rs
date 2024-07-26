@@ -17,7 +17,8 @@ use crate::{
     stream::Stream,
 };
 
-// TODO: Handle extension negotiation described in RFC8308
+// TODO: Handle extension negotiation described in RFC8308.
+// TODO: Fix out-of-band rekeying, it expects the packet right away while we are not sure the peer is that fast.
 
 /// A trait alias for something _pipe-alike_, implementing [`AsyncBufRead`] and [`AsyncWrite`].
 pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static {}
@@ -136,9 +137,7 @@ where
             Either::Right(err) => return Err(err.clone().into()),
         };
 
-        if stream.is_rekeyable()
-            || (stream.is_readable().await? && stream.peek().await?.to::<KexInit>().is_ok())
-        {
+        if stream.is_rekeyable() {
             if let Err(err) = self.config.kex(stream, &self.peer_id).await {
                 return Err(self
                     .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())

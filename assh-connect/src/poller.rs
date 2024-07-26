@@ -110,16 +110,8 @@ where
                 };
 
                 if let Some(item) = self.queue.pop_front() {
-                    let span = tracing::debug_span!("State::Sending");
-
-                    self.state = State::Sending(
-                        async move {
-                            let _entered = span.enter();
-
-                            (session.send(item).await, session)
-                        }
-                        .boxed(),
-                    );
+                    self.state =
+                        State::Sending(async move { (session.send(item).await, session) }.boxed());
 
                     cx.waker().wake_by_ref();
                     task::Poll::Pending
@@ -185,18 +177,9 @@ where
                     unreachable!()
                 };
 
-                // TODO: Fix this call, it seems to never wake task in some cases.
                 if session.readable().boxed_local().poll_unpin(cx).is_ready() {
-                    let span = tracing::debug_span!("State::Recving");
-
-                    self.state = State::Recving(
-                        async move {
-                            let _entered = span.enter();
-
-                            (session.recv().await, session)
-                        }
-                        .boxed(),
-                    );
+                    self.state =
+                        State::Recving(async move { (session.recv().await, session) }.boxed());
 
                     cx.waker().wake_by_ref();
                     task::Poll::Pending
