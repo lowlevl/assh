@@ -99,6 +99,7 @@ impl RemoteWindow {
             //     self.waker.take().is_none(),
             //     "Need to rework to add a collection of wakers"
             // );
+            tracing::warn!("Peer channel window is full, awaiting for extension");
 
             self.waker.register(cx.waker());
             task::Poll::Pending

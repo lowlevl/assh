@@ -55,7 +55,6 @@ where
         .await
     }
 
-    // TODO: Revert to last keeping some of the beneficial changes.
     pub(crate) fn poll_for(
         &self,
         cx: &mut task::Context,

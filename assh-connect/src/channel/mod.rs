@@ -74,11 +74,6 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         cx: &mut task::Context,
         interest: &Interest,
     ) -> task::Poll<Option<assh::Result<Packet>>> {
-        tracing::trace!(
-            "Polled with interest `{interest:?}` for channel {}",
-            self.local_id
-        );
-
         if let task::Poll::Ready(Some(result)) = self
             .connect
             .poll_for(cx, &Interest::ChannelClose(self.local_id))
@@ -88,7 +83,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             self.unregister_all();
 
             tracing::debug!(
-                "Peer closed channel {}, unregistered all streams and interests",
+                "Peer closed channel #{}, unregistered all streams and interests",
                 self.local_id
             );
 
@@ -103,7 +98,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             self.unregister_streams();
 
             tracing::debug!(
-                "Peer sent an EOF for channel {}, unregistered all streams",
+                "Peer sent an EOF for channel #{}, unregistered all streams",
                 self.local_id
             );
 
@@ -117,7 +112,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             self.remote_window.replenish(bytes_to_add);
 
             tracing::debug!(
-                "Peer extended data window by `{}` bytes for channel {}",
+                "Peer extended data window by `{}` bytes for channel #{}",
                 bytes_to_add,
                 self.local_id
             );
@@ -258,7 +253,7 @@ impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
     fn drop(&mut self) {
         self.unregister_all();
 
-        tracing::debug!("Reporting channel {} as closed", self.local_id);
+        tracing::debug!("Reporting channel #{} as closed", self.local_id);
 
         // TODO: Find a better way than this "bad bad loop™"
         loop {
