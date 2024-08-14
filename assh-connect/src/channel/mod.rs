@@ -4,6 +4,7 @@ use core::task;
 use std::num::NonZeroU32;
 
 use assh::{side::Side, Pipe};
+use dashmap::DashMap;
 use futures::{AsyncRead, AsyncWrite, SinkExt, TryStream};
 use ssh_packet::{connect, IntoPacket, Packet};
 
@@ -26,6 +27,8 @@ pub struct Channel<'a, IO: Pipe, S: Side> {
     remote_id: u32,
     remote_window: RemoteWindow,
     remote_maxpack: u32,
+
+    streams: DashMap<Option<NonZeroU32>, flume::Sender<Vec<u8>>>,
 }
 
 impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
@@ -37,6 +40,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         remote_maxpack: u32,
     ) -> Self {
         connect.register(Interest::ChannelClose(local_id));
+        connect.register(Interest::ChannelData(local_id));
         connect.register(Interest::ChannelEof(local_id));
         connect.register(Interest::ChannelWindowAdjust(local_id));
 
@@ -49,24 +53,26 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             remote_id,
             remote_window: RemoteWindow::from(remote_window),
             remote_maxpack,
+
+            streams: Default::default(),
         }
     }
 
     fn unregister_all(&self) {
-        self.unregister_streams();
+        self.connect.unregister_if(
+            |interest| matches!(interest, Interest::ChannelRequest(id) | Interest::ChannelResponse(id) if id == &self.local_id),
+        );
+
+        self.streams.clear();
 
         self.connect
             .unregister(&Interest::ChannelWindowAdjust(self.local_id));
         self.connect
             .unregister(&Interest::ChannelEof(self.local_id));
         self.connect
+            .unregister(&Interest::ChannelData(self.local_id));
+        self.connect
             .unregister(&Interest::ChannelClose(self.local_id));
-    }
-
-    fn unregister_streams(&self) {
-        self.connect.unregister_if(
-            |interest| matches!(interest, Interest::ChannelData(id, _) if id == &self.local_id),
-        );
     }
 
     fn poll_for(
@@ -91,11 +97,36 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .connect
+            .poll_for(cx, &Interest::ChannelData(self.local_id))
+        {
+            let packet = result?;
+
+            let (stream_id, data) = if let Ok(message) = packet.to::<connect::ChannelData>() {
+                (None, message.data.into_vec())
+            } else if let Ok(message) = packet.to::<connect::ChannelExtendedData>() {
+                (Some(message.data_type), message.data.into_vec())
+            } else {
+                unreachable!()
+            };
+
+            match self.streams.get(&stream_id) {
+                Some(sender) => {
+                    sender.send(data).ok();
+                }
+                None => {
+                    tracing::debug!("Received an unhandled stream message for {:?}", stream_id);
+                }
+            }
+
+            cx.waker().wake_by_ref();
+            task::Poll::Pending
+        } else if let task::Poll::Ready(Some(result)) = self
+            .connect
             .poll_for(cx, &Interest::ChannelEof(self.local_id))
         {
             result?;
 
-            self.unregister_streams();
+            self.streams.clear();
 
             tracing::debug!(
                 "Peer sent an EOF for channel #{}, unregistered all streams",

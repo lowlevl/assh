@@ -16,19 +16,21 @@ pub struct Read<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,
     stream_id: Option<NonZeroU32>,
 
+    receiver: flume::Receiver<Vec<u8>>,
     buffer: VecDeque<u8>,
 }
 
 impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
     pub fn new(channel: &'a Channel<'a, IO, S>, stream_id: Option<NonZeroU32>) -> Self {
-        channel
-            .connect
-            .register(Interest::ChannelData(channel.local_id, stream_id));
+        let (sender, receiver) = flume::unbounded();
+
+        channel.streams.insert(stream_id, sender);
 
         Self {
             channel,
             stream_id,
 
+            receiver,
             buffer: Default::default(),
         }
     }
@@ -76,36 +78,32 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
         }
 
         if self.buffer.is_empty() {
-            let polled = self.channel.poll_for(
-                cx,
-                &Interest::ChannelData(self.channel.local_id, self.stream_id),
-            );
-            if let Some(packet) = futures::ready!(polled) {
-                let packet =
-                    packet.map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
+            return match self.receiver.try_recv() {
+                Ok(data) => {
+                    self.buffer.extend(data.iter());
+                    self.channel.local_window.consume(data.len() as u32);
 
-                let data = if self.stream_id.is_none() {
-                    packet.to::<connect::ChannelData>().unwrap().data
-                } else {
-                    packet.to::<connect::ChannelExtendedData>().unwrap().data
-                };
+                    tracing::trace!(
+                        "Received data block for stream `{:?}` on channel #{} of size `{}`",
+                        self.stream_id,
+                        self.channel.local_id,
+                        data.len()
+                    );
 
-                self.buffer.extend(data.iter());
-                self.channel.local_window.consume(data.len() as u32);
-
-                tracing::trace!(
-                    "Received data block for stream `{:?}` on channel #{} of size `{}`",
-                    self.stream_id,
-                    self.channel.local_id,
-                    data.len()
-                );
-            } else {
-                tracing::trace!(
-                    "End-of-file for stream `{:?}` on channel #{}",
-                    self.stream_id,
-                    self.channel.local_id
-                );
-            }
+                    cx.waker().wake_by_ref();
+                    task::Poll::Pending
+                }
+                Err(flume::TryRecvError::Disconnected) => task::Poll::Ready(Ok(0)),
+                Err(flume::TryRecvError::Empty) => {
+                    match self.channel.poll_for(cx, &Interest::None) {
+                        task::Poll::Ready(Some(Err(err))) => {
+                            task::Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, err)))
+                        }
+                        task::Poll::Ready(Some(Ok(_))) => unreachable!(),
+                        _ => task::Poll::Pending,
+                    }
+                }
+            };
         }
 
         task::Poll::Ready(self.buffer.read(buf))
@@ -114,9 +112,6 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
 
 impl<'a, IO: Pipe, S: Side> Drop for Read<'a, IO, S> {
     fn drop(&mut self) {
-        self.channel.connect.unregister(&Interest::ChannelData(
-            self.channel.local_id,
-            self.stream_id,
-        ));
+        self.channel.streams.remove(&self.stream_id);
     }
 }

@@ -63,27 +63,31 @@ async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
         .try_for_each_concurrent(None, |request| async {
             let channel = request.accept().await?;
 
-            let mut requests = channel.requests();
-            let request = loop {
-                let request = requests.try_next().await?.expect("Session has been closed");
+            let request = {
+                let mut requests = channel.requests();
 
-                tracing::info!("Received channel request: {:?}", request.cx());
+                loop {
+                    let request = requests.try_next().await?.expect("Session has been closed");
 
-                if matches!(
-                    request.cx(),
-                    ChannelRequestContext::Shell
-                        | ChannelRequestContext::Exec { .. }
-                        | ChannelRequestContext::Pty { .. }
-                ) {
-                    break request;
+                    tracing::info!("Received channel request: {:?}", request.cx());
+
+                    if matches!(
+                        request.cx(),
+                        ChannelRequestContext::Shell
+                            | ChannelRequestContext::Exec { .. }
+                            | ChannelRequestContext::Pty { .. }
+                    ) {
+                        break request;
+                    }
+
+                    request.accept().await?;
                 }
-
-                request.accept().await?;
             };
 
+            let (reader, mut writer) = (channel.as_reader(), &mut channel.as_writer());
             request.accept().await?;
 
-            futures::io::copy(channel.as_reader(), &mut channel.as_writer()).await?;
+            futures::io::copy(reader, &mut writer).await?;
             channel.eof().await?;
 
             Ok(())

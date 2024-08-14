@@ -1,5 +1,3 @@
-use std::num::NonZeroU32;
-
 use ssh_packet::{connect, Packet};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -11,7 +9,7 @@ pub enum Interest {
     ChannelOpenResponse(u32),
 
     ChannelWindowAdjust(u32),
-    ChannelData(u32, Option<NonZeroU32>),
+    ChannelData(u32),
     ChannelEof(u32),
     ChannelClose(u32),
 
@@ -41,9 +39,9 @@ impl From<&Packet> for Interest {
         } else if let Ok(message) = packet.to::<connect::ChannelWindowAdjust>() {
             Self::ChannelWindowAdjust(message.recipient_channel)
         } else if let Ok(message) = packet.to::<connect::ChannelData>() {
-            Self::ChannelData(message.recipient_channel, None)
+            Self::ChannelData(message.recipient_channel)
         } else if let Ok(message) = packet.to::<connect::ChannelExtendedData>() {
-            Self::ChannelData(message.recipient_channel, Some(message.data_type))
+            Self::ChannelData(message.recipient_channel)
         } else if let Ok(message) = packet.to::<connect::ChannelEof>() {
             Self::ChannelEof(message.recipient_channel)
         } else if let Ok(message) = packet.to::<connect::ChannelClose>() {

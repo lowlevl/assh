@@ -79,11 +79,12 @@ where
 
         match buffer.take() {
             None => {
-                tracing::trace!("{interest:?}: Receiver dead, waking up tasks for cleanup");
+                tracing::trace!(
+                    "{interest:?}: Receiver dead, unregistering all interests, waking up tasks"
+                );
 
-                for waker in self.interests.iter() {
-                    waker.wake();
-                }
+                // Optimization for woken up tasks to return early `Ready(None)`.
+                self.unregister_if(|_| true);
 
                 task::Poll::Ready(None)
             }
