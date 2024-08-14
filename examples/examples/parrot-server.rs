@@ -2,17 +2,20 @@ use std::{net::SocketAddr, time::Duration};
 
 use assh::{side::server::Server, Session};
 use assh_auth::handler::{none, Auth};
-use assh_connect::{channel, connect::channel_open::Outcome};
 
 use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
 use futures::{
     io::{BufReader, BufWriter},
-    AsyncReadExt, AsyncWriteExt, FutureExt, StreamExt, TryFutureExt,
+    AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt, TryStreamExt,
 };
-use ssh_packet::connect;
-use tokio::{net::TcpListener, task};
+use ssh_key::PrivateKey;
+use ssh_packet::connect::ChannelRequestContext;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    task,
+};
 
 const DELAY: Duration = Duration::from_millis(50);
 const CLEAR: &str = "\x1B[2J";
@@ -34,6 +37,92 @@ const FRAMES: &[&str] = &[
 pub struct Args {
     /// The address to bind the server on.
     address: SocketAddr,
+}
+
+async fn session(stream: TcpStream, keys: Vec<PrivateKey>) -> eyre::Result<()> {
+    let stream = BufReader::new(BufWriter::new(stream.compat()));
+    let session = Session::new(
+        stream,
+        Server {
+            keys,
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    tracing::info!("Successfully connected to `{}`", session.peer_id());
+
+    let authentication = Auth::new(assh_connect::Service)
+        .banner("Welcome, and get parrot'd back\r\n")
+        .none(|_| none::Response::Accept);
+    let connect = std::sync::Arc::new(session.handle(authentication).await?);
+
+    task::spawn({
+        let connect = connect.clone();
+
+        async move {
+            connect
+                .global_requests()
+                .try_for_each(|request| async move {
+                    tracing::info!("Received Global request: {:?}", request.cx());
+
+                    request.reject().await
+                })
+                .await
+        }
+    });
+
+    connect
+        .channel_opens()
+        .err_into()
+        .try_for_each_concurrent(None, |request| async {
+            let channel = request.accept().await?;
+
+            let request = {
+                let mut requests = channel.requests();
+
+                loop {
+                    let request = requests.try_next().await?.expect("Session has been closed");
+
+                    tracing::info!("Received channel request: {:?}", request.cx());
+
+                    if matches!(
+                        request.cx(),
+                        ChannelRequestContext::Shell
+                            | ChannelRequestContext::Exec { .. }
+                            | ChannelRequestContext::Pty { .. }
+                    ) {
+                        break request;
+                    }
+
+                    request.accept().await?;
+                }
+            };
+
+            let (mut reader, writer) = (channel.as_reader(), &mut channel.as_writer());
+            request.accept().await?;
+
+            for frame in FRAMES.iter().cycle() {
+                let mut read = [0u8; 1];
+
+                futures::select_biased! {
+                    _ = tokio::time::sleep(DELAY).fuse() => {
+                        writer.write_all(CLEAR.as_bytes()).await?;
+                        writer.write_all(frame.as_bytes()).await?;
+                        writer.flush().await?;
+                    }
+                    len = reader.read(&mut read).fuse() => {
+                        if matches!(len, Ok(len) if len == 0 || read[0] == b'q') {
+                            break;
+                        }
+                    }
+                }
+            }
+            channel.eof().await?;
+
+            Ok(())
+        })
+        .await
 }
 
 #[tokio::main]
@@ -58,81 +147,8 @@ async fn main() -> eyre::Result<()> {
         let keys = keys.clone();
 
         task::spawn(
-            async move {
-                let stream = BufReader::new(BufWriter::new(stream.compat()));
-
-                let mut session = Session::new(
-                    stream,
-                    Server {
-                        keys,
-                        ..Default::default()
-                    },
-                )
-                .await?;
-
-                tracing::info!("Successfully connected to `{}`", session.peer_id());
-
-                let connect = session
-                    .handle(
-                        Auth::new(assh_connect::Service)
-                            .banner("Welcome, and get parrot'd\r\n")
-                            .none(|_| none::Response::Accept),
-                    )
-                    .await?;
-
-                connect
-                    .on_channel_open(|_, channel: channel::Channel| {
-                        task::spawn(async move {
-                        channel
-                            .requests()
-                            .take_while(|request| {
-                                futures::future::ready(matches!(
-                                    request.cx(),
-                                    connect::ChannelRequestContext::Shell
-                                        | connect::ChannelRequestContext::Exec { .. }
-                                        | connect::ChannelRequestContext::Subsystem { .. }
-                                ))
-                            })
-                            .for_each(|request| async {
-                                request.accept().await;
-                            })
-                            .await;
-
-                        let mut writer = channel.as_writer();
-                        let mut reader = channel.as_reader();
-
-                        for frame in FRAMES.iter().cycle() {
-                            let mut read = [0u8; 1];
-
-                            futures::select_biased! {
-                                _ = tokio::time::sleep(DELAY).fuse() => {
-                                    writer.write_all(CLEAR.as_bytes()).await?;
-                                    writer.write_all(frame.as_bytes()).await?;
-                                    writer.flush().await?;
-                                }
-                                len = reader.read(&mut read).fuse() => {
-                                    if matches!(len, Ok(len) if len == 0 || read[0] == b'q') {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
-                        channel.eof().await?;
-
-                        Ok::<_, eyre::Error>(())
-                    }.inspect_err(|err| {
-                            tracing::error!("Channel closed with an error: {err:?}")
-                        }));
-
-                        Outcome::Accept
-                    })
-                    .spin()
-                    .await?;
-
-                Ok::<_, eyre::Error>(())
-            }
-            .inspect_err(|err| tracing::error!("Session ended with an error: {err:?}")),
+            session(stream, keys)
+                .inspect_err(|err| tracing::error!("Session ended with an error: {err:?}")),
         );
     }
 }
