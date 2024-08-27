@@ -23,7 +23,10 @@ enum State<IO: Pipe, S: Side> {
 pub struct Poller<IO: Pipe, S: Side> {
     state: State<IO, S>,
 
+    /// Messages awaiting to be sent to the peer.
     queue: VecDeque<Packet>,
+
+    /// Message awaiting to be popped by the local asynchronous tasks.
     buffer: Option<Packet>,
 }
 
@@ -152,7 +155,10 @@ where
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
         if !matches!(self.state, State::Recving(_)) {
-            futures::ready!(self.as_mut().poll_flush(cx))?;
+            // NOTE: We ignore errors there because while flushing before receiving is often necessary,
+            // errors there shouldn't bubble up to the read side; e.g. sometimes messages are still
+            // in the pipe even though it has been closed for writing.
+            futures::ready!(self.as_mut().poll_flush(cx)).ok();
         }
 
         match &mut self.state {

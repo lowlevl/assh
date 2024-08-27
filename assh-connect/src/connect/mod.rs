@@ -170,7 +170,7 @@ where
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
-            let _span = tracing::debug_span!("GlobalRequest").entered();
+            let _span = tracing::debug_span!("Connect::global_requests").entered();
 
             self.poll_for(cx, &interest)
                 .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
@@ -267,7 +267,7 @@ where
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
-            let _span = tracing::debug_span!("ChannelOpen").entered();
+            let _span = tracing::debug_span!("Connect::channel_opens").entered();
 
             self.poll_for(cx, &interest)
                 .map_ok(|packet| channel_open::ChannelOpen::new(self, packet.to().unwrap()))

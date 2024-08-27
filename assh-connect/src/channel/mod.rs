@@ -164,7 +164,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
-            let _span = tracing::debug_span!("channel::Request", channel = self.local_id).entered();
+            let _span = tracing::debug_span!("Channel::request", channel = self.local_id).entered();
 
             self.poll_for(cx, &interest)
                 .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))

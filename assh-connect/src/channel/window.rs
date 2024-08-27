@@ -94,11 +94,8 @@ impl RemoteWindow {
         if let Some(size) = self.try_reserve(amount) {
             task::Poll::Ready(size)
         } else {
-            // TODO: Is it necessary ? Maybe host a collection of wakers.
-            // assert!(
-            //     self.waker.take().is_none(),
-            //     "Need to rework to add a collection of wakers"
-            // );
+            // TODO: Decide whether we need to host a collection of wakers or not.
+
             tracing::warn!("Peer channel window is full, awaiting for extension");
 
             self.waker.register(cx.waker());

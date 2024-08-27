@@ -72,41 +72,37 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
         )
         .entered();
 
-        {
-            let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
+        if let task::Poll::Ready(mut poller) = self.channel.connect.poller.lock().poll_unpin(cx) {
             self.adjust_window(&mut *poller)?;
         }
 
-        if self.buffer.is_empty() {
-            return match self.receiver.try_recv() {
-                Ok(data) => {
-                    self.buffer.extend(data.iter());
-                    self.channel.local_window.consume(data.len() as u32);
-
-                    tracing::trace!(
-                        "Received data block for stream `{:?}` on channel #{} of size `{}`",
-                        self.stream_id,
-                        self.channel.local_id,
-                        data.len()
-                    );
-
-                    cx.waker().wake_by_ref();
-                    task::Poll::Pending
-                }
-                Err(flume::TryRecvError::Disconnected) => task::Poll::Ready(Ok(0)),
-                Err(flume::TryRecvError::Empty) => {
-                    match self.channel.poll_for(cx, &Interest::None) {
-                        task::Poll::Ready(Some(Err(err))) => {
-                            task::Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, err)))
-                        }
-                        task::Poll::Ready(Some(Ok(_))) => unreachable!(),
-                        _ => task::Poll::Pending,
-                    }
-                }
-            };
+        if !self.buffer.is_empty() {
+            return task::Poll::Ready(self.buffer.read(buf));
         }
 
-        task::Poll::Ready(self.buffer.read(buf))
+        match self.receiver.try_recv() {
+            Ok(data) => {
+                self.buffer.extend(data.iter());
+                self.channel.local_window.consume(data.len() as u32);
+
+                tracing::trace!(
+                    "Received data block for stream `{:?}` on channel #{} of size `{}`",
+                    self.stream_id,
+                    self.channel.local_id,
+                    data.len()
+                );
+
+                cx.waker().wake_by_ref();
+                task::Poll::Pending
+            }
+            Err(flume::TryRecvError::Disconnected) => task::Poll::Ready(Ok(0)),
+            Err(flume::TryRecvError::Empty) => match self.channel.poll_for(cx, &Interest::None) {
+                task::Poll::Ready(Some(Err(err))) => {
+                    task::Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, err)))
+                }
+                _ => task::Poll::Pending,
+            },
+        }
     }
 }
 
