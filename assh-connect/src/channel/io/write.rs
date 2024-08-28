@@ -4,7 +4,7 @@ use assh::{side::Side, Pipe};
 use futures::{FutureExt, SinkExt};
 use ssh_packet::{connect, IntoPacket};
 
-use crate::{channel::Channel, interest::Interest};
+use crate::channel::Channel;
 
 pub struct Write<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,
@@ -61,8 +61,7 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
         )
         .entered();
 
-        futures::ready!(self.channel.poll_for(cx, &Interest::None))
-            .transpose()
+        futures::ready!(self.channel.poll(cx))
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
 
         let writable = buf

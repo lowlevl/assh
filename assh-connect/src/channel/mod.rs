@@ -1,7 +1,6 @@
 //! Multiplexed I/O and requests on _channels_.
 
-use core::task;
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, task};
 
 use assh::{side::Side, Pipe};
 use dashmap::DashMap;
@@ -75,11 +74,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             .unregister(&Interest::ChannelClose(self.local_id));
     }
 
-    fn poll_for(
-        &self,
-        cx: &mut task::Context,
-        interest: &Interest,
-    ) -> task::Poll<Option<assh::Result<Packet>>> {
+    fn poll(&self, cx: &mut task::Context) -> task::Poll<assh::Result<()>> {
         if let task::Poll::Ready(Some(result)) = self
             .connect
             .poll_for(cx, &Interest::ChannelClose(self.local_id))
@@ -151,8 +146,18 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             cx.waker().wake_by_ref();
             task::Poll::Pending
         } else {
-            self.connect.poll_for(cx, interest)
+            task::Poll::Ready(Ok(()))
         }
+    }
+
+    fn poll_for(
+        &self,
+        cx: &mut task::Context,
+        interest: &Interest,
+    ) -> task::Poll<Option<assh::Result<Packet>>> {
+        futures::ready!(self.poll(cx))?;
+
+        self.connect.poll_for(cx, interest)
     }
 
     /// Iterate over the incoming _channel requests_.

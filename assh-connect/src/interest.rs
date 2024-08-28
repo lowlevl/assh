@@ -5,7 +5,7 @@ pub enum Interest {
     GlobalRequest,
     GlobalResponse,
 
-    ChannelOpen,
+    ChannelOpenRequest,
     ChannelOpenResponse(u32),
 
     ChannelWindowAdjust(u32),
@@ -15,45 +15,43 @@ pub enum Interest {
 
     ChannelRequest(u32),
     ChannelResponse(u32),
-
-    None,
 }
 
-impl From<&Packet> for Interest {
-    fn from(packet: &Packet) -> Self {
+impl Interest {
+    pub fn parse(packet: &Packet) -> Option<Self> {
         // TODO: Maybe optimize this caracterization without using `binrw` when it is expensive to (Data mainly).
 
         if packet.to::<connect::GlobalRequest>().is_ok() {
-            Self::GlobalRequest
+            Some(Self::GlobalRequest)
         } else if packet.to::<connect::RequestSuccess>().is_ok()
             || packet.to::<connect::ForwardingSuccess>().is_ok()
             || packet.to::<connect::RequestFailure>().is_ok()
         {
-            Self::GlobalResponse
+            Some(Self::GlobalResponse)
         } else if packet.to::<connect::ChannelOpen>().is_ok() {
-            Self::ChannelOpen
+            Some(Self::ChannelOpenRequest)
         } else if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
-            Self::ChannelOpenResponse(message.recipient_channel)
+            Some(Self::ChannelOpenResponse(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
-            Self::ChannelOpenResponse(message.recipient_channel)
+            Some(Self::ChannelOpenResponse(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelWindowAdjust>() {
-            Self::ChannelWindowAdjust(message.recipient_channel)
+            Some(Self::ChannelWindowAdjust(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelData>() {
-            Self::ChannelData(message.recipient_channel)
+            Some(Self::ChannelData(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelExtendedData>() {
-            Self::ChannelData(message.recipient_channel)
+            Some(Self::ChannelData(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelEof>() {
-            Self::ChannelEof(message.recipient_channel)
+            Some(Self::ChannelEof(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelClose>() {
-            Self::ChannelClose(message.recipient_channel)
+            Some(Self::ChannelClose(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelRequest>() {
-            Self::ChannelRequest(message.recipient_channel)
+            Some(Self::ChannelRequest(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelSuccess>() {
-            Self::ChannelResponse(message.recipient_channel)
+            Some(Self::ChannelResponse(message.recipient_channel))
         } else if let Ok(message) = packet.to::<connect::ChannelFailure>() {
-            Self::ChannelResponse(message.recipient_channel)
+            Some(Self::ChannelResponse(message.recipient_channel))
         } else {
-            Self::None
+            None
         }
     }
 }

@@ -89,7 +89,9 @@ where
                 task::Poll::Ready(None)
             }
             Some(packet) => {
-                let packet_interest = Interest::from(&packet);
+                let Some(packet_interest) = Interest::parse(&packet) else {
+                    return task::Poll::Ready(Some(Err(assh::Error::UnexpectedMessage)));
+                };
 
                 if interest == &packet_interest {
                     tracing::trace!("{interest:?}: Matched, popping packet");
@@ -260,7 +262,7 @@ where
     pub fn channel_opens(
         &self,
     ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
-        let interest = Interest::ChannelOpen;
+        let interest = Interest::ChannelOpenRequest;
 
         self.register(interest);
         let unregister_on_drop = defer::defer(move || self.unregister(&interest));

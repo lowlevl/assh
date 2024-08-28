@@ -10,7 +10,7 @@ use assh::{side::Side, Pipe};
 use futures::{FutureExt, Sink, SinkExt};
 use ssh_packet::{connect, IntoPacket, Packet};
 
-use crate::{channel::Channel, interest::Interest};
+use crate::channel::Channel;
 
 pub struct Read<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,
@@ -96,12 +96,12 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                 task::Poll::Pending
             }
             Err(flume::TryRecvError::Disconnected) => task::Poll::Ready(Ok(0)),
-            Err(flume::TryRecvError::Empty) => match self.channel.poll_for(cx, &Interest::None) {
-                task::Poll::Ready(Some(Err(err))) => {
-                    task::Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, err)))
-                }
-                _ => task::Poll::Pending,
-            },
+            Err(flume::TryRecvError::Empty) => {
+                futures::ready!(self.channel.poll(cx))
+                    .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))?;
+
+                task::Poll::Pending
+            }
         }
     }
 }
