@@ -9,6 +9,8 @@ use crate::Result;
 type SendFut<IO, S> = BoxFuture<'static, (assh::Result<()>, Box<Session<IO, S>>)>;
 type RecvFut<IO, S> = BoxFuture<'static, (assh::Result<Packet>, Box<Session<IO, S>>)>;
 
+// TODO: Remove `Sink` & `Stream` implementations as ours is not compliant and is currently misused.
+
 enum State<IO: Pipe, S: Side> {
     /// Idling and waiting for tasks.
     Idle(Option<Box<Session<IO, S>>>),

@@ -44,6 +44,7 @@ where
         }
     }
 
+    // TODO: Move method to a separate structure.
     pub(crate) async fn send(&self, item: Packet) -> assh::Result<()> {
         self.poller.lock().await.feed(item).await?;
 
@@ -55,6 +56,7 @@ where
         .await
     }
 
+    // TODO: Move method to a separate structure.
     pub(crate) fn poll_for(
         &self,
         cx: &mut task::Context,
@@ -112,6 +114,8 @@ where
                                 "!{packet_interest:?}: Dropping {}bytes, unregistered interest",
                                 packet.payload.len()
                             );
+
+                            // TODO: Respond to unhandled `GlobalRequest`, `ChannelOpenRequest` & `ChannelRequest` that *want_reply*.
 
                             cx.waker().wake_by_ref();
                             task::Poll::Pending
