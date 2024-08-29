@@ -55,7 +55,7 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                 self.channel.local_id,
             );
 
-            self.channel.mux.push(&connect::ChannelWindowAdjust {
+            self.channel.mux.feed(&connect::ChannelWindowAdjust {
                 recipient_channel: self.channel.remote_id,
                 bytes_to_add,
             });

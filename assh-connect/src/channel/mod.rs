@@ -5,7 +5,7 @@ use std::{num::NonZeroU32, task};
 use assh::{side::Side, Pipe};
 use dashmap::DashMap;
 use futures::{AsyncRead, AsyncWrite, TryStream};
-use ssh_packet::{connect, Packet};
+use ssh_packet::{binrw, connect};
 
 use crate::{
     mux::{Interest, Mux},
@@ -94,14 +94,16 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             .mux
             .poll_interest(cx, &Interest::ChannelData(self.local_id))
         {
-            let packet = result?;
+            #[binrw::binrw]
+            #[br(little)]
+            enum Data {
+                Plain(connect::ChannelData),
+                Extended(connect::ChannelExtendedData),
+            }
 
-            let (stream_id, data) = if let Ok(message) = packet.to::<connect::ChannelData>() {
-                (None, message.data.into_vec())
-            } else if let Ok(message) = packet.to::<connect::ChannelExtendedData>() {
-                (Some(message.data_type), message.data.into_vec())
-            } else {
-                unreachable!()
+            let (stream_id, data) = match result? {
+                Data::Plain(message) => (None, message.data.into_vec()),
+                Data::Extended(message) => (Some(message.data_type), message.data.into_vec()),
             };
 
             match self.streams.get(&stream_id) {
@@ -130,11 +132,13 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
 
             cx.waker().wake_by_ref();
             task::Poll::Pending
-        } else if let task::Poll::Ready(Some(result)) = self
-            .mux
-            .poll_interest(cx, &Interest::ChannelWindowAdjust(self.local_id))
+        } else if let task::Poll::Ready(Some(result)) =
+            self.mux.poll_interest::<connect::ChannelWindowAdjust>(
+                cx,
+                &Interest::ChannelWindowAdjust(self.local_id),
+            )
         {
-            let bytes_to_add = result?.to::<connect::ChannelWindowAdjust>()?.bytes_to_add;
+            let bytes_to_add = result?.bytes_to_add;
             self.remote_window.replenish(bytes_to_add);
 
             tracing::debug!(
@@ -150,11 +154,14 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         }
     }
 
-    fn poll_interest(
+    fn poll_interest<T>(
         &self,
         cx: &mut task::Context,
         interest: &Interest,
-    ) -> task::Poll<Option<assh::Result<Packet>>> {
+    ) -> task::Poll<Option<assh::Result<T>>>
+    where
+        T: for<'args> binrw::BinRead<Args<'args> = ()> + binrw::meta::ReadEndian,
+    {
         futures::ready!(self.poll(cx))?;
 
         self.mux.poll_interest(cx, interest)
@@ -172,7 +179,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             let _span = tracing::debug_span!("Channel::request", channel = self.local_id).entered();
 
             self.poll_interest(cx, &interest)
-                .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
+                .map_ok(|message| request::Request::new(self, message))
                 .map_err(Into::into)
         })
     }
@@ -208,31 +215,38 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             })
             .await?;
 
-        let response = futures::future::poll_fn(|cx| {
-            let response =
-                futures::ready!(self.poll_interest(cx, &interest)).and_then(
-                    |packet| match packet {
-                        Ok(packet) => {
-                            if packet.to::<connect::ChannelSuccess>().is_ok() {
-                                Some(Ok(request::Response::Success))
-                            } else if packet.to::<connect::ChannelFailure>().is_ok() {
-                                Some(Ok(request::Response::Failure))
-                            } else {
-                                None
-                            }
-                        }
-                        Err(err) => Some(Err(err)),
-                    },
-                );
+        #[binrw::binrw]
+        #[br(little)]
+        enum Response {
+            Success(connect::ChannelSuccess),
+            Failure(connect::ChannelFailure),
+        }
 
-            task::Poll::Ready(response)
+        let result = futures::future::poll_fn(|cx| {
+            let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
+
+            task::Poll::Ready(match polled {
+                Some(Response::Success(_)) => {
+                    let response = request::Response::Success;
+
+                    Some(Ok::<_, assh::Error>(response))
+                }
+
+                Some(Response::Failure(_)) => {
+                    let response = request::Response::Failure;
+
+                    Some(Ok(response))
+                }
+
+                _ => None,
+            })
         })
         .await
         .ok_or(Error::ChannelClosed);
 
         self.mux.unregister(&interest);
 
-        Ok(response??)
+        Ok(result??)
     }
 
     /// Make a reader for current channel's _data_ stream.
@@ -284,7 +298,7 @@ impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
 
         tracing::debug!("Reporting channel #{} as closed", self.local_id);
 
-        self.mux.push(&connect::ChannelClose {
+        self.mux.feed(&connect::ChannelClose {
             recipient_channel: self.remote_id,
         });
     }

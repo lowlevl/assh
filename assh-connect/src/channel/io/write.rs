@@ -22,16 +22,16 @@ impl<'a, IO: Pipe, S: Side> Write<'a, IO, S> {
         }
     }
 
-    fn push_data(&mut self) {
+    fn feed_data(&mut self) {
         let data = std::mem::take(&mut self.buffer).into();
 
         match self.stream_id {
-            Some(data_type) => self.channel.mux.push(&connect::ChannelExtendedData {
+            Some(data_type) => self.channel.mux.feed(&connect::ChannelExtendedData {
                 recipient_channel: self.channel.remote_id,
                 data_type,
                 data,
             }),
-            None => self.channel.mux.push(&connect::ChannelData {
+            None => self.channel.mux.feed(&connect::ChannelData {
                 recipient_channel: self.channel.remote_id,
                 data,
             }),
@@ -59,7 +59,7 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
             .len()
             .min(self.channel.remote_maxpack as usize - self.buffer.len());
         if writable == 0 {
-            self.push_data();
+            self.feed_data();
 
             cx.waker().wake_by_ref();
             return task::Poll::Pending;
@@ -84,7 +84,7 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
         .entered();
 
         if !self.buffer.is_empty() {
-            self.push_data();
+            self.feed_data();
         }
 
         self.channel

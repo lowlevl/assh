@@ -1,7 +1,7 @@
 use assh::{side::Side, Pipe, Session};
 use dashmap::DashMap;
 use futures::{lock::Mutex, task, FutureExt};
-use ssh_packet::{IntoPacket, Packet};
+use ssh_packet::{binrw, IntoPacket, Packet};
 
 mod interest;
 pub use interest::Interest;
@@ -74,11 +74,14 @@ where
         }
     }
 
-    pub fn poll_interest(
+    pub fn poll_interest<T>(
         &self,
         cx: &mut task::Context,
         interest: &Interest,
-    ) -> task::Poll<Option<assh::Result<Packet>>> {
+    ) -> task::Poll<Option<assh::Result<T>>>
+    where
+        T: for<'args> binrw::BinRead<Args<'args> = ()> + binrw::meta::ReadEndian,
+    {
         tracing::trace!("Polled with interest `{interest:?}`");
 
         if self
@@ -115,7 +118,9 @@ where
                 if interest == &packet_interest {
                     tracing::trace!("{interest:?}: Matched, popping packet");
 
-                    task::Poll::Ready(Some(Ok(packet)))
+                    task::Poll::Ready(Some(Ok(packet.to().expect(
+                        "Internal programming error: Polled with diverging `interest` and `T`",
+                    ))))
                 } else {
                     match self.interests.get(&packet_interest).as_deref() {
                         Some(waker) => {
@@ -143,7 +148,13 @@ where
         }
     }
 
-    pub fn push(&self, item: impl IntoPacket) {
+    pub async fn send(&self, item: impl IntoPacket) -> assh::Result<()> {
+        self.feed(item);
+
+        futures::future::poll_fn(|cx| self.poll_flush(cx)).await
+    }
+
+    pub fn feed(&self, item: impl IntoPacket) {
         self.queue.send(item.into_packet()).ok();
     }
 
@@ -151,11 +162,5 @@ where
         let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
 
         poller.poll_flush(cx)
-    }
-
-    pub async fn send(&self, item: impl IntoPacket) -> assh::Result<()> {
-        self.push(item);
-
-        futures::future::poll_fn(|cx| self.poll_flush(cx)).await
     }
 }

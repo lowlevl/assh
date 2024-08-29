@@ -3,7 +3,7 @@
 use assh::{side::Side, Pipe};
 use dashmap::DashSet;
 use futures::{task, TryStream};
-use ssh_packet::connect;
+use ssh_packet::{binrw, connect};
 
 use crate::{
     channel::{self, LocalWindow},
@@ -55,9 +55,7 @@ where
 
             self.mux
                 .poll_interest(cx, &interest)
-                .map_ok(|packet| {
-                    global_request::GlobalRequest::new(&self.mux, packet.to().unwrap())
-                })
+                .map_ok(|message| global_request::GlobalRequest::new(&self.mux, message))
                 .map_err(Into::into)
         })
     }
@@ -93,35 +91,65 @@ where
             })
             .await?;
 
-        let response = futures::future::poll_fn(|cx| {
-            let response =
-                futures::ready!(self.mux.poll_interest(cx, &interest)).and_then(|packet| {
-                    match packet {
-                        Ok(packet) => {
-                            if !with_port && packet.to::<connect::RequestSuccess>().is_ok() {
-                                Some(Ok(global_request::Response::Success(None)))
-                            } else if let Ok(connect::ForwardingSuccess { bound_port }) =
-                                packet.to()
-                            {
-                                Some(Ok(global_request::Response::Success(Some(bound_port))))
-                            } else if packet.to::<connect::RequestFailure>().is_ok() {
-                                Some(Ok(global_request::Response::Failure))
-                            } else {
-                                None
-                            }
-                        }
-                        Err(err) => Some(Err(err)),
-                    }
-                });
+        #[binrw::binrw]
+        #[br(little)]
+        enum Response {
+            Success(connect::RequestSuccess),
+            Failure(connect::RequestFailure),
+        }
 
-            task::Poll::Ready(response)
+        #[binrw::binrw]
+        #[br(little)]
+        enum ResponsePort {
+            Success(connect::ForwardingSuccess),
+            Failure(connect::RequestFailure),
+        }
+
+        let result = futures::future::poll_fn(|cx| {
+            if !with_port {
+                let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
+
+                task::Poll::Ready(match polled {
+                    Some(Response::Success(_)) => {
+                        let response = global_request::Response::Success(None);
+
+                        Some(Ok::<_, assh::Error>(response))
+                    }
+
+                    Some(Response::Failure(_)) => {
+                        let response = global_request::Response::Failure;
+
+                        Some(Ok(response))
+                    }
+
+                    _ => None,
+                })
+            } else {
+                let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
+
+                task::Poll::Ready(match polled {
+                    Some(ResponsePort::Success(message)) => {
+                        let response = global_request::Response::Success(Some(message.bound_port));
+
+                        Some(Ok::<_, assh::Error>(response))
+                    }
+
+                    Some(ResponsePort::Failure(_)) => {
+                        let response = global_request::Response::Failure;
+
+                        Some(Ok(response))
+                    }
+
+                    _ => None,
+                })
+            }
         })
         .await
         .ok_or(Error::ChannelClosed);
 
         self.mux.unregister(&interest);
 
-        Ok(response??)
+        Ok(result??)
     }
 
     pub(crate) fn local_id(&self) -> u32 {
@@ -155,8 +183,8 @@ where
 
             self.mux
                 .poll_interest(cx, &interest)
-                .map_ok(|packet| {
-                    channel_open::ChannelOpen::new(&self.mux, self.local_id(), packet.to().unwrap())
+                .map_ok(|message| {
+                    channel_open::ChannelOpen::new(&self.mux, self.local_id(), message)
                 })
                 .map_err(Into::into)
         })
@@ -182,40 +210,47 @@ where
             })
             .await?;
 
-        let response = futures::future::poll_fn(|cx| {
-            let response =
-                futures::ready!(self.mux.poll_interest(cx, &interest)).and_then(|packet| {
-                    match packet {
-                        Ok(packet) => {
-                            if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
-                                Some(Ok(channel_open::Response::Success(channel::Channel::new(
-                                    &self.mux,
-                                    local_id,
-                                    message.sender_channel,
-                                    message.initial_window_size,
-                                    message.maximum_packet_size,
-                                ))))
-                            } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
-                                Some(Ok(channel_open::Response::Failure {
-                                    reason: message.reason,
-                                    description: message.description.into_string(),
-                                }))
-                            } else {
-                                None
-                            }
-                        }
-                        Err(err) => Some(Err(err)),
-                    }
-                });
+        #[binrw::binrw]
+        #[br(little)]
+        enum Response {
+            Success(connect::ChannelOpenConfirmation),
+            Failure(connect::ChannelOpenFailure),
+        }
 
-            task::Poll::Ready(response)
+        let result = futures::future::poll_fn(|cx| {
+            let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
+
+            task::Poll::Ready(match polled {
+                Some(Response::Success(message)) => {
+                    let response = channel_open::Response::Success(channel::Channel::new(
+                        &self.mux,
+                        local_id,
+                        message.sender_channel,
+                        message.initial_window_size,
+                        message.maximum_packet_size,
+                    ));
+
+                    Some(Ok::<_, assh::Error>(response))
+                }
+
+                Some(Response::Failure(message)) => {
+                    let response = channel_open::Response::Failure {
+                        reason: message.reason,
+                        description: message.description.into_string(),
+                    };
+
+                    Some(Ok(response))
+                }
+
+                _ => None,
+            })
         })
         .await
         .ok_or(Error::ChannelClosed);
 
         self.mux.unregister(&interest);
 
-        Ok(response??)
+        Ok(result??)
     }
 }
 
