@@ -1,8 +1,6 @@
-use std::collections::VecDeque;
-
 use assh::{side::Side, Pipe, Session};
 use futures::{future::BoxFuture, task, FutureExt};
-use ssh_packet::{IntoPacket, Packet};
+use ssh_packet::Packet;
 
 type SendFut<IO, S> = BoxFuture<'static, (assh::Result<()>, Box<Session<IO, S>>)>;
 type RecvFut<IO, S> = BoxFuture<'static, (assh::Result<Packet>, Box<Session<IO, S>>)>;
@@ -22,24 +20,29 @@ pub struct Poller<IO: Pipe, S: Side> {
     state: State<IO, S>,
 
     /// Messages awaiting to be sent to the peer.
-    queue: VecDeque<Packet>,
+    queue: flume::Receiver<Packet>,
 
     /// Message awaiting to be popped by the local asynchronous tasks.
     buffer: Option<Packet>,
 }
 
-impl<IO, S> From<Session<IO, S>> for Poller<IO, S>
+impl<IO, S> Poller<IO, S>
 where
     IO: Pipe,
     S: Side,
 {
-    fn from(session: Session<IO, S>) -> Self {
-        Self {
-            state: State::Idle(Some(session.into())),
+    pub fn new(session: Session<IO, S>) -> (Self, flume::Sender<Packet>) {
+        let (tx, rx) = flume::unbounded();
 
-            queue: Default::default(),
-            buffer: Default::default(),
-        }
+        (
+            Self {
+                state: State::Idle(Some(session.into())),
+
+                queue: rx,
+                buffer: Default::default(),
+            },
+            tx,
+        )
     }
 }
 
@@ -119,17 +122,6 @@ where
     IO: Pipe,
     S: Side,
 {
-    pub fn enqueue(&mut self, item: impl IntoPacket) {
-        let packet = item.into_packet();
-
-        tracing::trace!(
-            "Queueing message in the sender of type ^{:#x}",
-            packet.payload[0]
-        );
-
-        self.queue.push_back(packet);
-    }
-
     pub fn poll_flush(&mut self, cx: &mut task::Context<'_>) -> task::Poll<assh::Result<()>> {
         match &mut self.state {
             State::Sending(fut) => {
@@ -147,7 +139,7 @@ where
                     unreachable!()
                 };
 
-                if let Some(item) = self.queue.pop_front() {
+                if let Ok(item) = self.queue.try_recv() {
                     self.state =
                         State::Sending(async move { (session.send(item).await, session) }.boxed());
 

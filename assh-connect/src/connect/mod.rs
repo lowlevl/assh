@@ -1,15 +1,14 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
 use assh::{side::Side, Pipe};
-use dashmap::{DashMap, DashSet};
-use futures::{lock::Mutex, task, FutureExt, TryStream};
-use ssh_packet::{connect, IntoPacket, Packet};
+use dashmap::DashSet;
+use futures::{task, TryStream};
+use ssh_packet::connect;
 
 use crate::{
     channel::{self, LocalWindow},
     channel_open, global_request,
-    interest::Interest,
-    poller::Poller,
+    mux::{Interest, Mux},
     Error, Result,
 };
 
@@ -24,10 +23,8 @@ where
     IO: Pipe,
     S: Side,
 {
-    pub(crate) poller: Mutex<Poller<IO, S>>,
-    pub(crate) channels: DashSet<u32>,
-
-    interests: DashMap<Interest, task::AtomicWaker>,
+    pub(crate) mux: Mux<IO, S>,
+    channels: DashSet<u32>,
 }
 
 impl<IO, S> Connect<IO, S>
@@ -37,130 +34,8 @@ where
 {
     fn new(session: assh::Session<IO, S>) -> Self {
         Self {
-            poller: Mutex::new(Poller::from(session)),
+            mux: Mux::from(session),
             channels: Default::default(),
-
-            interests: Default::default(),
-        }
-    }
-
-    // TODO: Move method to a separate structure.
-    pub(crate) async fn send(&self, item: impl IntoPacket) -> assh::Result<()> {
-        self.poller.lock().await.enqueue(item);
-
-        futures::future::poll_fn(|cx| {
-            let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
-
-            poller.poll_flush(cx)
-        })
-        .await
-    }
-
-    // TODO: Move method to a separate structure.
-    pub(crate) fn poll_for(
-        &self,
-        cx: &mut task::Context,
-        interest: &Interest,
-    ) -> task::Poll<Option<assh::Result<Packet>>> {
-        tracing::trace!("Polled with interest `{interest:?}`");
-
-        if self
-            .interests
-            .get(interest)
-            .as_deref()
-            .map(|waker| waker.register(cx.waker()))
-            .is_none()
-        {
-            tracing::trace!("{interest:?}: Polled for unregistered interest, returning `None`");
-
-            return task::Poll::Ready(None);
-        }
-
-        let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
-        let buffer = futures::ready!(poller.poll_peek(cx))?;
-
-        match buffer.take() {
-            None => {
-                tracing::trace!(
-                    "{interest:?}: Receiver dead, unregistering all interests, waking up tasks"
-                );
-
-                // Optimization for woken up tasks to return early `Ready(None)`.
-                self.unregister_if(|_| true);
-
-                task::Poll::Ready(None)
-            }
-            Some(packet) => {
-                let Some(packet_interest) = Interest::parse(&packet) else {
-                    return task::Poll::Ready(Some(Err(assh::Error::UnexpectedMessage)));
-                };
-
-                if interest == &packet_interest {
-                    tracing::trace!("{interest:?}: Matched, popping packet");
-
-                    task::Poll::Ready(Some(Ok(packet)))
-                } else {
-                    match self.interests.get(&packet_interest).as_deref() {
-                        Some(waker) => {
-                            tracing::trace!("{interest:?} != {packet_interest:?}: Storing packet and waking task");
-
-                            *buffer = Some(packet);
-                            waker.wake();
-
-                            task::Poll::Pending
-                        }
-                        None => {
-                            tracing::warn!(
-                                "!{packet_interest:?}: Dropping {}bytes, unregistered interest",
-                                packet.payload.len()
-                            );
-
-                            // TODO: Respond to unhandled `GlobalRequest`, `ChannelOpenRequest` & `ChannelRequest` that *want_reply*.
-
-                            cx.waker().wake_by_ref();
-                            task::Poll::Pending
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    pub(crate) fn register(&self, interest: Interest) {
-        // This is a genuine programming error from the user of the crate,
-        // and could cause all sorts of runtime inconsistencies.
-        #[allow(clippy::panic)]
-        if self
-            .interests
-            .insert(interest, Default::default())
-            .is_some()
-        {
-            panic!("Unable to register multiple concurrent interests for `{interest:?}`");
-        }
-
-        tracing::trace!("Registered interest for `{interest:?}`");
-    }
-
-    pub(crate) fn unregister(&self, interest: &Interest) {
-        if let Some((interest, waker)) = self.interests.remove(interest) {
-            tracing::trace!("Unregistered interest for `{interest:?}`");
-
-            // Wake unregistered tasks to signal them to finish.
-            waker.wake();
-        }
-    }
-
-    pub(crate) fn unregister_if(&self, filter: impl Fn(&Interest) -> bool) {
-        // NOTE: We collect here to remove reference to the DashMap
-        // which would deadlock on calls to `remove` in `Self::unregister`.
-        for interest in self
-            .interests
-            .iter()
-            .map(|interest| *interest.key())
-            .filter(filter)
-            .collect::<Vec<_>>()
-        {
-            self.unregister(&interest);
         }
     }
 
@@ -171,15 +46,18 @@ where
     {
         let interest = Interest::GlobalRequest;
 
-        self.register(interest);
-        let unregister_on_drop = defer::defer(move || self.unregister(&interest));
+        self.mux.register(interest);
+        let unregister_on_drop = defer::defer(move || self.mux.unregister(&interest));
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
             let _span = tracing::debug_span!("Connect::global_requests").entered();
 
-            self.poll_for(cx, &interest)
-                .map_ok(|packet| global_request::GlobalRequest::new(self, packet.to().unwrap()))
+            self.mux
+                .poll_interest(cx, &interest)
+                .map_ok(|packet| {
+                    global_request::GlobalRequest::new(&self.mux, packet.to().unwrap())
+                })
                 .map_err(Into::into)
         })
     }
@@ -188,11 +66,12 @@ where
 
     /// Send a _global request_.
     pub async fn global_request(&self, context: connect::GlobalRequestContext) -> Result<()> {
-        self.send(&connect::GlobalRequest {
-            want_reply: false.into(),
-            context,
-        })
-        .await?;
+        self.mux
+            .send(&connect::GlobalRequest {
+                want_reply: false.into(),
+                context,
+            })
+            .await?;
 
         Ok(())
     }
@@ -203,31 +82,36 @@ where
         context: connect::GlobalRequestContext,
     ) -> Result<global_request::Response> {
         let interest = Interest::GlobalResponse;
-        self.register(interest);
+        self.mux.register(interest);
 
         let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
-        self.send(&connect::GlobalRequest {
-            want_reply: false.into(),
-            context,
-        })
-        .await?;
+        self.mux
+            .send(&connect::GlobalRequest {
+                want_reply: false.into(),
+                context,
+            })
+            .await?;
 
         let response = futures::future::poll_fn(|cx| {
             let response =
-                futures::ready!(self.poll_for(cx, &interest)).and_then(|packet| match packet {
-                    Ok(packet) => {
-                        if !with_port && packet.to::<connect::RequestSuccess>().is_ok() {
-                            Some(Ok(global_request::Response::Success(None)))
-                        } else if let Ok(connect::ForwardingSuccess { bound_port }) = packet.to() {
-                            Some(Ok(global_request::Response::Success(Some(bound_port))))
-                        } else if packet.to::<connect::RequestFailure>().is_ok() {
-                            Some(Ok(global_request::Response::Failure))
-                        } else {
-                            None
+                futures::ready!(self.mux.poll_interest(cx, &interest)).and_then(|packet| {
+                    match packet {
+                        Ok(packet) => {
+                            if !with_port && packet.to::<connect::RequestSuccess>().is_ok() {
+                                Some(Ok(global_request::Response::Success(None)))
+                            } else if let Ok(connect::ForwardingSuccess { bound_port }) =
+                                packet.to()
+                            {
+                                Some(Ok(global_request::Response::Success(Some(bound_port))))
+                            } else if packet.to::<connect::RequestFailure>().is_ok() {
+                                Some(Ok(global_request::Response::Failure))
+                            } else {
+                                None
+                            }
                         }
+                        Err(err) => Some(Err(err)),
                     }
-                    Err(err) => Some(Err(err)),
                 });
 
             task::Poll::Ready(response)
@@ -235,7 +119,7 @@ where
         .await
         .ok_or(Error::ChannelClosed);
 
-        self.unregister(&interest);
+        self.mux.unregister(&interest);
 
         Ok(response??)
     }
@@ -262,15 +146,18 @@ where
     ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
         let interest = Interest::ChannelOpenRequest;
 
-        self.register(interest);
-        let unregister_on_drop = defer::defer(move || self.unregister(&interest));
+        self.mux.register(interest);
+        let unregister_on_drop = defer::defer(move || self.mux.unregister(&interest));
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
             let _span = tracing::debug_span!("Connect::channel_opens").entered();
 
-            self.poll_for(cx, &interest)
-                .map_ok(|packet| channel_open::ChannelOpen::new(self, packet.to().unwrap()))
+            self.mux
+                .poll_interest(cx, &interest)
+                .map_ok(|packet| {
+                    channel_open::ChannelOpen::new(&self.mux, self.local_id(), packet.to().unwrap())
+                })
                 .map_err(Into::into)
         })
     }
@@ -284,38 +171,41 @@ where
         let local_id = self.local_id();
 
         let interest = Interest::ChannelOpenResponse(local_id);
-        self.register(interest);
+        self.mux.register(interest);
 
-        self.send(&connect::ChannelOpen {
-            sender_channel: local_id,
-            initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
-            maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
-            context,
-        })
-        .await?;
+        self.mux
+            .send(&connect::ChannelOpen {
+                sender_channel: local_id,
+                initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
+                maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
+                context,
+            })
+            .await?;
 
         let response = futures::future::poll_fn(|cx| {
             let response =
-                futures::ready!(self.poll_for(cx, &interest)).and_then(|packet| match packet {
-                    Ok(packet) => {
-                        if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
-                            Some(Ok(channel_open::Response::Success(channel::Channel::new(
-                                self,
-                                local_id,
-                                message.sender_channel,
-                                message.initial_window_size,
-                                message.maximum_packet_size,
-                            ))))
-                        } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
-                            Some(Ok(channel_open::Response::Failure {
-                                reason: message.reason,
-                                description: message.description.into_string(),
-                            }))
-                        } else {
-                            None
+                futures::ready!(self.mux.poll_interest(cx, &interest)).and_then(|packet| {
+                    match packet {
+                        Ok(packet) => {
+                            if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
+                                Some(Ok(channel_open::Response::Success(channel::Channel::new(
+                                    &self.mux,
+                                    local_id,
+                                    message.sender_channel,
+                                    message.initial_window_size,
+                                    message.maximum_packet_size,
+                                ))))
+                            } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
+                                Some(Ok(channel_open::Response::Failure {
+                                    reason: message.reason,
+                                    description: message.description.into_string(),
+                                }))
+                            } else {
+                                None
+                            }
                         }
+                        Err(err) => Some(Err(err)),
                     }
-                    Err(err) => Some(Err(err)),
                 });
 
             task::Poll::Ready(response)
@@ -323,7 +213,7 @@ where
         .await
         .ok_or(Error::ChannelClosed);
 
-        self.unregister(&interest);
+        self.mux.unregister(&interest);
 
         Ok(response??)
     }

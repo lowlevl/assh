@@ -7,10 +7,9 @@ use std::{
 };
 
 use assh::{side::Side, Pipe};
-use futures::FutureExt;
 use ssh_packet::connect;
 
-use crate::{channel::Channel, poller::Poller};
+use crate::channel::Channel;
 
 pub struct Read<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,
@@ -34,23 +33,6 @@ impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
             buffer: Default::default(),
         }
     }
-
-    fn adjust_window(&mut self, poller: &mut Poller<IO, S>) -> io::Result<()> {
-        if let Some(bytes_to_add) = self.channel.local_window.adjustable() {
-            poller.enqueue(&connect::ChannelWindowAdjust {
-                recipient_channel: self.channel.remote_id,
-                bytes_to_add,
-            });
-
-            tracing::debug!(
-                "Adjusted window size by `{}` for channel #{}",
-                bytes_to_add,
-                self.channel.local_id,
-            );
-        }
-
-        Ok(())
-    }
 }
 
 impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
@@ -66,8 +48,17 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
         )
         .entered();
 
-        if let task::Poll::Ready(mut poller) = self.channel.connect.poller.lock().poll_unpin(cx) {
-            self.adjust_window(&mut *poller)?;
+        if let Some(bytes_to_add) = self.channel.local_window.adjustable() {
+            tracing::debug!(
+                "Adjusted window size by `{}` for channel #{}",
+                bytes_to_add,
+                self.channel.local_id,
+            );
+
+            self.channel.mux.push(&connect::ChannelWindowAdjust {
+                recipient_channel: self.channel.remote_id,
+                bytes_to_add,
+            });
         }
 
         if !self.buffer.is_empty() {

@@ -20,12 +20,11 @@
 )]
 #![forbid(unsafe_code)]
 
+mod mux;
+
 pub mod channel;
 pub mod channel_open;
 pub mod global_request;
-
-mod interest;
-mod poller;
 
 mod connect;
 pub use connect::{Connect, Service};

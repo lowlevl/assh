@@ -7,7 +7,10 @@ use dashmap::DashMap;
 use futures::{AsyncRead, AsyncWrite, TryStream};
 use ssh_packet::{connect, Packet};
 
-use crate::{connect::Connect, interest::Interest, Error, Result};
+use crate::{
+    mux::{Interest, Mux},
+    Error, Result,
+};
 
 mod io;
 
@@ -18,7 +21,7 @@ pub mod request;
 
 /// A reference to an opened _channel_.
 pub struct Channel<'a, IO: Pipe, S: Side> {
-    connect: &'a Connect<IO, S>,
+    mux: &'a Mux<IO, S>,
 
     local_id: u32,
     local_window: LocalWindow,
@@ -32,19 +35,19 @@ pub struct Channel<'a, IO: Pipe, S: Side> {
 
 impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     pub(crate) fn new(
-        connect: &'a Connect<IO, S>,
+        mux: &'a Mux<IO, S>,
         local_id: u32,
         remote_id: u32,
         remote_window: u32,
         remote_maxpack: u32,
     ) -> Self {
-        connect.register(Interest::ChannelClose(local_id));
-        connect.register(Interest::ChannelData(local_id));
-        connect.register(Interest::ChannelEof(local_id));
-        connect.register(Interest::ChannelWindowAdjust(local_id));
+        mux.register(Interest::ChannelClose(local_id));
+        mux.register(Interest::ChannelData(local_id));
+        mux.register(Interest::ChannelEof(local_id));
+        mux.register(Interest::ChannelWindowAdjust(local_id));
 
         Self {
-            connect,
+            mux,
 
             local_id,
             local_window: Default::default(),
@@ -58,26 +61,23 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     }
 
     fn unregister_all(&self) {
-        self.connect.unregister_if(
+        self.mux.unregister_if(
             |interest| matches!(interest, Interest::ChannelRequest(id) | Interest::ChannelResponse(id) if id == &self.local_id),
         );
 
         self.streams.clear();
 
-        self.connect
+        self.mux
             .unregister(&Interest::ChannelWindowAdjust(self.local_id));
-        self.connect
-            .unregister(&Interest::ChannelEof(self.local_id));
-        self.connect
-            .unregister(&Interest::ChannelData(self.local_id));
-        self.connect
-            .unregister(&Interest::ChannelClose(self.local_id));
+        self.mux.unregister(&Interest::ChannelEof(self.local_id));
+        self.mux.unregister(&Interest::ChannelData(self.local_id));
+        self.mux.unregister(&Interest::ChannelClose(self.local_id));
     }
 
     fn poll(&self, cx: &mut task::Context) -> task::Poll<assh::Result<()>> {
         if let task::Poll::Ready(Some(result)) = self
-            .connect
-            .poll_for(cx, &Interest::ChannelClose(self.local_id))
+            .mux
+            .poll_interest(cx, &Interest::ChannelClose(self.local_id))
         {
             result?;
 
@@ -91,8 +91,8 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             cx.waker().wake_by_ref();
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
-            .connect
-            .poll_for(cx, &Interest::ChannelData(self.local_id))
+            .mux
+            .poll_interest(cx, &Interest::ChannelData(self.local_id))
         {
             let packet = result?;
 
@@ -116,8 +116,8 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             cx.waker().wake_by_ref();
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
-            .connect
-            .poll_for(cx, &Interest::ChannelEof(self.local_id))
+            .mux
+            .poll_interest(cx, &Interest::ChannelEof(self.local_id))
         {
             result?;
 
@@ -131,8 +131,8 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             cx.waker().wake_by_ref();
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
-            .connect
-            .poll_for(cx, &Interest::ChannelWindowAdjust(self.local_id))
+            .mux
+            .poll_interest(cx, &Interest::ChannelWindowAdjust(self.local_id))
         {
             let bytes_to_add = result?.to::<connect::ChannelWindowAdjust>()?.bytes_to_add;
             self.remote_window.replenish(bytes_to_add);
@@ -150,28 +150,28 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         }
     }
 
-    fn poll_for(
+    fn poll_interest(
         &self,
         cx: &mut task::Context,
         interest: &Interest,
     ) -> task::Poll<Option<assh::Result<Packet>>> {
         futures::ready!(self.poll(cx))?;
 
-        self.connect.poll_for(cx, interest)
+        self.mux.poll_interest(cx, interest)
     }
 
     /// Iterate over the incoming _channel requests_.
     pub fn requests(&self) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = Error> + '_ {
         let interest = Interest::ChannelRequest(self.local_id);
 
-        self.connect.register(interest);
-        let unregister_on_drop = defer::defer(move || self.connect.unregister(&interest));
+        self.mux.register(interest);
+        let unregister_on_drop = defer::defer(move || self.mux.unregister(&interest));
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
             let _span = tracing::debug_span!("Channel::request", channel = self.local_id).entered();
 
-            self.poll_for(cx, &interest)
+            self.poll_interest(cx, &interest)
                 .map_ok(|packet| request::Request::new(self, packet.to().unwrap()))
                 .map_err(Into::into)
         })
@@ -181,7 +181,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
 
     /// Send a _channel request_.
     pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<()> {
-        self.connect
+        self.mux
             .send(&connect::ChannelRequest {
                 recipient_channel: self.remote_id,
                 want_reply: false.into(),
@@ -198,9 +198,9 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         context: connect::ChannelRequestContext,
     ) -> Result<request::Response> {
         let interest = Interest::ChannelResponse(self.local_id);
-        self.connect.register(interest);
+        self.mux.register(interest);
 
-        self.connect
+        self.mux
             .send(&connect::ChannelRequest {
                 recipient_channel: self.remote_id,
                 want_reply: true.into(),
@@ -210,25 +210,27 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
 
         let response = futures::future::poll_fn(|cx| {
             let response =
-                futures::ready!(self.poll_for(cx, &interest)).and_then(|packet| match packet {
-                    Ok(packet) => {
-                        if packet.to::<connect::ChannelSuccess>().is_ok() {
-                            Some(Ok(request::Response::Success))
-                        } else if packet.to::<connect::ChannelFailure>().is_ok() {
-                            Some(Ok(request::Response::Failure))
-                        } else {
-                            None
+                futures::ready!(self.poll_interest(cx, &interest)).and_then(
+                    |packet| match packet {
+                        Ok(packet) => {
+                            if packet.to::<connect::ChannelSuccess>().is_ok() {
+                                Some(Ok(request::Response::Success))
+                            } else if packet.to::<connect::ChannelFailure>().is_ok() {
+                                Some(Ok(request::Response::Failure))
+                            } else {
+                                None
+                            }
                         }
-                    }
-                    Err(err) => Some(Err(err)),
-                });
+                        Err(err) => Some(Err(err)),
+                    },
+                );
 
             task::Poll::Ready(response)
         })
         .await
         .ok_or(Error::ChannelClosed);
 
-        self.connect.unregister(&interest);
+        self.mux.unregister(&interest);
 
         Ok(response??)
     }
@@ -267,7 +269,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
 
     /// Signal to the peer we won't send any more data in the current channel.
     pub async fn eof(&self) -> Result<()> {
-        self.connect
+        self.mux
             .send(&connect::ChannelEof {
                 recipient_channel: self.remote_id,
             })
@@ -282,15 +284,8 @@ impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
 
         tracing::debug!("Reporting channel #{} as closed", self.local_id);
 
-        // TODO: Find a better way than this "bad bad loop™"
-        loop {
-            if let Some(mut poller) = self.connect.poller.try_lock() {
-                poller.enqueue(&connect::ChannelClose {
-                    recipient_channel: self.remote_id,
-                });
-
-                break;
-            }
-        }
+        self.mux.push(&connect::ChannelClose {
+            recipient_channel: self.remote_id,
+        });
     }
 }

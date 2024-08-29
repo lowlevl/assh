@@ -1,7 +1,7 @@
 //! The _channel requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use ssh_packet::connect::{self};
+use ssh_packet::connect;
 
 use super::Channel;
 use crate::Result;
@@ -41,7 +41,7 @@ impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
     pub async fn accept(self) -> Result<()> {
         if *self.inner.want_reply {
             self.channel
-                .connect
+                .mux
                 .send(&connect::ChannelSuccess {
                     recipient_channel: self.channel.remote_id,
                 })
@@ -55,7 +55,7 @@ impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
     pub async fn reject(self) -> Result<()> {
         if *self.inner.want_reply {
             self.channel
-                .connect
+                .mux
                 .send(&connect::ChannelFailure {
                     recipient_channel: self.channel.remote_id,
                 })

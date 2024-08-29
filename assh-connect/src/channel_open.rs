@@ -3,9 +3,9 @@
 use assh::{side::Side, Pipe};
 use ssh_packet::{arch::StringUtf8, connect};
 
-use super::Connect;
 use crate::{
     channel::{self, LocalWindow},
+    mux::Mux,
     Result,
 };
 
@@ -31,13 +31,19 @@ pub enum Response<'r, IO: Pipe, S: Side> {
 
 /// A received _channel open request_.
 pub struct ChannelOpen<'r, IO: Pipe, S: Side> {
-    connect: &'r Connect<IO, S>,
+    mux: &'r Mux<IO, S>,
+
+    local_id: u32,
     inner: connect::ChannelOpen,
 }
 
 impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
-    pub(super) fn new(connect: &'r Connect<IO, S>, inner: connect::ChannelOpen) -> Self {
-        Self { connect, inner }
+    pub(super) fn new(mux: &'r Mux<IO, S>, local_id: u32, inner: connect::ChannelOpen) -> Self {
+        Self {
+            mux,
+            local_id,
+            inner,
+        }
     }
 
     /// Access the _context_ of the channel open request.
@@ -47,20 +53,18 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
 
     /// Accept the channel open request.
     pub async fn accept(self) -> Result<channel::Channel<'r, IO, S>> {
-        let local_id = self.connect.local_id();
-
-        self.connect
+        self.mux
             .send(&connect::ChannelOpenConfirmation {
                 recipient_channel: self.inner.sender_channel,
-                sender_channel: local_id,
+                sender_channel: self.local_id,
                 initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
                 maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
             })
             .await?;
 
         Ok(channel::Channel::new(
-            self.connect,
-            local_id,
+            self.mux,
+            self.local_id,
             self.inner.sender_channel,
             self.inner.initial_window_size,
             self.inner.maximum_packet_size,
@@ -73,7 +77,7 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
         reason: connect::ChannelOpenFailureReason,
         description: impl Into<StringUtf8>,
     ) -> Result<()> {
-        self.connect
+        self.mux
             .send(&connect::ChannelOpenFailure {
                 recipient_channel: self.inner.sender_channel,
                 reason,

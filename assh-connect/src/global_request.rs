@@ -3,8 +3,7 @@
 use assh::{side::Side, Pipe};
 use ssh_packet::connect;
 
-use super::Connect;
-use crate::Result;
+use crate::{mux::Mux, Result};
 
 #[doc(no_inline)]
 pub use ssh_packet::connect::GlobalRequestContext;
@@ -23,13 +22,13 @@ pub enum Response {
 
 /// A received _global request_.
 pub struct GlobalRequest<'r, IO: Pipe, S: Side> {
-    connect: &'r Connect<IO, S>,
+    mux: &'r Mux<IO, S>,
     inner: connect::GlobalRequest,
 }
 
 impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
-    pub(super) fn new(connect: &'r Connect<IO, S>, inner: connect::GlobalRequest) -> Self {
-        Self { connect, inner }
+    pub(super) fn new(mux: &'r Mux<IO, S>, inner: connect::GlobalRequest) -> Self {
+        Self { mux, inner }
     }
 
     /// Access the _context_ of the global request.
@@ -42,11 +41,11 @@ impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
         if *self.inner.want_reply {
             match self.inner.context {
                 connect::GlobalRequestContext::TcpipForward { bind_port: 0, .. } => {
-                    self.connect
+                    self.mux
                         .send(&connect::ForwardingSuccess { bound_port })
                         .await?
                 }
-                _ => self.connect.send(&connect::RequestSuccess).await?,
+                _ => self.mux.send(&connect::RequestSuccess).await?,
             }
         }
 
@@ -56,7 +55,7 @@ impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
     /// Reject the global request.
     pub async fn reject(self) -> Result<()> {
         if *self.inner.want_reply {
-            self.connect.send(&connect::RequestFailure).await?;
+            self.mux.send(&connect::RequestFailure).await?;
         }
 
         Ok(())

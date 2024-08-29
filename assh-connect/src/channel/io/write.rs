@@ -1,8 +1,7 @@
 use std::{io, num::NonZeroU32, pin::Pin, task};
 
 use assh::{side::Side, Pipe};
-use futures::FutureExt;
-use ssh_packet::{connect};
+use ssh_packet::connect;
 
 use crate::channel::Channel;
 
@@ -23,23 +22,20 @@ impl<'a, IO: Pipe, S: Side> Write<'a, IO, S> {
         }
     }
 
-    fn poll_send(&mut self, cx: &mut task::Context) -> task::Poll<io::Result<()>> {
-        let mut sender = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
-
+    fn push_data(&mut self) {
         let data = std::mem::take(&mut self.buffer).into();
+
         match self.stream_id {
-            Some(data_type) => sender.enqueue(&connect::ChannelExtendedData {
+            Some(data_type) => self.channel.mux.push(&connect::ChannelExtendedData {
                 recipient_channel: self.channel.remote_id,
                 data_type,
                 data,
             }),
-            None => sender.enqueue(&connect::ChannelData {
+            None => self.channel.mux.push(&connect::ChannelData {
                 recipient_channel: self.channel.remote_id,
                 data,
             }),
         }
-
-        task::Poll::Ready(Ok(()))
     }
 }
 
@@ -63,7 +59,7 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
             .len()
             .min(self.channel.remote_maxpack as usize - self.buffer.len());
         if writable == 0 {
-            futures::ready!(self.poll_send(cx))?;
+            self.push_data();
 
             cx.waker().wake_by_ref();
             return task::Poll::Pending;
@@ -88,11 +84,11 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
         .entered();
 
         if !self.buffer.is_empty() {
-            futures::ready!(self.poll_send(cx))?;
+            self.push_data();
         }
 
-        let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
-        poller
+        self.channel
+            .mux
             .poll_flush(cx)
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))
     }
