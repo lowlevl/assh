@@ -30,7 +30,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
     /// Get the [`Id`] for this session.
     fn id(&self) -> &Id;
 
-    // TODO: Is a timeout really needed in SSH2 ?
+    // TODO: (compliance) Is a timeout really needed in SSH2 ?
     /// Get the _timeout_ for this session.
     fn timeout(&self) -> Duration;
 
@@ -58,7 +58,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
             let kexinit = self.kexinit();
             stream.send(&kexinit).await?;
 
-            // TODO: Take care of `KexInit::first_kex_packet_follows` being true.
+            // TODO: (compliance) Take care of `KexInit::first_kex_packet_follows` being true.
 
             let peerkexinit = stream.recv().await?.to::<KexInit>()?;
 

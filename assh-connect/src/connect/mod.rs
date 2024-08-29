@@ -15,7 +15,7 @@ use crate::{
 mod service;
 pub use service::Service;
 
-// TODO: Flush Poller Sink on Drop ?
+// TODO: (reliability) Flush Poller Sink on Drop ?
 
 /// A wrapper around [`assh::Session`] to interract with the connect layer.
 pub struct Connect<IO, S>
@@ -24,6 +24,8 @@ where
     S: Side,
 {
     pub(crate) mux: Mux<IO, S>,
+
+    // TODO: (compliance/reliability) Maybe replace this set with a `sharded-slab::Slab` to track dropped channels.
     channels: DashSet<u32>,
 }
 
@@ -60,7 +62,7 @@ where
         })
     }
 
-    // TODO: Compact `Self::global_request`, `Self::global_request_wait` with a trait ?
+    // TODO: (ux) Compact `Self::global_request`, `Self::global_request_wait` with a trait ?
 
     /// Send a _global request_.
     pub async fn global_request(&self, context: connect::GlobalRequestContext) -> Result<()> {
@@ -153,7 +155,7 @@ where
     }
 
     pub(crate) fn local_id(&self) -> u32 {
-        // TODO: Assess the need for this loop
+        // TODO: (optimization) Assess the need for this loop
         loop {
             let id = self
                 .channels
@@ -195,7 +197,7 @@ where
         &self,
         context: connect::ChannelOpenContext,
     ) -> Result<channel_open::Response<'_, IO, S>> {
-        // TODO: Release the id eventually if the request is rejected
+        // TODO: (reliability) Release the id eventually if the request is rejected
         let local_id = self.local_id();
 
         let interest = Interest::ChannelOpenResponse(local_id);

@@ -137,7 +137,7 @@ where
                                 packet.payload.len()
                             );
 
-                            // TODO: Respond to unhandled `GlobalRequest`, `ChannelOpenRequest` & `ChannelRequest` that *want_reply*.
+                            // TODO: (compliance) Respond to unhandled `GlobalRequest`, `ChannelOpenRequest` & `ChannelRequest` that *want_reply*.
 
                             cx.waker().wake_by_ref();
                             task::Poll::Pending

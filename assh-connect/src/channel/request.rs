@@ -9,7 +9,7 @@ use crate::Result;
 #[doc(no_inline)]
 pub use connect::ChannelRequestContext;
 
-// TODO: Drop implementation ?
+// TODO: (compliance) Drop implementation ?
 
 /// A response to a _channel request_.
 #[derive(Debug, PartialEq, Eq)]

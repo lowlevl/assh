@@ -184,7 +184,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         })
     }
 
-    // TODO: Compact `Self::request`, `Self::request_wait` with a trait ?
+    // TODO: (ux) Compact `Self::request`, `Self::request_wait` with a trait ?
 
     /// Send a _channel request_.
     pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<()> {

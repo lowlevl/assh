@@ -29,8 +29,8 @@ enum Attempt {
 #[derive(Debug)]
 pub struct Auth<H, N = (), P = (), PK = ()> {
     banner: Option<StringUtf8>,
-    // TODO: Add a total attempts counter, to disconnect when exceeded.
-    // TODO: Retain methods per user-basis, because each user can attempt all the methods.
+    // TODO: (compliance) Add a total attempts counter, to disconnect when exceeded.
+    // TODO: (compliance) Retain methods per user-basis, because each user can attempt all the methods.
     methods: EnumSet<Method>,
 
     handler: H,
@@ -213,7 +213,7 @@ where
                             {
                                 Attempt::Success
                             } else {
-                                // TODO: Does a faked signature needs to cause disconnection ?
+                                // TODO: (reliability) Does a faked signature needs to cause disconnection ?
                                 Attempt::Failure
                             }
                         }
@@ -252,12 +252,12 @@ where
             }
 
             userauth::Method::Hostbased { .. } => {
-                // TODO: Add hostbased authentication.
+                // TODO: (feature) Add hostbased authentication.
                 todo!("Server-side `hostbased` method is not implemented")
             }
 
             userauth::Method::KeyboardInteractive { .. } => {
-                // TODO: Add keyboard-interactive authentication.
+                // TODO: (feature) Add keyboard-interactive authentication.
                 todo!("Server-side `keyboard-interactive` method is not implemented")
             }
         })

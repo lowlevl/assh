@@ -4,7 +4,7 @@ use futures::Future;
 
 use crate::{side::Side, Pipe, Session};
 
-// TODO: Handle multiple services at once ?
+// TODO: (feature) Handle multiple services at once ?
 
 /// A _service handler_ in the transport protocol.
 pub trait Handler {

@@ -2,8 +2,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use futures::task;
 
-// TODO: Evaluate memory ordering constraints to elliviate SeqCst ordering if possible.
-// TODO: Do unit tests using `loom`.
+// TODO: (optimization) Evaluate memory ordering constraints to elliviate SeqCst ordering if possible.
+// TODO: (reliability) Do unit tests using `loom`.
 
 pub struct LocalWindow {
     inner: AtomicU32,
@@ -37,7 +37,7 @@ impl LocalWindow {
         // non-compliant peers, so panicking could be a solution.
         #[allow(clippy::panic)]
         if size > previous {
-            // TODO: Evaluate whether panicking here is an acceptable solution.
+            // TODO: (reliability) Evaluate whether panicking here is an acceptable solution.
             panic!(
                 "Peer sent more data than the window size allowed, by {}bytes",
                 size - previous
@@ -94,7 +94,7 @@ impl RemoteWindow {
         if let Some(size) = self.try_reserve(amount) {
             task::Poll::Ready(size)
         } else {
-            // TODO: Decide whether we need to host a collection of wakers or not.
+            // TODO: (reliability) Decide whether we need to host a collection of wakers or not.
 
             tracing::warn!("Peer channel window is full, awaiting for extension");
 

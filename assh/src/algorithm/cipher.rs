@@ -4,7 +4,7 @@ use strum::{AsRefStr, EnumString};
 
 use crate::{Error, Result};
 
-// TODO: Get rid of this Box<dyn> altogether.
+// TODO: (optimization) Get rid of this Box<dyn> altogether.
 pub type CipherState = Box<dyn std::any::Any + Send + Sync>;
 
 pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Cipher, Cipher)> {
@@ -24,7 +24,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Cipher, Ci
     ))
 }
 
-// TODO: Implement the latest and safest ciphers (`chacha20-poly1305@openssh.com`, `aes256-gcm@openssh.com`, `aes128-gcm@openssh.com`).
+// TODO: (feature) Implement the latest and safest ciphers (`chacha20-poly1305@openssh.com`, `aes256-gcm@openssh.com`, `aes128-gcm@openssh.com`).
 
 /// SSH cipher algorithms.
 #[non_exhaustive]

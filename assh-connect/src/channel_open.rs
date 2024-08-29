@@ -12,7 +12,7 @@ use crate::{
 #[doc(no_inline)]
 pub use ssh_packet::connect::{ChannelOpenContext, ChannelOpenFailureReason};
 
-// TODO: Drop implementation ?
+// TODO: (compliance) Drop implementation ?
 
 /// A response to a _channel open request_.
 pub enum Response<'r, IO: Pipe, S: Side> {

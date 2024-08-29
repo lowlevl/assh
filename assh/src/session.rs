@@ -17,8 +17,8 @@ use crate::{
     stream::Stream,
 };
 
-// TODO: Handle extension negotiation described in RFC8308.
-// TODO: Fix out-of-band rekeying, it expects the packet right away while we are not sure the peer is that fast.
+// TODO: (feature) Handle extension negotiation described in RFC8308.
+// TODO: (reliability) Fix out-of-band rekeying, it expects the packet right away while we are not sure the peer is that fast.
 
 /// A trait alias for something _pipe-alike_, implementing [`AsyncBufRead`] and [`AsyncWrite`].
 pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static {}
@@ -256,7 +256,8 @@ where
     S: Side,
 {
     fn drop(&mut self) {
-        // TODO: Find out: 1. if this blocking call is an issue; 2. how to have a generic way to trigger an async task regardless of the executor
+        // TODO: (reliability) Find out: 1. if this blocking call is an issue;
+        // 2. how to have a generic way to trigger an async task regardless of the executor
         let _ = futures::executor::block_on(
             self.disconnect(DisconnectReason::ByApplication, "user closed the session"),
         );

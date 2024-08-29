@@ -8,7 +8,7 @@ use crate::{mux::Mux, Result};
 #[doc(no_inline)]
 pub use ssh_packet::connect::GlobalRequestContext;
 
-// TODO: Drop implementation ?
+// TODO: (compliance) Drop implementation ?
 
 /// A response to a _global request_.
 #[derive(Debug)]

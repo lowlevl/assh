@@ -153,7 +153,7 @@ where
             }
 
             State::Recving(_) => {
-                // TODO: Fix this with an AtomicWaker.
+                // TODO: (optimization) Fix this with an AtomicWaker ?
                 tracing::warn!("Busy waiting in Poller::poll_flush");
 
                 cx.waker().wake_by_ref();

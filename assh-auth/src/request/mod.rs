@@ -13,9 +13,9 @@ use ssh_packet::{
 mod method;
 use method::Method;
 
-// TODO: Add hostbased authentication.
-// TODO: Add keyboard-interactive authentication.
-// TODO: Handle the SSH banner in the `request` side.
+// TODO: (feature) Add hostbased authentication.
+// TODO: (feature) Add keyboard-interactive authentication.
+// TODO: (compliance) Handle the SSH banner in the `request` side.
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
@@ -134,7 +134,7 @@ impl<R: Request> Auth<R> {
 
                 let response = session.recv().await?;
                 if let Ok(userauth::PasswdChangereq { prompt: _, .. }) = response.to() {
-                    todo!() // TODO: Handle the change request case
+                    todo!() // TODO: (compliance) Handle the change request case
                 } else {
                     Ok(response)
                 }
@@ -165,7 +165,7 @@ impl<R: Request> Request for Auth<R> {
             if response.to::<userauth::Success>().is_ok() {
                 break self.service.on_accept(session).await;
             } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
-                // TODO: Take care of partial success
+                // TODO: (compliance) Take care of partial success
 
                 if let Some(next) = self.next_method(&continue_with) {
                     method = next;
