@@ -1,4 +1,4 @@
-use ssh_packet::{connect, Packet};
+use ssh_packet::{binrw::meta::ReadMagic, connect, Packet};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Interest {
@@ -18,38 +18,47 @@ pub enum Interest {
 }
 
 impl Interest {
-    pub fn parse(packet: &Packet) -> Option<Self> {
-        // TODO: Maybe optimize this caracterization without using `binrw` when it is expensive to (Data mainly).
+    fn recipient_channel_for(packet: &Packet) -> u32 {
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&packet.payload[1..5]);
 
-        if packet.to::<connect::GlobalRequest>().is_ok() {
+        u32::from_le_bytes(bytes)
+    }
+
+    pub fn parse(packet: &Packet) -> Option<Self> {
+        if packet.payload[0] == connect::GlobalRequest::MAGIC {
             Some(Self::GlobalRequest)
-        } else if packet.to::<connect::RequestSuccess>().is_ok()
-            || packet.to::<connect::ForwardingSuccess>().is_ok()
-            || packet.to::<connect::RequestFailure>().is_ok()
+        } else if packet.payload[0] == connect::RequestSuccess::MAGIC
+            || packet.payload[0] == connect::ForwardingSuccess::MAGIC
+            || packet.payload[0] == connect::RequestFailure::MAGIC
         {
             Some(Self::GlobalResponse)
-        } else if packet.to::<connect::ChannelOpen>().is_ok() {
+        } else if packet.payload[0] == connect::ChannelOpen::MAGIC {
             Some(Self::ChannelOpenRequest)
-        } else if let Ok(message) = packet.to::<connect::ChannelOpenConfirmation>() {
-            Some(Self::ChannelOpenResponse(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelOpenFailure>() {
-            Some(Self::ChannelOpenResponse(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelWindowAdjust>() {
-            Some(Self::ChannelWindowAdjust(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelData>() {
-            Some(Self::ChannelData(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelExtendedData>() {
-            Some(Self::ChannelData(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelEof>() {
-            Some(Self::ChannelEof(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelClose>() {
-            Some(Self::ChannelClose(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelRequest>() {
-            Some(Self::ChannelRequest(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelSuccess>() {
-            Some(Self::ChannelResponse(message.recipient_channel))
-        } else if let Ok(message) = packet.to::<connect::ChannelFailure>() {
-            Some(Self::ChannelResponse(message.recipient_channel))
+        } else if packet.payload[0] == connect::ChannelOpenConfirmation::MAGIC
+            || packet.payload[0] == connect::ChannelOpenFailure::MAGIC
+        {
+            Some(Self::ChannelOpenResponse(Self::recipient_channel_for(
+                packet,
+            )))
+        } else if packet.payload[0] == connect::ChannelWindowAdjust::MAGIC {
+            Some(Self::ChannelWindowAdjust(Self::recipient_channel_for(
+                packet,
+            )))
+        } else if packet.payload[0] == connect::ChannelData::MAGIC
+            || packet.payload[0] == connect::ChannelExtendedData::MAGIC
+        {
+            Some(Self::ChannelData(Self::recipient_channel_for(packet)))
+        } else if packet.payload[0] == connect::ChannelEof::MAGIC {
+            Some(Self::ChannelEof(Self::recipient_channel_for(packet)))
+        } else if packet.payload[0] == connect::ChannelClose::MAGIC {
+            Some(Self::ChannelClose(Self::recipient_channel_for(packet)))
+        } else if packet.payload[0] == connect::ChannelRequest::MAGIC {
+            Some(Self::ChannelRequest(Self::recipient_channel_for(packet)))
+        } else if packet.payload[0] == connect::ChannelSuccess::MAGIC
+            || packet.payload[0] == connect::ChannelFailure::MAGIC
+        {
+            Some(Self::ChannelResponse(Self::recipient_channel_for(packet)))
         } else {
             None
         }
