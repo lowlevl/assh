@@ -1,15 +1,11 @@
 use std::collections::VecDeque;
 
 use assh::{side::Side, Pipe, Session};
-use futures::{future::BoxFuture, task, FutureExt, Sink, Stream, StreamExt};
-use ssh_packet::Packet;
-
-use crate::Result;
+use futures::{future::BoxFuture, task, FutureExt};
+use ssh_packet::{IntoPacket, Packet};
 
 type SendFut<IO, S> = BoxFuture<'static, (assh::Result<()>, Box<Session<IO, S>>)>;
 type RecvFut<IO, S> = BoxFuture<'static, (assh::Result<Packet>, Box<Session<IO, S>>)>;
-
-// TODO: Remove `Sink` & `Stream` implementations as ours is not compliant and is currently misused.
 
 enum State<IO: Pipe, S: Side> {
     /// Idling and waiting for tasks.
@@ -47,6 +43,7 @@ where
     }
 }
 
+/// Methods used to _receive_ messages from the [`Session`].
 impl<IO, S> Poller<IO, S>
 where
     IO: Pipe,
@@ -57,110 +54,23 @@ where
         cx: &mut task::Context,
     ) -> task::Poll<assh::Result<&mut Option<Packet>>> {
         if self.buffer.is_none() {
-            if let Some(result) = futures::ready!(self.poll_next_unpin(cx)) {
+            if let Some(result) = futures::ready!(self.poll_next(cx)) {
                 self.buffer = Some(result?);
             }
         }
 
         task::Poll::Ready(Ok(&mut self.buffer))
     }
-}
-
-impl<IO, S> Sink<Packet> for Poller<IO, S>
-where
-    IO: Pipe,
-    S: Side,
-{
-    type Error = assh::Error;
-
-    fn poll_ready(
-        self: std::pin::Pin<&mut Self>,
-        _cx: &mut task::Context<'_>,
-    ) -> task::Poll<Result<(), Self::Error>> {
-        // We are always ready to receive a Packet in the sink,
-        // because it is backed with a FIFO queue to hold pending packets.
-
-        task::Poll::Ready(Ok(()))
-    }
-
-    fn start_send(mut self: std::pin::Pin<&mut Self>, item: Packet) -> Result<(), Self::Error> {
-        tracing::trace!(
-            "Queueing message in the sender of type ^{:#x}",
-            item.payload[0]
-        );
-
-        self.queue.push_back(item);
-
-        Ok(())
-    }
-
-    fn poll_flush(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-    ) -> task::Poll<Result<(), Self::Error>> {
-        match &mut self.state {
-            State::Sending(fut) => {
-                let (result, session) = futures::ready!(fut.poll_unpin(cx));
-
-                self.state = State::Idle(Some(session));
-                result?;
-
-                cx.waker().wake_by_ref();
-                task::Poll::Pending
-            }
-
-            State::Idle(session) => {
-                let Some(mut session) = session.take() else {
-                    unreachable!()
-                };
-
-                if let Some(item) = self.queue.pop_front() {
-                    self.state =
-                        State::Sending(async move { (session.send(item).await, session) }.boxed());
-
-                    cx.waker().wake_by_ref();
-                    task::Poll::Pending
-                } else {
-                    self.state = State::Idle(Some(session));
-
-                    task::Poll::Ready(Ok(()))
-                }
-            }
-
-            State::Recving(_) => {
-                // TODO: Fix this with an AtomicWaker.
-                tracing::warn!("Busy waiting in Poller::poll_flush");
-
-                cx.waker().wake_by_ref();
-                task::Poll::Pending
-            }
-        }
-    }
-
-    fn poll_close(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-    ) -> task::Poll<Result<(), Self::Error>> {
-        self.poll_flush(cx)
-    }
-}
-
-impl<IO, S> Stream for Poller<IO, S>
-where
-    IO: Pipe,
-    S: Side,
-{
-    type Item = assh::Result<Packet>;
 
     fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
+        &mut self,
         cx: &mut task::Context<'_>,
-    ) -> task::Poll<Option<Self::Item>> {
+    ) -> task::Poll<Option<assh::Result<Packet>>> {
         if !matches!(self.state, State::Recving(_)) {
             // NOTE: We ignore errors there because while flushing before receiving is often necessary,
             // errors there shouldn't bubble up to the read side; e.g. sometimes messages are still
             // in the pipe even though it has been closed for writing.
-            futures::ready!(self.as_mut().poll_flush(cx)).ok();
+            futures::ready!(self.poll_flush(cx)).ok();
         }
 
         match &mut self.state {
@@ -199,6 +109,64 @@ where
             }
 
             _ => unreachable!(),
+        }
+    }
+}
+
+/// Methods used to _send_ messages from the [`Session`].
+impl<IO, S> Poller<IO, S>
+where
+    IO: Pipe,
+    S: Side,
+{
+    pub fn enqueue(&mut self, item: impl IntoPacket) {
+        let packet = item.into_packet();
+
+        tracing::trace!(
+            "Queueing message in the sender of type ^{:#x}",
+            packet.payload[0]
+        );
+
+        self.queue.push_back(packet);
+    }
+
+    pub fn poll_flush(&mut self, cx: &mut task::Context<'_>) -> task::Poll<assh::Result<()>> {
+        match &mut self.state {
+            State::Sending(fut) => {
+                let (result, session) = futures::ready!(fut.poll_unpin(cx));
+
+                self.state = State::Idle(Some(session));
+                result?;
+
+                cx.waker().wake_by_ref();
+                task::Poll::Pending
+            }
+
+            State::Idle(session) => {
+                let Some(mut session) = session.take() else {
+                    unreachable!()
+                };
+
+                if let Some(item) = self.queue.pop_front() {
+                    self.state =
+                        State::Sending(async move { (session.send(item).await, session) }.boxed());
+
+                    cx.waker().wake_by_ref();
+                    task::Poll::Pending
+                } else {
+                    self.state = State::Idle(Some(session));
+
+                    task::Poll::Ready(Ok(()))
+                }
+            }
+
+            State::Recving(_) => {
+                // TODO: Fix this with an AtomicWaker.
+                tracing::warn!("Busy waiting in Poller::poll_flush");
+
+                cx.waker().wake_by_ref();
+                task::Poll::Pending
+            }
         }
     }
 }

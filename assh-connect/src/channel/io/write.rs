@@ -1,8 +1,8 @@
 use std::{io, num::NonZeroU32, pin::Pin, task};
 
 use assh::{side::Side, Pipe};
-use futures::{FutureExt, SinkExt};
-use ssh_packet::{connect, IntoPacket};
+use futures::FutureExt;
+use ssh_packet::{connect};
 
 use crate::channel::Channel;
 
@@ -27,22 +27,17 @@ impl<'a, IO: Pipe, S: Side> Write<'a, IO, S> {
         let mut sender = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
 
         let data = std::mem::take(&mut self.buffer).into();
-        let packet = if let Some(data_type) = self.stream_id {
-            connect::ChannelExtendedData {
+        match self.stream_id {
+            Some(data_type) => sender.enqueue(&connect::ChannelExtendedData {
                 recipient_channel: self.channel.remote_id,
                 data_type,
                 data,
-            }
-            .into_packet()
-        } else {
-            connect::ChannelData {
+            }),
+            None => sender.enqueue(&connect::ChannelData {
                 recipient_channel: self.channel.remote_id,
                 data,
-            }
-            .into_packet()
-        };
-
-        sender.start_send_unpin(packet).ok();
+            }),
+        }
 
         task::Poll::Ready(Ok(()))
     }
@@ -96,9 +91,9 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
             futures::ready!(self.poll_send(cx))?;
         }
 
-        let mut sender = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
-        sender
-            .poll_flush_unpin(cx)
+        let mut poller = futures::ready!(self.channel.connect.poller.lock().poll_unpin(cx));
+        poller
+            .poll_flush(cx)
             .map_err(|err| io::Error::new(io::ErrorKind::BrokenPipe, err))
     }
 

@@ -7,10 +7,10 @@ use std::{
 };
 
 use assh::{side::Side, Pipe};
-use futures::{FutureExt, Sink, SinkExt};
-use ssh_packet::{connect, IntoPacket, Packet};
+use futures::FutureExt;
+use ssh_packet::connect;
 
-use crate::channel::Channel;
+use crate::{channel::Channel, poller::Poller};
 
 pub struct Read<'a, IO: Pipe, S: Side> {
     channel: &'a Channel<'a, IO, S>,
@@ -35,18 +35,12 @@ impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
         }
     }
 
-    fn adjust_window(
-        &mut self,
-        poller: &mut (impl Sink<Packet, Error = assh::Error> + Unpin),
-    ) -> io::Result<()> {
+    fn adjust_window(&mut self, poller: &mut Poller<IO, S>) -> io::Result<()> {
         if let Some(bytes_to_add) = self.channel.local_window.adjustable() {
-            let packet = connect::ChannelWindowAdjust {
+            poller.enqueue(&connect::ChannelWindowAdjust {
                 recipient_channel: self.channel.remote_id,
                 bytes_to_add,
-            }
-            .into_packet();
-
-            poller.start_send_unpin(packet).ok();
+            });
 
             tracing::debug!(
                 "Adjusted window size by `{}` for channel #{}",

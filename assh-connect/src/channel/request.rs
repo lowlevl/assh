@@ -1,10 +1,7 @@
 //! The _channel requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use ssh_packet::{
-    connect::{self},
-    IntoPacket,
-};
+use ssh_packet::connect::{self};
 
 use super::Channel;
 use crate::Result;
@@ -45,12 +42,9 @@ impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
         if *self.inner.want_reply {
             self.channel
                 .connect
-                .send(
-                    connect::ChannelSuccess {
-                        recipient_channel: self.channel.remote_id,
-                    }
-                    .into_packet(),
-                )
+                .send(&connect::ChannelSuccess {
+                    recipient_channel: self.channel.remote_id,
+                })
                 .await?;
         }
 
@@ -62,12 +56,9 @@ impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
         if *self.inner.want_reply {
             self.channel
                 .connect
-                .send(
-                    connect::ChannelFailure {
-                        recipient_channel: self.channel.remote_id,
-                    }
-                    .into_packet(),
-                )
+                .send(&connect::ChannelFailure {
+                    recipient_channel: self.channel.remote_id,
+                })
                 .await?;
         }
 

@@ -2,7 +2,7 @@
 
 use assh::{side::Side, Pipe};
 use dashmap::{DashMap, DashSet};
-use futures::{lock::Mutex, task, FutureExt, SinkExt, TryStream};
+use futures::{lock::Mutex, task, FutureExt, TryStream};
 use ssh_packet::{connect, IntoPacket, Packet};
 
 use crate::{
@@ -45,13 +45,13 @@ where
     }
 
     // TODO: Move method to a separate structure.
-    pub(crate) async fn send(&self, item: Packet) -> assh::Result<()> {
-        self.poller.lock().await.feed(item).await?;
+    pub(crate) async fn send(&self, item: impl IntoPacket) -> assh::Result<()> {
+        self.poller.lock().await.enqueue(item);
 
         futures::future::poll_fn(|cx| {
             let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
 
-            poller.poll_flush_unpin(cx)
+            poller.poll_flush(cx)
         })
         .await
     }
@@ -188,13 +188,10 @@ where
 
     /// Send a _global request_.
     pub async fn global_request(&self, context: connect::GlobalRequestContext) -> Result<()> {
-        self.send(
-            connect::GlobalRequest {
-                want_reply: false.into(),
-                context,
-            }
-            .into_packet(),
-        )
+        self.send(&connect::GlobalRequest {
+            want_reply: false.into(),
+            context,
+        })
         .await?;
 
         Ok(())
@@ -210,13 +207,10 @@ where
 
         let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
-        self.send(
-            connect::GlobalRequest {
-                want_reply: false.into(),
-                context,
-            }
-            .into_packet(),
-        )
+        self.send(&connect::GlobalRequest {
+            want_reply: false.into(),
+            context,
+        })
         .await?;
 
         let response = futures::future::poll_fn(|cx| {
@@ -292,15 +286,12 @@ where
         let interest = Interest::ChannelOpenResponse(local_id);
         self.register(interest);
 
-        self.send(
-            connect::ChannelOpen {
-                sender_channel: local_id,
-                initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
-                maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
-                context,
-            }
-            .into_packet(),
-        )
+        self.send(&connect::ChannelOpen {
+            sender_channel: local_id,
+            initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
+            maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
+            context,
+        })
         .await?;
 
         let response = futures::future::poll_fn(|cx| {

@@ -1,7 +1,7 @@
 //! The _global requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use ssh_packet::{connect, IntoPacket};
+use ssh_packet::connect;
 
 use super::Connect;
 use crate::Result;
@@ -40,14 +40,14 @@ impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
     /// Accept the global request.
     pub async fn accept(self, bound_port: u32) -> Result<()> {
         if *self.inner.want_reply {
-            let packet = match self.inner.context {
+            match self.inner.context {
                 connect::GlobalRequestContext::TcpipForward { bind_port: 0, .. } => {
-                    connect::ForwardingSuccess { bound_port }.into_packet()
+                    self.connect
+                        .send(&connect::ForwardingSuccess { bound_port })
+                        .await?
                 }
-                _ => connect::RequestSuccess.into_packet(),
-            };
-
-            self.connect.send(packet).await?;
+                _ => self.connect.send(&connect::RequestSuccess).await?,
+            }
         }
 
         Ok(())
@@ -56,9 +56,7 @@ impl<'r, IO: Pipe, S: Side> GlobalRequest<'r, IO, S> {
     /// Reject the global request.
     pub async fn reject(self) -> Result<()> {
         if *self.inner.want_reply {
-            self.connect
-                .send(connect::RequestFailure.into_packet())
-                .await?;
+            self.connect.send(&connect::RequestFailure).await?;
         }
 
         Ok(())

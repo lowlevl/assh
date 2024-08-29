@@ -4,8 +4,8 @@ use std::{num::NonZeroU32, task};
 
 use assh::{side::Side, Pipe};
 use dashmap::DashMap;
-use futures::{AsyncRead, AsyncWrite, SinkExt, TryStream};
-use ssh_packet::{connect, IntoPacket, Packet};
+use futures::{AsyncRead, AsyncWrite, TryStream};
+use ssh_packet::{connect, Packet};
 
 use crate::{connect::Connect, interest::Interest, Error, Result};
 
@@ -182,14 +182,11 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     /// Send a _channel request_.
     pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<()> {
         self.connect
-            .send(
-                connect::ChannelRequest {
-                    recipient_channel: self.remote_id,
-                    want_reply: false.into(),
-                    context,
-                }
-                .into_packet(),
-            )
+            .send(&connect::ChannelRequest {
+                recipient_channel: self.remote_id,
+                want_reply: false.into(),
+                context,
+            })
             .await?;
 
         Ok(())
@@ -204,14 +201,11 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
         self.connect.register(interest);
 
         self.connect
-            .send(
-                connect::ChannelRequest {
-                    recipient_channel: self.remote_id,
-                    want_reply: true.into(),
-                    context,
-                }
-                .into_packet(),
-            )
+            .send(&connect::ChannelRequest {
+                recipient_channel: self.remote_id,
+                want_reply: true.into(),
+                context,
+            })
             .await?;
 
         let response = futures::future::poll_fn(|cx| {
@@ -274,12 +268,9 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     /// Signal to the peer we won't send any more data in the current channel.
     pub async fn eof(&self) -> Result<()> {
         self.connect
-            .send(
-                connect::ChannelEof {
-                    recipient_channel: self.remote_id,
-                }
-                .into_packet(),
-            )
+            .send(&connect::ChannelEof {
+                recipient_channel: self.remote_id,
+            })
             .await
             .map_err(|_| Error::ChannelClosed)
     }
@@ -294,14 +285,9 @@ impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
         // TODO: Find a better way than this "bad bad loop™"
         loop {
             if let Some(mut poller) = self.connect.poller.try_lock() {
-                poller
-                    .start_send_unpin(
-                        connect::ChannelClose {
-                            recipient_channel: self.remote_id,
-                        }
-                        .into_packet(),
-                    )
-                    .ok();
+                poller.enqueue(&connect::ChannelClose {
+                    recipient_channel: self.remote_id,
+                });
 
                 break;
             }

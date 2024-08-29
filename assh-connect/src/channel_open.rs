@@ -1,7 +1,7 @@
 //! The _channel open requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use ssh_packet::{arch::StringUtf8, connect, IntoPacket};
+use ssh_packet::{arch::StringUtf8, connect};
 
 use super::Connect;
 use crate::{
@@ -50,15 +50,12 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
         let local_id = self.connect.local_id();
 
         self.connect
-            .send(
-                connect::ChannelOpenConfirmation {
-                    recipient_channel: self.inner.sender_channel,
-                    sender_channel: local_id,
-                    initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
-                    maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
-                }
-                .into_packet(),
-            )
+            .send(&connect::ChannelOpenConfirmation {
+                recipient_channel: self.inner.sender_channel,
+                sender_channel: local_id,
+                initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
+                maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
+            })
             .await?;
 
         Ok(channel::Channel::new(
@@ -77,15 +74,12 @@ impl<'r, IO: Pipe, S: Side> ChannelOpen<'r, IO, S> {
         description: impl Into<StringUtf8>,
     ) -> Result<()> {
         self.connect
-            .send(
-                connect::ChannelOpenFailure {
-                    recipient_channel: self.inner.sender_channel,
-                    reason,
-                    description: description.into(),
-                    language: Default::default(),
-                }
-                .into_packet(),
-            )
+            .send(&connect::ChannelOpenFailure {
+                recipient_channel: self.inner.sender_channel,
+                reason,
+                description: description.into(),
+                language: Default::default(),
+            })
             .await?;
 
         Ok(())
