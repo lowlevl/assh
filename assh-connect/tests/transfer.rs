@@ -1,5 +1,9 @@
 use assh::{
-    side::{client::Client, server::Server},
+    algorithm::Key,
+    side::{
+        client::Client,
+        server::{PrivateKey, Server},
+    },
     Result,
 };
 use assh_connect::{
@@ -11,7 +15,6 @@ use async_compat::{Compat, CompatExt};
 use futures::{future::BoxFuture, FutureExt, TryFutureExt, TryStreamExt};
 use rand::{Rng, SeedableRng};
 use sha1::Digest;
-use ssh_key::{Algorithm, PrivateKey};
 use tokio::io::{BufStream, DuplexStream};
 use tracing::Instrument;
 
@@ -23,10 +26,7 @@ where
     C: Fn(channel::Channel<'_, IO, Client>) -> BoxFuture<'_, ()>,
 {
     let duplex = tokio::io::duplex(ssh_packet::PACKET_MAX_SIZE * 16);
-    let keys = vec![PrivateKey::random(
-        &mut rand::thread_rng(),
-        Algorithm::Ed25519,
-    )?];
+    let keys = vec![PrivateKey::random(&mut rand::thread_rng(), Key::Ed25519)?];
 
     tokio::try_join!(
         async {
