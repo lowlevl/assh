@@ -5,15 +5,15 @@ use ssh_packet::connect;
 
 use crate::channel::Channel;
 
-pub struct Write<'a, IO: Pipe, S: Side> {
-    channel: &'a Channel<'a, IO, S>,
+pub struct Write<'s, IO: Pipe, S: Side> {
+    channel: &'s Channel<'s, IO, S>,
     stream_id: Option<NonZeroU32>,
 
     buffer: Vec<u8>,
 }
 
-impl<'a, IO: Pipe, S: Side> Write<'a, IO, S> {
-    pub fn new(channel: &'a Channel<'a, IO, S>, stream_id: Option<NonZeroU32>) -> Self {
+impl<'s, IO: Pipe, S: Side> Write<'s, IO, S> {
+    pub fn new(channel: &'s Channel<'s, IO, S>, stream_id: Option<NonZeroU32>) -> Self {
         Self {
             channel,
             stream_id,

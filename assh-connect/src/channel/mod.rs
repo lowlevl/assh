@@ -20,8 +20,8 @@ pub(super) use window::{LocalWindow, RemoteWindow};
 pub mod request;
 
 /// A reference to an opened _channel_.
-pub struct Channel<'a, IO: Pipe, S: Side> {
-    mux: &'a Mux<IO, S>,
+pub struct Channel<'s, IO: Pipe, S: Side> {
+    mux: &'s Mux<IO, S>,
 
     local_id: u32,
     local_window: LocalWindow,
@@ -33,9 +33,13 @@ pub struct Channel<'a, IO: Pipe, S: Side> {
     streams: DashMap<Option<NonZeroU32>, flume::Sender<Vec<u8>>>,
 }
 
-impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
+impl<'s, IO, S> Channel<'s, IO, S>
+where
+    IO: Pipe,
+    S: Side,
+{
     pub(crate) fn new(
-        mux: &'a Mux<IO, S>,
+        mux: &'s Mux<IO, S>,
         local_id: u32,
         remote_id: u32,
         remote_window: u32,
@@ -179,7 +183,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
             let _span = tracing::debug_span!("Channel::request", channel = self.local_id).entered();
 
             self.poll_interest(cx, &interest)
-                .map_ok(|message| request::Request::new(self, message))
+                .map_ok(|inner| request::Request::new(self, inner))
                 .map_err(Into::into)
         })
     }
@@ -292,7 +296,7 @@ impl<'a, IO: Pipe, S: Side> Channel<'a, IO, S> {
     }
 }
 
-impl<'a, IO: Pipe, S: Side> Drop for Channel<'a, IO, S> {
+impl<'s, IO: Pipe, S: Side> Drop for Channel<'s, IO, S> {
     fn drop(&mut self) {
         self.unregister_all();
 

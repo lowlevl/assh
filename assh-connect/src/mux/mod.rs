@@ -148,12 +148,6 @@ where
         }
     }
 
-    pub async fn send(&self, item: impl IntoPacket) -> assh::Result<()> {
-        self.feed(item);
-
-        futures::future::poll_fn(|cx| self.poll_flush(cx)).await
-    }
-
     pub fn feed(&self, item: impl IntoPacket) {
         self.queue.send(item.into_packet()).ok();
     }
@@ -162,5 +156,14 @@ where
         let mut poller = futures::ready!(self.poller.lock().poll_unpin(cx));
 
         poller.poll_flush(cx)
+    }
+
+    pub async fn flush(&self) -> assh::Result<()> {
+        futures::future::poll_fn(|cx| self.poll_flush(cx)).await
+    }
+
+    pub async fn send(&self, item: impl IntoPacket) -> assh::Result<()> {
+        self.feed(item);
+        self.flush().await
     }
 }

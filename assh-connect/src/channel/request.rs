@@ -4,12 +4,10 @@ use assh::{side::Side, Pipe};
 use ssh_packet::connect;
 
 use super::Channel;
-use crate::Result;
+use crate::{mux::Mux, Result};
 
 #[doc(no_inline)]
 pub use connect::ChannelRequestContext;
-
-// TODO: (compliance) Drop implementation ?
 
 /// A response to a _channel request_.
 #[derive(Debug, PartialEq, Eq)]
@@ -22,24 +20,27 @@ pub enum Response {
 }
 
 /// A received _channel request_.
-pub struct Request<'r, IO: Pipe, S: Side> {
-    channel: &'r Channel<'r, IO, S>,
-    inner: connect::ChannelRequest,
+pub struct Request<'s, IO: Pipe, S: Side> {
+    channel: &'s Channel<'s, IO, S>,
+    inner: Option<connect::ChannelRequest>,
 }
 
-impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
-    pub(super) fn new(channel: &'r Channel<'r, IO, S>, inner: connect::ChannelRequest) -> Self {
-        Self { channel, inner }
-    }
-
-    /// Access the _context_ of the channel request.
-    pub fn cx(&self) -> &connect::ChannelRequestContext {
-        &self.inner.context
+impl<'s, IO: Pipe, S: Side> Request<'s, IO, S> {
+    pub(super) fn new(channel: &'s Channel<'s, IO, S>, inner: connect::ChannelRequest) -> Self {
+        Self {
+            channel,
+            inner: Some(inner),
+        }
     }
 
     /// Accept the channel request.
-    pub async fn accept(self) -> Result<()> {
-        if *self.inner.want_reply {
+    pub async fn accept(mut self) -> Result<()> {
+        let inner = self
+            .inner
+            .take()
+            .expect("Inner value has been dropped before the outer structure");
+
+        if *inner.want_reply {
             self.channel
                 .mux
                 .send(&connect::ChannelSuccess {
@@ -51,17 +52,39 @@ impl<'r, IO: Pipe, S: Side> Request<'r, IO, S> {
         Ok(())
     }
 
+    pub(crate) fn rejected(mux: &Mux<IO, S>, recipient_channel: u32) {
+        mux.feed(&connect::ChannelFailure { recipient_channel });
+    }
+
     /// Reject the channel request.
-    pub async fn reject(self) -> Result<()> {
-        if *self.inner.want_reply {
-            self.channel
-                .mux
-                .send(&connect::ChannelFailure {
-                    recipient_channel: self.channel.remote_id,
-                })
-                .await?;
+    pub async fn reject(mut self) -> Result<()> {
+        let inner = self
+            .inner
+            .take()
+            .expect("Inner value has been dropped before the outer structure");
+
+        if *inner.want_reply {
+            Self::rejected(self.channel.mux, self.channel.remote_id);
+            self.channel.mux.flush().await?;
         }
 
         Ok(())
+    }
+
+    /// Access the _context_ of the channel request.
+    pub fn cx(&self) -> &connect::ChannelRequestContext {
+        &self
+            .inner
+            .as_ref()
+            .expect("Inner value has been dropped before the outer structure")
+            .context
+    }
+}
+
+impl<'s, IO: Pipe, S: Side> Drop for Request<'s, IO, S> {
+    fn drop(&mut self) {
+        if matches!(&self.inner, Some(inner) if *inner.want_reply) {
+            Self::rejected(self.channel.mux, self.channel.remote_id);
+        }
     }
 }

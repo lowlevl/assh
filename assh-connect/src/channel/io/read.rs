@@ -11,16 +11,16 @@ use ssh_packet::connect;
 
 use crate::channel::Channel;
 
-pub struct Read<'a, IO: Pipe, S: Side> {
-    channel: &'a Channel<'a, IO, S>,
+pub struct Read<'s, IO: Pipe, S: Side> {
+    channel: &'s Channel<'s, IO, S>,
     stream_id: Option<NonZeroU32>,
 
     receiver: flume::Receiver<Vec<u8>>,
     buffer: VecDeque<u8>,
 }
 
-impl<'a, IO: Pipe, S: Side> Read<'a, IO, S> {
-    pub fn new(channel: &'a Channel<'a, IO, S>, stream_id: Option<NonZeroU32>) -> Self {
+impl<'s, IO: Pipe, S: Side> Read<'s, IO, S> {
+    pub fn new(channel: &'s Channel<'s, IO, S>, stream_id: Option<NonZeroU32>) -> Self {
         let (sender, receiver) = flume::unbounded();
 
         channel.streams.insert(stream_id, sender);
@@ -91,7 +91,7 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
     }
 }
 
-impl<'a, IO: Pipe, S: Side> Drop for Read<'a, IO, S> {
+impl<'s, IO: Pipe, S: Side> Drop for Read<'s, IO, S> {
     fn drop(&mut self) {
         self.channel.streams.remove(&self.stream_id);
     }

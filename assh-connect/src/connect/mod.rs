@@ -57,7 +57,7 @@ where
 
             self.mux
                 .poll_interest(cx, &interest)
-                .map_ok(|message| global_request::GlobalRequest::new(&self.mux, message))
+                .map_ok(|inner| global_request::GlobalRequest::new(&self.mux, inner))
                 .map_err(Into::into)
         })
     }
@@ -185,9 +185,7 @@ where
 
             self.mux
                 .poll_interest(cx, &interest)
-                .map_ok(|message| {
-                    channel_open::ChannelOpen::new(&self.mux, self.local_id(), message)
-                })
+                .map_ok(|inner| channel_open::ChannelOpen::new(&self.mux, inner, self.local_id()))
                 .map_err(Into::into)
         })
     }
