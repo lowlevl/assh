@@ -8,9 +8,17 @@ pub enum Error {
     #[error(transparent)]
     Transport(#[from] assh::Error),
 
+    /// There are too many open channels.
+    #[error("There are too many open channels at the time")]
+    TooManyChannels,
+
     /// The channel has been closed.
     #[error("The channel has been closed")]
     ChannelClosed,
+
+    /// The session has been closed.
+    #[error("The session has been closed")]
+    SessionClosed,
 }
 
 /// A handy [`std::result::Result`] type alias bounding the [`enum@Error`] struct as `E`.

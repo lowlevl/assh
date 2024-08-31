@@ -4,7 +4,7 @@ use std::{num::NonZeroU32, task};
 
 use assh::{side::Side, Pipe};
 use dashmap::DashMap;
-use futures::{AsyncRead, AsyncWrite, TryStream};
+use futures::{AsyncRead, AsyncWrite, FutureExt, TryStream};
 use ssh_packet::{binrw, connect};
 
 use crate::{
@@ -14,8 +14,11 @@ use crate::{
 
 mod io;
 
+mod id;
+pub(crate) use id::Id;
+
 mod window;
-pub(super) use window::{LocalWindow, RemoteWindow};
+pub(crate) use window::{LocalWindow, RemoteWindow};
 
 pub mod request;
 
@@ -23,10 +26,9 @@ pub mod request;
 pub struct Channel<'s, IO: Pipe, S: Side> {
     mux: &'s Mux<IO, S>,
 
-    local_id: u32,
-    local_window: LocalWindow,
+    id: Id,
 
-    remote_id: u32,
+    local_window: LocalWindow,
     remote_window: RemoteWindow,
     remote_maxpack: u32,
 
@@ -40,23 +42,21 @@ where
 {
     pub(crate) fn new(
         mux: &'s Mux<IO, S>,
-        local_id: u32,
-        remote_id: u32,
+        id: Id,
         remote_window: u32,
         remote_maxpack: u32,
     ) -> Self {
-        mux.register(Interest::ChannelClose(local_id));
-        mux.register(Interest::ChannelData(local_id));
-        mux.register(Interest::ChannelEof(local_id));
-        mux.register(Interest::ChannelWindowAdjust(local_id));
+        mux.register(Interest::ChannelClose(id.local()));
+        mux.register(Interest::ChannelData(id.local()));
+        mux.register(Interest::ChannelEof(id.local()));
+        mux.register(Interest::ChannelWindowAdjust(id.local()));
 
         Self {
             mux,
 
-            local_id,
-            local_window: Default::default(),
+            id,
 
-            remote_id,
+            local_window: Default::default(),
             remote_window: RemoteWindow::from(remote_window),
             remote_maxpack,
 
@@ -66,22 +66,23 @@ where
 
     fn unregister_all(&self) {
         self.mux.unregister_if(
-            |interest| matches!(interest, Interest::ChannelRequest(id) | Interest::ChannelResponse(id) if id == &self.local_id),
+            |interest| matches!(interest, Interest::ChannelRequest(id) | Interest::ChannelResponse(id) if id == &self.id.local()),
         );
 
         self.streams.clear();
 
         self.mux
-            .unregister(&Interest::ChannelWindowAdjust(self.local_id));
-        self.mux.unregister(&Interest::ChannelEof(self.local_id));
-        self.mux.unregister(&Interest::ChannelData(self.local_id));
-        self.mux.unregister(&Interest::ChannelClose(self.local_id));
+            .unregister(&Interest::ChannelWindowAdjust(self.id.local()));
+        self.mux.unregister(&Interest::ChannelEof(self.id.local()));
+        self.mux.unregister(&Interest::ChannelData(self.id.local()));
+        self.mux
+            .unregister(&Interest::ChannelClose(self.id.local()));
     }
 
     fn poll(&self, cx: &mut task::Context) -> task::Poll<assh::Result<()>> {
         if let task::Poll::Ready(Some(result)) = self
             .mux
-            .poll_interest(cx, &Interest::ChannelClose(self.local_id))
+            .poll_interest(cx, &Interest::ChannelClose(self.id.local()))
         {
             result?;
 
@@ -89,14 +90,14 @@ where
 
             tracing::debug!(
                 "Peer closed channel #{}, unregistered all streams and interests",
-                self.local_id
+                self.id.local()
             );
 
             cx.waker().wake_by_ref();
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .mux
-            .poll_interest(cx, &Interest::ChannelData(self.local_id))
+            .poll_interest(cx, &Interest::ChannelData(self.id.local()))
         {
             #[binrw::binrw]
             #[br(little)]
@@ -123,7 +124,7 @@ where
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .mux
-            .poll_interest(cx, &Interest::ChannelEof(self.local_id))
+            .poll_interest(cx, &Interest::ChannelEof(self.id.local()))
         {
             result?;
 
@@ -131,7 +132,7 @@ where
 
             tracing::debug!(
                 "Peer sent an EOF for channel #{}, unregistered all streams",
-                self.local_id
+                self.id.local()
             );
 
             cx.waker().wake_by_ref();
@@ -139,7 +140,7 @@ where
         } else if let task::Poll::Ready(Some(result)) =
             self.mux.poll_interest::<connect::ChannelWindowAdjust>(
                 cx,
-                &Interest::ChannelWindowAdjust(self.local_id),
+                &Interest::ChannelWindowAdjust(self.id.local()),
             )
         {
             let bytes_to_add = result?.bytes_to_add;
@@ -148,7 +149,7 @@ where
             tracing::debug!(
                 "Peer extended data window by `{}` bytes for channel #{}",
                 bytes_to_add,
-                self.local_id
+                self.id.local()
             );
 
             cx.waker().wake_by_ref();
@@ -173,14 +174,15 @@ where
 
     /// Iterate over the incoming _channel requests_.
     pub fn requests(&self) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = Error> + '_ {
-        let interest = Interest::ChannelRequest(self.local_id);
+        let interest = Interest::ChannelRequest(self.id.local());
 
         self.mux.register(interest);
         let unregister_on_drop = defer::defer(move || self.mux.unregister(&interest));
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
-            let _span = tracing::debug_span!("Channel::request", channel = self.local_id).entered();
+            let _span =
+                tracing::debug_span!("Channel::request", channel = self.id.local()).entered();
 
             self.poll_interest(cx, &interest)
                 .map_ok(|inner| request::Request::new(self, inner))
@@ -194,7 +196,7 @@ where
     pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<()> {
         self.mux
             .send(&connect::ChannelRequest {
-                recipient_channel: self.remote_id,
+                recipient_channel: self.id.remote(),
                 want_reply: false.into(),
                 context,
             })
@@ -208,12 +210,12 @@ where
         &self,
         context: connect::ChannelRequestContext,
     ) -> Result<request::Response> {
-        let interest = Interest::ChannelResponse(self.local_id);
+        let interest = Interest::ChannelResponse(self.id.local());
         self.mux.register(interest);
 
         self.mux
             .send(&connect::ChannelRequest {
-                recipient_channel: self.remote_id,
+                recipient_channel: self.id.remote(),
                 want_reply: true.into(),
                 context,
             })
@@ -226,31 +228,17 @@ where
             Failure(connect::ChannelFailure),
         }
 
-        let result = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
-
-            task::Poll::Ready(match polled {
-                Some(Response::Success(_)) => {
-                    let response = request::Response::Success;
-
-                    Some(Ok::<_, assh::Error>(response))
-                }
-
-                Some(Response::Failure(_)) => {
-                    let response = request::Response::Failure;
-
-                    Some(Ok(response))
-                }
-
-                _ => None,
+        let result = futures::future::poll_fn(|cx| self.mux.poll_interest(cx, &interest))
+            .map(|polled| match polled.transpose()? {
+                Some(Response::Success(_)) => Ok(request::Response::Success),
+                Some(Response::Failure(_)) => Ok(request::Response::Failure),
+                _ => Err(Error::ChannelClosed),
             })
-        })
-        .await
-        .ok_or(Error::ChannelClosed);
+            .await;
 
         self.mux.unregister(&interest);
 
-        Ok(result??)
+        result
     }
 
     /// Make a reader for current channel's _data_ stream.
@@ -289,7 +277,7 @@ where
     pub async fn eof(&self) -> Result<()> {
         self.mux
             .send(&connect::ChannelEof {
-                recipient_channel: self.remote_id,
+                recipient_channel: self.id.remote(),
             })
             .await
             .map_err(|_| Error::ChannelClosed)
@@ -300,10 +288,10 @@ impl<'s, IO: Pipe, S: Side> Drop for Channel<'s, IO, S> {
     fn drop(&mut self) {
         self.unregister_all();
 
-        tracing::debug!("Reporting channel #{} as closed", self.local_id);
+        tracing::debug!("Reporting channel #{} as closed", self.id.local());
 
         self.mux.feed(&connect::ChannelClose {
-            recipient_channel: self.remote_id,
+            recipient_channel: self.id.remote(),
         });
     }
 }

@@ -43,7 +43,7 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
     ) -> task::Poll<io::Result<usize>> {
         let _span = tracing::debug_span!(
             "io::Read",
-            channel = self.channel.local_id,
+            channel = self.channel.id.local(),
             stream = self.stream_id
         )
         .entered();
@@ -52,11 +52,11 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
             tracing::debug!(
                 "Adjusted window size by `{}` for channel #{}",
                 bytes_to_add,
-                self.channel.local_id,
+                self.channel.id.local(),
             );
 
             self.channel.mux.feed(&connect::ChannelWindowAdjust {
-                recipient_channel: self.channel.remote_id,
+                recipient_channel: self.channel.id.remote(),
                 bytes_to_add,
             });
         }
@@ -73,7 +73,7 @@ impl<IO: Pipe, S: Side> futures::AsyncRead for Read<'_, IO, S> {
                 tracing::trace!(
                     "Received data block for stream `{:?}` on channel #{} of size `{}`",
                     self.stream_id,
-                    self.channel.local_id,
+                    self.channel.id.local(),
                     data.len()
                 );
 

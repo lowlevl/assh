@@ -44,7 +44,7 @@ impl<'s, IO: Pipe, S: Side> Request<'s, IO, S> {
             self.channel
                 .mux
                 .send(&connect::ChannelSuccess {
-                    recipient_channel: self.channel.remote_id,
+                    recipient_channel: self.channel.id.remote(),
                 })
                 .await?;
         }
@@ -64,7 +64,7 @@ impl<'s, IO: Pipe, S: Side> Request<'s, IO, S> {
             .expect("Inner value has been dropped before the outer structure");
 
         if *inner.want_reply {
-            Self::rejected(self.channel.mux, self.channel.remote_id);
+            Self::rejected(self.channel.mux, self.channel.id.remote());
             self.channel.mux.flush().await?;
         }
 
@@ -84,7 +84,7 @@ impl<'s, IO: Pipe, S: Side> Request<'s, IO, S> {
 impl<'s, IO: Pipe, S: Side> Drop for Request<'s, IO, S> {
     fn drop(&mut self) {
         if matches!(&self.inner, Some(inner) if *inner.want_reply) {
-            Self::rejected(self.channel.mux, self.channel.remote_id);
+            Self::rejected(self.channel.mux, self.channel.id.remote());
         }
     }
 }

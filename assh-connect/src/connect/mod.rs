@@ -1,14 +1,14 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
 use assh::{side::Side, Pipe};
-use dashmap::DashSet;
-use futures::{task, TryStream};
+use futures::{FutureExt, TryStream};
 use ssh_packet::{binrw, connect};
 
 use crate::{
     channel::{self, LocalWindow},
     channel_open, global_request,
     mux::{Interest, Mux},
+    slots::Slots,
     Error, Result,
 };
 
@@ -17,6 +17,8 @@ pub use service::Service;
 
 // TODO: (reliability) Flush Poller Sink on Drop ?
 
+const CHANNEL_MAX_COUNT: usize = 8;
+
 /// A wrapper around [`assh::Session`] to interract with the connect layer.
 pub struct Connect<IO, S>
 where
@@ -24,9 +26,7 @@ where
     S: Side,
 {
     pub(crate) mux: Mux<IO, S>,
-
-    // TODO: (compliance/reliability) Maybe replace this set with a `sharded-slab::Slab` to track dropped channels.
-    channels: DashSet<u32>,
+    channels: Slots<u32, CHANNEL_MAX_COUNT>,
 }
 
 impl<IO, S> Connect<IO, S>
@@ -107,67 +107,29 @@ where
             Failure(connect::RequestFailure),
         }
 
-        let result = futures::future::poll_fn(|cx| {
-            if !with_port {
-                let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
-
-                task::Poll::Ready(match polled {
-                    Some(Response::Success(_)) => {
-                        let response = global_request::Response::Success(None);
-
-                        Some(Ok::<_, assh::Error>(response))
-                    }
-
-                    Some(Response::Failure(_)) => {
-                        let response = global_request::Response::Failure;
-
-                        Some(Ok(response))
-                    }
-
-                    _ => None,
+        let result = if !with_port {
+            futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))
+                .map(|polled| match polled.transpose()? {
+                    Some(Response::Success(_)) => Ok(global_request::Response::Success(None)),
+                    Some(Response::Failure(_)) => Ok(global_request::Response::Failure),
+                    _ => Err(Error::ChannelClosed),
                 })
-            } else {
-                let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
-
-                task::Poll::Ready(match polled {
+                .await
+        } else {
+            futures::future::poll_fn(|cx| self.mux.poll_interest::<ResponsePort>(cx, &interest))
+                .map(|polled| match polled.transpose()? {
                     Some(ResponsePort::Success(message)) => {
-                        let response = global_request::Response::Success(Some(message.bound_port));
-
-                        Some(Ok::<_, assh::Error>(response))
+                        Ok(global_request::Response::Success(Some(message.bound_port)))
                     }
-
-                    Some(ResponsePort::Failure(_)) => {
-                        let response = global_request::Response::Failure;
-
-                        Some(Ok(response))
-                    }
-
-                    _ => None,
+                    Some(ResponsePort::Failure(_)) => Ok(global_request::Response::Failure),
+                    _ => Err(Error::SessionClosed),
                 })
-            }
-        })
-        .await
-        .ok_or(Error::ChannelClosed);
+                .await
+        };
 
         self.mux.unregister(&interest);
 
-        Ok(result??)
-    }
-
-    pub(crate) fn local_id(&self) -> u32 {
-        // TODO: (optimization) Assess the need for this loop
-        loop {
-            let id = self
-                .channels
-                .iter()
-                .map(|id| *id + 1)
-                .max()
-                .unwrap_or_default();
-
-            if self.channels.insert(id) {
-                break id;
-            }
-        }
+        result
     }
 
     /// Iterate over the incoming _channel open requests_.
@@ -185,8 +147,16 @@ where
 
             self.mux
                 .poll_interest(cx, &interest)
-                .map_ok(|inner| channel_open::ChannelOpen::new(&self.mux, inner, self.local_id()))
-                .map_err(Into::into)
+                .map_ok(|inner: connect::ChannelOpen| {
+                    let id = self
+                        .channels
+                        .insert(inner.sender_channel)
+                        .ok_or(Error::TooManyChannels)?
+                        .into();
+
+                    Ok::<_, crate::Error>(channel_open::ChannelOpen::new(&self.mux, inner, id))
+                })
+                .map(|polled| polled.map(|result| result?))
         })
     }
 
@@ -195,15 +165,16 @@ where
         &self,
         context: connect::ChannelOpenContext,
     ) -> Result<channel_open::Response<'_, IO, S>> {
-        // TODO: (reliability) Release the id eventually if the request is rejected
-        let local_id = self.local_id();
+        let Some(reserved) = self.channels.reserve() else {
+            return Err(Error::TooManyChannels);
+        };
 
-        let interest = Interest::ChannelOpenResponse(local_id);
+        let interest = Interest::ChannelOpenResponse(reserved.index() as u32);
         self.mux.register(interest);
 
         self.mux
             .send(&connect::ChannelOpen {
-                sender_channel: local_id,
+                sender_channel: reserved.index() as u32,
                 initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
                 maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
                 context,
@@ -217,40 +188,30 @@ where
             Failure(connect::ChannelOpenFailure),
         }
 
-        let result = futures::future::poll_fn(|cx| {
-            let polled = futures::ready!(self.mux.poll_interest(cx, &interest)).transpose()?;
+        let result =
+            futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))
+                .map(|polled| match polled.transpose()? {
+                    Some(Response::Success(message)) => {
+                        let id = reserved.into_lease(message.sender_channel);
 
-            task::Poll::Ready(match polled {
-                Some(Response::Success(message)) => {
-                    let response = channel_open::Response::Success(channel::Channel::new(
-                        &self.mux,
-                        local_id,
-                        message.sender_channel,
-                        message.initial_window_size,
-                        message.maximum_packet_size,
-                    ));
-
-                    Some(Ok::<_, assh::Error>(response))
-                }
-
-                Some(Response::Failure(message)) => {
-                    let response = channel_open::Response::Failure {
+                        Ok(channel_open::Response::Success(channel::Channel::new(
+                            &self.mux,
+                            id.into(),
+                            message.initial_window_size,
+                            message.maximum_packet_size,
+                        )))
+                    }
+                    Some(Response::Failure(message)) => Ok(channel_open::Response::Failure {
                         reason: message.reason,
                         description: message.description.into_string(),
-                    };
-
-                    Some(Ok(response))
-                }
-
-                _ => None,
-            })
-        })
-        .await
-        .ok_or(Error::ChannelClosed);
+                    }),
+                    _ => Err(Error::SessionClosed),
+                })
+                .await;
 
         self.mux.unregister(&interest);
 
-        Ok(result??)
+        result
     }
 }
 

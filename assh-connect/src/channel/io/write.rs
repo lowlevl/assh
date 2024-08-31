@@ -27,12 +27,12 @@ impl<'s, IO: Pipe, S: Side> Write<'s, IO, S> {
 
         match self.stream_id {
             Some(data_type) => self.channel.mux.feed(&connect::ChannelExtendedData {
-                recipient_channel: self.channel.remote_id,
+                recipient_channel: self.channel.id.remote(),
                 data_type,
                 data,
             }),
             None => self.channel.mux.feed(&connect::ChannelData {
-                recipient_channel: self.channel.remote_id,
+                recipient_channel: self.channel.id.remote(),
                 data,
             }),
         }
@@ -47,7 +47,7 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
     ) -> task::Poll<io::Result<usize>> {
         let _span = tracing::debug_span!(
             "io::Write",
-            channel = self.channel.local_id,
+            channel = self.channel.id.local(),
             stream = self.stream_id
         )
         .entered();
@@ -78,7 +78,7 @@ impl<IO: Pipe, S: Side> futures::AsyncWrite for Write<'_, IO, S> {
     ) -> task::Poll<io::Result<()>> {
         let _span = tracing::debug_span!(
             "io::Write",
-            channel = self.channel.local_id,
+            channel = self.channel.id.local(),
             stream = self.stream_id
         )
         .entered();

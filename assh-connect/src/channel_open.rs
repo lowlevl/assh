@@ -4,7 +4,7 @@ use assh::{side::Side, Pipe};
 use ssh_packet::{arch::StringUtf8, connect};
 
 use crate::{
-    channel::{self, LocalWindow},
+    channel::{self, Id, LocalWindow},
     mux::Mux,
     Result,
 };
@@ -30,16 +30,17 @@ pub enum Response<'s, IO: Pipe, S: Side> {
 /// A received _channel open request_.
 pub struct ChannelOpen<'s, IO: Pipe, S: Side> {
     mux: &'s Mux<IO, S>,
+
     inner: Option<connect::ChannelOpen>,
-    local_id: u32,
+    id: Id,
 }
 
 impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
-    pub(super) fn new(mux: &'s Mux<IO, S>, inner: connect::ChannelOpen, local_id: u32) -> Self {
+    pub(super) fn new(mux: &'s Mux<IO, S>, inner: connect::ChannelOpen, id: Id) -> Self {
         Self {
             mux,
             inner: Some(inner),
-            local_id,
+            id,
         }
     }
 
@@ -52,8 +53,8 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
 
         self.mux
             .send(&connect::ChannelOpenConfirmation {
-                recipient_channel: inner.sender_channel,
-                sender_channel: self.local_id,
+                recipient_channel: self.id.remote(),
+                sender_channel: self.id.local(),
                 initial_window_size: LocalWindow::INITIAL_WINDOW_SIZE,
                 maximum_packet_size: LocalWindow::MAXIMUM_PACKET_SIZE,
             })
@@ -61,8 +62,7 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
 
         Ok(channel::Channel::new(
             self.mux,
-            self.local_id,
-            inner.sender_channel,
+            self.id.clone(),
             inner.initial_window_size,
             inner.maximum_packet_size,
         ))
@@ -90,14 +90,13 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
         reason: connect::ChannelOpenFailureReason,
         description: impl Into<StringUtf8>,
     ) -> Result<()> {
-        let inner = self
-            .inner
+        self.inner
             .take()
             .expect("Inner value has been dropped before the outer structure");
 
         Self::rejected(
             self.mux,
-            inner.sender_channel,
+            self.id.remote(),
             Some(reason),
             Some(description.into()),
         );
@@ -118,8 +117,8 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
 
 impl<'s, IO: Pipe, S: Side> Drop for ChannelOpen<'s, IO, S> {
     fn drop(&mut self) {
-        if let Some(inner) = &self.inner {
-            Self::rejected(self.mux, inner.sender_channel, None, None);
+        if self.inner.is_some() {
+            Self::rejected(self.mux, self.id.remote(), None, None);
         }
     }
 }
