@@ -175,9 +175,7 @@ where
     /// Iterate over the incoming _channel requests_.
     pub fn requests(&self) -> impl TryStream<Ok = request::Request<'_, IO, S>, Error = Error> + '_ {
         let interest = Interest::ChannelRequest(self.id.local());
-
-        self.mux.register(interest);
-        let unregister_on_drop = defer::defer(move || self.mux.unregister(&interest));
+        let unregister_on_drop = self.mux.register_scoped(interest);
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
@@ -211,7 +209,7 @@ where
         context: connect::ChannelRequestContext,
     ) -> Result<request::Response> {
         let interest = Interest::ChannelResponse(self.id.local());
-        self.mux.register(interest);
+        let _unregister_on_drop = self.mux.register_scoped(interest);
 
         self.mux
             .send(&connect::ChannelRequest {
@@ -228,17 +226,13 @@ where
             Failure(connect::ChannelFailure),
         }
 
-        let result = futures::future::poll_fn(|cx| self.mux.poll_interest(cx, &interest))
+        futures::future::poll_fn(|cx| self.mux.poll_interest(cx, &interest))
             .map(|polled| match polled.transpose()? {
                 Some(Response::Success(_)) => Ok(request::Response::Success),
                 Some(Response::Failure(_)) => Ok(request::Response::Failure),
                 _ => Err(Error::ChannelClosed),
             })
-            .await;
-
-        self.mux.unregister(&interest);
-
-        result
+            .await
     }
 
     /// Make a reader for current channel's _data_ stream.

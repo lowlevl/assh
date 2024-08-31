@@ -51,6 +51,12 @@ where
         tracing::trace!("Registered interest for `{interest:?}`");
     }
 
+    pub fn register_scoped(&self, interest: Interest) -> impl Drop + '_ {
+        self.register(interest);
+
+        defer::defer(move || self.unregister(&interest))
+    }
+
     pub fn unregister(&self, interest: &Interest) {
         if let Some((interest, waker)) = self.interests.remove(interest) {
             tracing::trace!("Unregistered interest for `{interest:?}`");

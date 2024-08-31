@@ -47,9 +47,7 @@ where
     ) -> impl TryStream<Ok = global_request::GlobalRequest<'_, IO, S>, Error = crate::Error> + '_
     {
         let interest = Interest::GlobalRequest;
-
-        self.mux.register(interest);
-        let unregister_on_drop = defer::defer(move || self.mux.unregister(&interest));
+        let unregister_on_drop = self.mux.register_scoped(interest);
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
@@ -82,7 +80,7 @@ where
         context: connect::GlobalRequestContext,
     ) -> Result<global_request::Response> {
         let interest = Interest::GlobalResponse;
-        self.mux.register(interest);
+        let _unregister_on_drop = self.mux.register_scoped(interest);
 
         let with_port = matches!(context, connect::GlobalRequestContext::TcpipForward { bind_port, .. } if bind_port == 0);
 
@@ -107,7 +105,7 @@ where
             Failure(connect::RequestFailure),
         }
 
-        let result = if !with_port {
+        if !with_port {
             futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))
                 .map(|polled| match polled.transpose()? {
                     Some(Response::Success(_)) => Ok(global_request::Response::Success(None)),
@@ -125,11 +123,7 @@ where
                     _ => Err(Error::SessionClosed),
                 })
                 .await
-        };
-
-        self.mux.unregister(&interest);
-
-        result
+        }
     }
 
     /// Iterate over the incoming _channel open requests_.
@@ -137,9 +131,7 @@ where
         &self,
     ) -> impl TryStream<Ok = channel_open::ChannelOpen<'_, IO, S>, Error = crate::Error> + '_ {
         let interest = Interest::ChannelOpenRequest;
-
-        self.mux.register(interest);
-        let unregister_on_drop = defer::defer(move || self.mux.unregister(&interest));
+        let unregister_on_drop = self.mux.register_scoped(interest);
 
         futures::stream::poll_fn(move |cx| {
             let _moved = &unregister_on_drop;
@@ -170,7 +162,7 @@ where
         };
 
         let interest = Interest::ChannelOpenResponse(reserved.index() as u32);
-        self.mux.register(interest);
+        let _unregister_on_drop = self.mux.register_scoped(interest);
 
         self.mux
             .send(&connect::ChannelOpen {
@@ -188,30 +180,25 @@ where
             Failure(connect::ChannelOpenFailure),
         }
 
-        let result =
-            futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))
-                .map(|polled| match polled.transpose()? {
-                    Some(Response::Success(message)) => {
-                        let id = reserved.into_lease(message.sender_channel);
+        futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))
+            .map(|polled| match polled.transpose()? {
+                Some(Response::Success(message)) => {
+                    let id = reserved.into_lease(message.sender_channel);
 
-                        Ok(channel_open::Response::Success(channel::Channel::new(
-                            &self.mux,
-                            id.into(),
-                            message.initial_window_size,
-                            message.maximum_packet_size,
-                        )))
-                    }
-                    Some(Response::Failure(message)) => Ok(channel_open::Response::Failure {
-                        reason: message.reason,
-                        description: message.description.into_string(),
-                    }),
-                    _ => Err(Error::SessionClosed),
-                })
-                .await;
-
-        self.mux.unregister(&interest);
-
-        result
+                    Ok(channel_open::Response::Success(channel::Channel::new(
+                        &self.mux,
+                        id.into(),
+                        message.initial_window_size,
+                        message.maximum_packet_size,
+                    )))
+                }
+                Some(Response::Failure(message)) => Ok(channel_open::Response::Failure {
+                    reason: message.reason,
+                    description: message.description.into_string(),
+                }),
+                _ => Err(Error::SessionClosed),
+            })
+            .await
     }
 }
 
