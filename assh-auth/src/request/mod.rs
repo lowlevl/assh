@@ -34,9 +34,9 @@ impl<R: Request> Auth<R> {
     ///
     /// # Note
     /// 1. The layer always starts with the `none` authentication method
-    /// to discover the methods available on the server.
+    ///    to discover the methods available on the server.
     /// 2. While the `publickey` method allows for multiple keys,
-    /// the `password` method will only keep the last one provided to [`Self::password`].
+    ///    the `password` method will only keep the last one provided to [`Self::password`].
     pub fn new(username: impl Into<StringUtf8>, service: R) -> Self {
         Self {
             username: username.into(),

@@ -79,7 +79,7 @@ where
 
         self.mux
             .send(&connect::GlobalRequest {
-                want_reply: false.into(),
+                want_reply: true.into(),
                 context,
             })
             .await?;
