@@ -14,8 +14,6 @@ use crate::{
 mod service;
 pub use service::Service;
 
-// TODO: (reliability) Flush Poller Sink on Drop ?
-
 /// A wrapper around [`assh::Session`] to interract with the connect layer.
 pub struct Connect<IO, S>
 where
@@ -212,6 +210,19 @@ where
                 _ => Err(Error::SessionClosed),
             })
             .await
+    }
+}
+
+impl<IO, S> Drop for Connect<IO, S>
+where
+    IO: Pipe,
+    S: Side,
+{
+    fn drop(&mut self) {
+        // TODO: (reliability) Find out:
+        // 1. if this blocking call is an issue;
+        // 2. how to have a generic way to trigger an async task regardless of the executor
+        let _ = futures::executor::block_on(self.mux.flush());
     }
 }
 
