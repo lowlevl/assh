@@ -79,7 +79,7 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
             reason: reason.unwrap_or(connect::ChannelOpenFailureReason::AdministrativelyProhibited),
             description: description
                 .map(Into::into)
-                .unwrap_or_else(|| "opening channel is disallowed".into()),
+                .unwrap_or_else(|| "Opening channels is disallowed at this time".into()),
             language: Default::default(),
         });
     }

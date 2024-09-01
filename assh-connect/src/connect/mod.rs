@@ -1,7 +1,7 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
 use assh::{side::Side, Pipe};
-use futures::{FutureExt, TryStream};
+use futures::{task, FutureExt, TryStream};
 use ssh_packet::{binrw, connect};
 
 use crate::{
@@ -132,21 +132,36 @@ where
             let _moved = &unregister_on_drop;
             let _span = tracing::debug_span!("Connect::channel_opens").entered();
 
-            self.mux
-                .poll_interest(cx, &interest)
-                .map_ok(|inner: connect::ChannelOpen| {
-                    let id = self
+            match futures::ready!(self
+                .mux
+                .poll_interest::<connect::ChannelOpen>(cx, &interest))
+            {
+                Some(Ok(inner)) => {
+                    let Some(id) = self
                         .mux
                         .channels
                         .insert(inner.sender_channel)
-                        .ok_or(Error::TooManyChannels)?
-                        .into();
+                        .map(Into::into)
+                    else {
+                        crate::channel_open::ChannelOpen::rejected(
+                            &self.mux,
+                            inner.sender_channel,
+                            None,
+                            None,
+                        );
 
-                    // TODO: (compliance) response with failure insted of returning an error.
+                        cx.waker().wake_by_ref();
+                        return task::Poll::Pending;
+                    };
 
-                    Ok::<_, crate::Error>(channel_open::ChannelOpen::new(&self.mux, inner, id))
-                })
-                .map(|polled| polled.map(|result| result?))
+                    task::Poll::Ready(Some(Ok(channel_open::ChannelOpen::new(
+                        &self.mux, inner, id,
+                    ))))
+                }
+
+                Some(Err(err)) => task::Poll::Ready(Some(Err(err.into()))),
+                None => task::Poll::Ready(None),
+            }
         })
     }
 
