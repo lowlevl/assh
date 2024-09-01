@@ -1,7 +1,7 @@
 use assh::{side::Side, Pipe, Session};
 use dashmap::DashMap;
 use futures::{lock::Mutex, task, FutureExt};
-use ssh_packet::{binrw, IntoPacket, Packet};
+use ssh_packet::{binrw, connect, IntoPacket, Packet};
 
 mod interest;
 pub use interest::Interest;
@@ -9,10 +9,16 @@ pub use interest::Interest;
 mod poller;
 use poller::Poller;
 
+pub mod slots;
+use slots::{Lease, Slots};
+
+const CHANNEL_MAX_COUNT: usize = 8;
+
 pub struct Mux<IO: Pipe, S: Side> {
     queue: flume::Sender<Packet>,
     poller: Mutex<Poller<IO, S>>,
     interests: DashMap<Interest, task::AtomicWaker>,
+    pub(crate) channels: Slots<u32, CHANNEL_MAX_COUNT>,
 }
 
 impl<IO, S> From<Session<IO, S>> for Mux<IO, S>
@@ -27,6 +33,7 @@ where
             queue,
             poller: poller.into(),
             interests: Default::default(),
+            channels: Default::default(),
         }
     }
 }
@@ -138,12 +145,44 @@ where
                             task::Poll::Pending
                         }
                         None => {
-                            tracing::warn!(
-                                "!{packet_interest:?}: Dropping {}bytes, unregistered interest",
-                                packet.payload.len()
-                            );
+                            if let Ok(message) = packet.to::<connect::GlobalRequest>() {
+                                tracing::debug!(
+                                    "{packet_interest:?}: Rejectected an unhandled `GlobalRequest`"
+                                );
 
-                            // TODO: (compliance) Respond to unhandled `GlobalRequest`, `ChannelOpenRequest` & `ChannelRequest` that *want_reply*.
+                                if *message.want_reply {
+                                    crate::global_request::GlobalRequest::rejected(self);
+                                }
+                            } else if let Ok(message) = packet.to::<connect::ChannelOpen>() {
+                                tracing::debug!(
+                                    "{packet_interest:?}: Rejectected an unhandled `ChannelOpenRequest`"
+                                );
+
+                                crate::channel_open::ChannelOpen::rejected(
+                                    self,
+                                    message.sender_channel,
+                                    None,
+                                    None,
+                                );
+                            } else if let Ok(message) = packet.to::<connect::ChannelRequest>() {
+                                tracing::debug!("{packet_interest:?}: Rejectected an unhandled `ChannelRequest`");
+
+                                if *message.want_reply {
+                                    if let Some(id) = self
+                                        .channels
+                                        .get(message.recipient_channel as usize)
+                                        .as_ref()
+                                        .map(Lease::value)
+                                    {
+                                        crate::channel::request::Request::rejected(self, *id);
+                                    }
+                                }
+                            } else {
+                                tracing::warn!(
+                                    "!{packet_interest:?}: Dropping {}bytes, unregistered interest",
+                                    packet.payload.len()
+                                );
+                            }
 
                             cx.waker().wake_by_ref();
                             task::Poll::Pending

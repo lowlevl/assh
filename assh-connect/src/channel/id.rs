@@ -1,4 +1,4 @@
-use crate::slots::Lease;
+use crate::mux::slots::Lease;
 
 #[derive(Debug, Clone)]
 pub struct Id(Lease<u32>);

@@ -21,7 +21,6 @@
 #![forbid(unsafe_code)]
 
 mod mux;
-mod slots;
 
 pub mod channel;
 pub mod channel_open;

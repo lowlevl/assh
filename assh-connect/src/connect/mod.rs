@@ -8,7 +8,6 @@ use crate::{
     channel::{self, LocalWindow},
     channel_open, global_request,
     mux::{Interest, Mux},
-    slots::Slots,
     Error, Result,
 };
 
@@ -17,8 +16,6 @@ pub use service::Service;
 
 // TODO: (reliability) Flush Poller Sink on Drop ?
 
-const CHANNEL_MAX_COUNT: usize = 8;
-
 /// A wrapper around [`assh::Session`] to interract with the connect layer.
 pub struct Connect<IO, S>
 where
@@ -26,7 +23,6 @@ where
     S: Side,
 {
     pub(crate) mux: Mux<IO, S>,
-    channels: Slots<u32, CHANNEL_MAX_COUNT>,
 }
 
 impl<IO, S> Connect<IO, S>
@@ -37,7 +33,6 @@ where
     fn new(session: assh::Session<IO, S>) -> Self {
         Self {
             mux: Mux::from(session),
-            channels: Default::default(),
         }
     }
 
@@ -141,10 +136,13 @@ where
                 .poll_interest(cx, &interest)
                 .map_ok(|inner: connect::ChannelOpen| {
                     let id = self
+                        .mux
                         .channels
                         .insert(inner.sender_channel)
                         .ok_or(Error::TooManyChannels)?
                         .into();
+
+                    // TODO: (compliance) response with failure insted of returning an error.
 
                     Ok::<_, crate::Error>(channel_open::ChannelOpen::new(&self.mux, inner, id))
                 })
@@ -157,7 +155,7 @@ where
         &self,
         context: connect::ChannelOpenContext,
     ) -> Result<channel_open::Response<'_, IO, S>> {
-        let Some(reserved) = self.channels.reserve() else {
+        let Some(reserved) = self.mux.channels.reserve() else {
             return Err(Error::TooManyChannels);
         };
 
