@@ -19,7 +19,7 @@ pub trait Publickey: Send + Sync {
     fn process(&mut self, user: String, key: PublicKey) -> Response;
 }
 
-impl<T: Fn(String, PublicKey) -> Response + Send + Sync> Publickey for T {
+impl<T: FnMut(String, PublicKey) -> Response + Send + Sync> Publickey for T {
     fn process(&mut self, user: String, key: PublicKey) -> Response {
         (self)(user, key)
     }

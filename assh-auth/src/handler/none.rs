@@ -16,7 +16,7 @@ pub trait None: Send + Sync {
     fn process(&mut self, user: String) -> Response;
 }
 
-impl<T: Fn(String) -> Response + Send + Sync> None for T {
+impl<T: FnMut(String) -> Response + Send + Sync> None for T {
     fn process(&mut self, user: String) -> Response {
         (self)(user)
     }
