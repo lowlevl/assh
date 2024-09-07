@@ -28,7 +28,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Cipher, Ci
 
 /// SSH cipher algorithms.
 #[non_exhaustive]
-#[derive(Default, Debug, PartialEq, EnumString, AsRefStr)]
+#[derive(Debug, Clone, Default, PartialEq, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Cipher {
     // /// ChaCha20-Poly1305.

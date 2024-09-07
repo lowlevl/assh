@@ -26,7 +26,7 @@ pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Compress, 
 
 /// SSH compression algorithms.
 #[non_exhaustive]
-#[derive(Debug, Default, PartialEq, EnumString, AsRefStr)]
+#[derive(Debug, Clone, Default, PartialEq, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Compress {
     /// zlib compression (OpenSSH mode).

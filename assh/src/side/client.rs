@@ -19,7 +19,7 @@ pub use ssh_packet::Id;
 // TODO: (compliance) Hostkey verification in client key-exchange.
 
 /// A _client_-side session configuration.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client {
     /// [`Id`] for this _client_ session.
     pub id: Id,
@@ -49,7 +49,7 @@ impl Default for Client {
 }
 
 /// Algorithms for a _client_-side session.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Algorithms {
     /// Enabled algorithms for _key-exchange_.
     pub kexs: Vec<Kex>,

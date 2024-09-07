@@ -8,7 +8,9 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::Side;
 use crate::{
-    algorithm::{kex, key, Cipher, Compress, Hmac, Kex}, stream::{Stream, TransportPair}, Pipe, Result
+    algorithm::{kex, key, Cipher, Compress, Hmac, Kex},
+    stream::{Stream, TransportPair},
+    Pipe, Result,
 };
 
 #[doc(no_inline)]
@@ -17,7 +19,7 @@ pub use ssh_key::PrivateKey;
 pub use ssh_packet::Id;
 
 /// A _server_-side session configuration.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Server {
     /// [`Id`] for this _server_ session.
     pub id: Id,
@@ -51,7 +53,7 @@ impl Default for Server {
 }
 
 /// Algorithms for a _server_-side session.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Algorithms {
     /// Enabled algorithms for _key-exchange_.
     pub kexs: Vec<Kex>,
