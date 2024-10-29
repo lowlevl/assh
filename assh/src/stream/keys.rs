@@ -1,19 +1,19 @@
 use digest::{Digest, FixedOutputReset};
-use securefmt::Debug;
+use secrecy::SecretBox;
 use ssh_packet::Mac;
 
 use super::algorithm::Cipher;
 
 #[derive(Debug, Default)]
 pub struct Keys {
-    #[sensitive]
-    pub iv: Vec<u8>,
+    /// Cipher _initialization vector_.
+    pub iv: SecretBox<Vec<u8>>,
 
-    #[sensitive]
-    pub key: Vec<u8>,
+    /// Cipher _key_.
+    pub key: SecretBox<Vec<u8>>,
 
-    #[sensitive]
-    pub hmac: Vec<u8>,
+    /// Hmac _key_.
+    pub hmac: SecretBox<Vec<u8>>,
 }
 
 impl Keys {
@@ -59,28 +59,28 @@ impl Keys {
         kind: u8,
         session_id: &[u8],
         size: usize,
-    ) -> Vec<u8> {
-        let mut hasher = D::new()
-            .chain_update((secret.as_ref().len() as u32).to_be_bytes())
-            .chain_update(secret)
-            .chain_update(hash)
-            .chain_update([kind])
-            .chain_update(session_id);
-
-        let mut key = hasher.finalize_reset().to_vec();
-
-        while key.len() < size {
-            hasher = hasher
+    ) -> SecretBox<Vec<u8>> {
+        SecretBox::<Vec<u8>>::init_with_mut(|key| {
+            let mut hasher = D::new()
                 .chain_update((secret.as_ref().len() as u32).to_be_bytes())
                 .chain_update(secret)
                 .chain_update(hash)
-                .chain_update(&key);
+                .chain_update([kind])
+                .chain_update(session_id);
 
             key.extend_from_slice(&hasher.finalize_reset());
-        }
 
-        key.resize(size, 0);
+            while key.len() < size {
+                hasher = hasher
+                    .chain_update((secret.as_ref().len() as u32).to_be_bytes())
+                    .chain_update(secret)
+                    .chain_update(hash)
+                    .chain_update(&*key);
 
-        key
+                key.extend_from_slice(&hasher.finalize_reset());
+            }
+
+            key.truncate(size);
+        })
     }
 }

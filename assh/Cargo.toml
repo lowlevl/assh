@@ -28,7 +28,7 @@ either.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 strum = { version = "0.26.1", features = ["derive"] }
-securefmt = "0.1.4"
+secrecy = "0.10.3"
 
 ssh-key.workspace = true
 ssh-packet.workspace = true

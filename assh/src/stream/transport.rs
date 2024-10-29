@@ -1,5 +1,5 @@
 use rand::Rng;
-use securefmt::Debug;
+use secrecy::ExposeSecret;
 use ssh_packet::{CipherCore, Mac, OpeningCipher, SealingCipher};
 
 use crate::{
@@ -9,8 +9,6 @@ use crate::{
 
 use super::Keys;
 
-// TODO: (feature) Provide forward secrecy of keys with `secrecy` or `zeroize`.
-
 #[derive(Debug, Default)]
 pub struct TransportPair {
     pub rx: Transport,
@@ -19,9 +17,7 @@ pub struct TransportPair {
 
 #[derive(Debug, Default)]
 pub struct Transport {
-    #[sensitive]
     pub chain: Keys,
-    #[sensitive]
     pub state: Option<CipherState>,
     pub cipher: algorithm::Cipher,
     pub hmac: algorithm::Hmac,
@@ -46,8 +42,8 @@ impl OpeningCipher for Transport {
         if self.cipher != Cipher::None {
             self.cipher.decrypt(
                 &mut self.state,
-                &self.chain.key,
-                &self.chain.iv,
+                self.chain.key.expose_secret(),
+                self.chain.iv.expose_secret(),
                 buf.as_mut(),
             )?;
         }
@@ -58,7 +54,7 @@ impl OpeningCipher for Transport {
     fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>, seq: u32) -> Result<(), Self::Err> {
         if self.mac().size() > 0 {
             self.hmac
-                .verify(seq, buf.as_ref(), &self.chain.hmac, &mac)?;
+                .verify(seq, buf.as_ref(), self.chain.hmac.expose_secret(), &mac)?;
         }
 
         Ok(())
@@ -91,8 +87,8 @@ impl SealingCipher for Transport {
         if self.cipher != Cipher::None {
             self.cipher.encrypt(
                 &mut self.state,
-                &self.chain.key,
-                &self.chain.iv,
+                self.chain.key.expose_secret(),
+                self.chain.iv.expose_secret(),
                 buf.as_mut(),
             )?;
         }
@@ -101,6 +97,8 @@ impl SealingCipher for Transport {
     }
 
     fn seal<B: AsRef<[u8]>>(&mut self, buf: B, seq: u32) -> Result<Vec<u8>, Self::Err> {
-        Ok(self.hmac.sign(seq, buf.as_ref(), &self.chain.hmac))
+        Ok(self
+            .hmac
+            .sign(seq, buf.as_ref(), self.chain.hmac.expose_secret()))
     }
 }

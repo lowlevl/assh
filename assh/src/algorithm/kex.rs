@@ -77,10 +77,11 @@ impl Kex {
                     <[u8; 32]>::try_from(&*ecdh.q_s).map_err(|_| Error::KexError)?,
                 );
 
+                // TODO: (security) use `secrecy` to encapsulate this value
                 let secret: MpInt = e_c.diffie_hellman(&q_s).to_bytes().to_vec().into();
 
                 let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
-                let exchange = EcdhExchange {
+                let hash = EcdhExchange {
                     v_c: &v_c.to_string().into_bytes().into(),
                     v_s: &v_s.to_string().into_bytes().into(),
                     i_c: &{
@@ -97,8 +98,8 @@ impl Kex {
                     q_c: &q_c.as_ref().to_vec().into(),
                     q_s: &q_s.to_bytes().to_vec().into(),
                     k: &secret,
-                };
-                let hash = exchange.hash::<Hash>();
+                }
+                .hash::<Hash>();
 
                 Verifier::verify(&k_s, &hash, &Signature::try_from(&*ecdh.signature)?)?;
 
@@ -162,12 +163,13 @@ impl Kex {
                     <[u8; 32]>::try_from(&*ecdh.q_c).map_err(|_| Error::KexError)?,
                 );
 
+                // TODO: (security) use `secrecy` to encapsulate this value
                 let secret: MpInt = e_s.diffie_hellman(&q_c).to_bytes().to_vec().into();
 
                 let k_s = key.public_key().to_bytes()?.into();
                 let q_s = q_s.as_ref().to_vec().into();
 
-                let exchange = EcdhExchange {
+                let hash = EcdhExchange {
                     v_c: &v_c.to_string().into_bytes().into(),
                     v_s: &v_s.to_string().into_bytes().into(),
                     i_c: &{
@@ -184,8 +186,8 @@ impl Kex {
                     q_c: &q_c.to_bytes().to_vec().into(),
                     q_s: &q_s,
                     k: &secret,
-                };
-                let hash = exchange.hash::<Hash>();
+                }
+                .hash::<Hash>();
 
                 let signature = Signer::sign(key, &hash);
                 stream
