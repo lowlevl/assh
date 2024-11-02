@@ -8,7 +8,7 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::Side;
 use crate::{
-    algorithm::{kex, Cipher, Compress, Hmac, Kex, Key},
+    algorithm::{Cipher, Compress, Hmac, Kex, Key, Negociate},
     stream::{Stream, TransportPair},
     Pipe, Result,
 };
@@ -142,7 +142,7 @@ impl Side for Client {
         peerkexinit: KexInit<'_>,
         peer_id: &Id,
     ) -> Result<TransportPair> {
-        kex::negociate(&kexinit, &peerkexinit)?
+        Kex::negociate(&kexinit, &peerkexinit)?
             .init(stream, self.id(), peer_id, kexinit, peerkexinit)
             .await
     }

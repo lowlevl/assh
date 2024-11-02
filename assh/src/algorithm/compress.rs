@@ -1,25 +1,29 @@
 use std::io::{Read, Write};
 
-use ssh_packet::trans::KexInit;
+use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
-use crate::{Error, Result};
+use crate::{
+    side::{client::Client, server::Server},
+    Error, Result,
+};
 
-pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Compress, Compress)> {
-    Ok((
-        clientkex
-            .compression_algorithms_client_to_server
-            .preferred_in(&serverkex.compression_algorithms_client_to_server)
-            .ok_or(Error::NoCommonCompression)?
-            .parse()
-            .map_err(|_| Error::NoCommonCompression)?,
-        clientkex
-            .compression_algorithms_server_to_client
-            .preferred_in(&serverkex.compression_algorithms_server_to_client)
-            .ok_or(Error::NoCommonCompression)?
-            .parse()
-            .map_err(|_| Error::NoCommonCompression)?,
-    ))
+use super::Negociate;
+
+impl Negociate<Client> for Compress {
+    const ERR: Error = Error::NoCommonCompression;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.compression_algorithms_client_to_server
+    }
+}
+
+impl Negociate<Server> for Compress {
+    const ERR: Error = Error::NoCommonCompression;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.compression_algorithms_server_to_client
+    }
 }
 
 // TODO: (compliance) Fix compression algorithms, not working right now.

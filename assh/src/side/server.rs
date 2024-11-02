@@ -4,11 +4,12 @@ use std::time::Duration;
 
 use futures_time::time::Duration as Timeout;
 use rand::RngCore;
+use ssh_key::Algorithm;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::Side;
 use crate::{
-    algorithm::{kex, key, Cipher, Compress, Hmac, Kex},
+    algorithm::{Cipher, Compress, Hmac, Kex, Negociate},
     stream::{Stream, TransportPair},
     Pipe, Result,
 };
@@ -138,14 +139,14 @@ impl Side for Server {
         peerkexinit: KexInit<'_>,
         peer_id: &Id,
     ) -> Result<TransportPair> {
-        let keyalg = key::negociate(&peerkexinit, &kexinit)?;
+        let alg = Algorithm::negociate(&peerkexinit, &kexinit)?;
         let key = self
             .keys
             .iter()
-            .find(|key| key.algorithm() == keyalg)
+            .find(|key| key.algorithm() == alg)
             .expect("Did our KexInit lie to the client ?");
 
-        kex::negociate(&peerkexinit, &kexinit)?
+        Kex::negociate(&peerkexinit, &kexinit)?
             .reply(stream, peer_id, self.id(), peerkexinit, kexinit, key)
             .await
     }

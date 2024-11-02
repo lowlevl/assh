@@ -1,27 +1,31 @@
 use aes_gcm::Tag;
-use ssh_packet::trans::KexInit;
+use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
-use crate::{Error, Result};
+use crate::{
+    side::{client::Client, server::Server},
+    Error, Result,
+};
+
+use super::Negociate;
 
 // TODO: (optimization) Get rid of this Box<dyn> altogether.
 pub type CipherState = Box<dyn std::any::Any + Send + Sync>;
 
-pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Cipher, Cipher)> {
-    Ok((
-        clientkex
-            .encryption_algorithms_client_to_server
-            .preferred_in(&serverkex.encryption_algorithms_client_to_server)
-            .ok_or(Error::NoCommonCipher)?
-            .parse()
-            .map_err(|_| Error::NoCommonCipher)?,
-        clientkex
-            .encryption_algorithms_server_to_client
-            .preferred_in(&serverkex.encryption_algorithms_server_to_client)
-            .ok_or(Error::NoCommonCipher)?
-            .parse()
-            .map_err(|_| Error::NoCommonCipher)?,
-    ))
+impl Negociate<Client> for Cipher {
+    const ERR: Error = Error::NoCommonCipher;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.encryption_algorithms_client_to_server
+    }
+}
+
+impl Negociate<Server> for Cipher {
+    const ERR: Error = Error::NoCommonCipher;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.encryption_algorithms_server_to_client
+    }
 }
 
 // TODO: (feature) Implement the latest and safest ciphers (`chacha20-poly1305@openssh.com`, `aes256-gcm@openssh.com`, `aes128-gcm@openssh.com`).

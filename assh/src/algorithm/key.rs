@@ -1,13 +1,14 @@
 pub use ssh_key::Algorithm as Key;
-use ssh_packet::trans::KexInit;
+use ssh_packet::{arch::NameList, trans::KexInit};
 
-use crate::{Error, Result};
+use crate::Error;
 
-pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Key> {
-    clientkex
-        .server_host_key_algorithms
-        .preferred_in(&serverkex.server_host_key_algorithms)
-        .ok_or(Error::NoCommonKey)?
-        .parse()
-        .map_err(|_| Error::NoCommonKex)
+use super::Negociate;
+
+impl Negociate for Key {
+    const ERR: Error = Error::NoCommonKey;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.server_host_key_algorithms
+    }
 }

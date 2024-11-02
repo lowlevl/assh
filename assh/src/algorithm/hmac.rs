@@ -2,26 +2,30 @@ use digest::OutputSizeUser;
 use md5::Md5;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
-use ssh_packet::trans::KexInit;
+use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
-use crate::{Error, Result};
+use crate::{
+    side::{client::Client, server::Server},
+    Error, Result,
+};
 
-pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<(Hmac, Hmac)> {
-    Ok((
-        clientkex
-            .mac_algorithms_client_to_server
-            .preferred_in(&serverkex.mac_algorithms_client_to_server)
-            .ok_or(Error::NoCommonHmac)?
-            .parse()
-            .map_err(|_| Error::NoCommonHmac)?,
-        clientkex
-            .mac_algorithms_server_to_client
-            .preferred_in(&serverkex.mac_algorithms_server_to_client)
-            .ok_or(Error::NoCommonHmac)?
-            .parse()
-            .map_err(|_| Error::NoCommonHmac)?,
-    ))
+use super::Negociate;
+
+impl Negociate<Client> for Hmac {
+    const ERR: Error = Error::NoCommonHmac;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.mac_algorithms_client_to_server
+    }
+}
+
+impl Negociate<Server> for Hmac {
+    const ERR: Error = Error::NoCommonHmac;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.mac_algorithms_server_to_client
+    }
 }
 
 /// SSH hmac algorithms.

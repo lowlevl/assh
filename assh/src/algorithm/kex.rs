@@ -2,7 +2,7 @@ use secrecy::{ExposeSecret, SecretBox};
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
-    arch::MpInt,
+    arch::{MpInt, NameList},
     crypto::exchange,
     trans::{KexEcdhInit, KexEcdhReply, KexInit},
     Id,
@@ -10,19 +10,19 @@ use ssh_packet::{
 use strum::{AsRefStr, EnumString};
 
 use crate::{
+    side::{client::Client, server::Server},
     stream::{Keys, Stream, Transport, TransportPair},
     Error, Pipe, Result,
 };
 
-use super::{cipher, compress, hmac};
+use super::{Cipher, Compress, Hmac, Negociate};
 
-pub fn negociate(clientkex: &KexInit, serverkex: &KexInit) -> Result<Kex> {
-    clientkex
-        .kex_algorithms
-        .preferred_in(&serverkex.kex_algorithms)
-        .ok_or(Error::NoCommonKex)?
-        .parse()
-        .map_err(|_| Error::NoCommonKex)
+impl Negociate for Kex {
+    const ERR: Error = Error::NoCommonKex;
+
+    fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
+        &kex.kex_algorithms
+    }
 }
 
 // TODO: (feature) Implement the following legacy key-exchange methods (`diffie-hellman-group14-sha256`, `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`).
@@ -55,9 +55,14 @@ impl Kex {
         i_c: KexInit<'_>,
         i_s: KexInit<'_>,
     ) -> Result<TransportPair> {
-        let (client_hmac, server_hmac) = hmac::negociate(&i_c, &i_s)?;
-        let (client_compress, server_compress) = compress::negociate(&i_c, &i_s)?;
-        let (client_cipher, server_cipher) = cipher::negociate(&i_c, &i_s)?;
+        let client_hmac = <Hmac as Negociate<Client>>::negociate(&i_c, &i_s)?;
+        let server_hmac = <Hmac as Negociate<Server>>::negociate(&i_c, &i_s)?;
+
+        let client_compress = <Compress as Negociate<Client>>::negociate(&i_c, &i_s)?;
+        let server_compress = <Compress as Negociate<Server>>::negociate(&i_c, &i_s)?;
+
+        let client_cipher = <Cipher as Negociate<Client>>::negociate(&i_c, &i_s)?;
+        let server_cipher = <Cipher as Negociate<Server>>::negociate(&i_c, &i_s)?;
 
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
@@ -138,9 +143,14 @@ impl Kex {
         i_s: KexInit<'_>,
         key: &PrivateKey,
     ) -> Result<TransportPair> {
-        let (client_hmac, server_hmac) = hmac::negociate(&i_c, &i_s)?;
-        let (client_compress, server_compress) = compress::negociate(&i_c, &i_s)?;
-        let (client_cipher, server_cipher) = cipher::negociate(&i_c, &i_s)?;
+        let client_hmac = <Hmac as Negociate<Client>>::negociate(&i_c, &i_s)?;
+        let server_hmac = <Hmac as Negociate<Server>>::negociate(&i_c, &i_s)?;
+
+        let client_compress = <Compress as Negociate<Client>>::negociate(&i_c, &i_s)?;
+        let server_compress = <Compress as Negociate<Server>>::negociate(&i_c, &i_s)?;
+
+        let client_cipher = <Cipher as Negociate<Client>>::negociate(&i_c, &i_s)?;
+        let server_cipher = <Cipher as Negociate<Server>>::negociate(&i_c, &i_s)?;
 
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
