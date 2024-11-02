@@ -1,3 +1,4 @@
+use secrecy::{ExposeSecret, SecretBox};
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
@@ -76,9 +77,8 @@ impl Kex {
                     <[u8; 32]>::try_from(&*ecdh.q_s).map_err(|_| Error::KexError)?,
                 );
 
-                // TODO: (security) use `secrecy` to encapsulate this value
                 let secret = e_c.diffie_hellman(&q_s);
-                let secret = MpInt::positive(secret.as_bytes());
+                let secret = SecretBox::new(MpInt::positive(secret.as_bytes()).into());
 
                 let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
                 let hash = exchange::Ecdh {
@@ -89,7 +89,7 @@ impl Kex {
                     k_s: ecdh.k_s,
                     q_c: q_c.as_ref().into(),
                     q_s: q_s.as_ref().into(),
-                    k: secret.as_borrow(),
+                    k: secret.expose_secret().as_borrow(),
                 }
                 .hash::<Hash>();
 
@@ -100,7 +100,7 @@ impl Kex {
                 Ok(TransportPair {
                     rx: Transport {
                         chain: Keys::as_server::<Hash>(
-                            &secret,
+                            secret.expose_secret(),
                             &hash,
                             session_id,
                             &client_cipher,
@@ -113,7 +113,7 @@ impl Kex {
                     },
                     tx: Transport {
                         chain: Keys::as_client::<Hash>(
-                            &secret,
+                            secret.expose_secret(),
                             &hash,
                             session_id,
                             &server_cipher,
@@ -155,9 +155,8 @@ impl Kex {
                     <[u8; 32]>::try_from(ecdh.q_c.as_ref()).map_err(|_| Error::KexError)?,
                 );
 
-                // TODO: (security) use `secrecy` to encapsulate this value
                 let secret = e_s.diffie_hellman(&q_c);
-                let secret = MpInt::positive(secret.as_bytes());
+                let secret = SecretBox::new(MpInt::positive(secret.as_bytes()).into());
 
                 let k_s = key.public_key().to_bytes()?;
 
@@ -169,7 +168,7 @@ impl Kex {
                     k_s: k_s.as_slice().into(),
                     q_c: q_c.as_ref().into(),
                     q_s: q_s.as_ref().into(),
-                    k: secret.as_borrow(),
+                    k: secret.expose_secret().as_borrow(),
                 }
                 .hash::<Hash>();
 
@@ -188,7 +187,7 @@ impl Kex {
                 Ok(TransportPair {
                     rx: Transport {
                         chain: Keys::as_client::<Hash>(
-                            &secret,
+                            secret.expose_secret(),
                             &hash,
                             session_id,
                             &client_cipher,
@@ -201,7 +200,7 @@ impl Kex {
                     },
                     tx: Transport {
                         chain: Keys::as_server::<Hash>(
-                            &secret,
+                            secret.expose_secret(),
                             &hash,
                             session_id,
                             &server_cipher,
