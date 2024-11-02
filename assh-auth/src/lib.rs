@@ -20,7 +20,9 @@
 )]
 #![forbid(unsafe_code)]
 
-const SERVICE_NAME: &str = "ssh-userauth";
+use ssh_packet::arch::{ascii, Ascii};
+
+const SERVICE_NAME: Ascii = ascii!("ssh-userauth");
 
 pub mod handler;
 pub use handler::Auth as AuthHandler;

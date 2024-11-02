@@ -22,11 +22,14 @@ pub enum Response {
 /// A received _channel request_.
 pub struct Request<'s, IO: Pipe, S: Side> {
     channel: &'s Channel<'s, IO, S>,
-    inner: Option<connect::ChannelRequest>,
+    inner: Option<connect::ChannelRequest<'static>>,
 }
 
 impl<'s, IO: Pipe, S: Side> Request<'s, IO, S> {
-    pub(super) fn new(channel: &'s Channel<'s, IO, S>, inner: connect::ChannelRequest) -> Self {
+    pub(super) fn new(
+        channel: &'s Channel<'s, IO, S>,
+        inner: connect::ChannelRequest<'static>,
+    ) -> Self {
         Self {
             channel,
             inner: Some(inner),

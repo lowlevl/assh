@@ -9,9 +9,9 @@ use assh::{
     Error, Result, Session,
 };
 use ssh_packet::{
-    connect::{ChannelOpen, ChannelOpenContext},
-    trans::{Disconnect, ServiceRequest},
-    userauth, Message,
+    connect::{ChannelOpen, ChannelOpenConfirmation, ChannelOpenContext},
+    trans::{Disconnect, ServiceAccept, ServiceRequest},
+    userauth::{self, Success},
 };
 
 mod common;
@@ -36,6 +36,8 @@ async fn end_to_end(
     #[case] mac: &str,
     #[case] kex: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use ssh_packet::arch::ascii;
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init()
@@ -62,23 +64,27 @@ async fn end_to_end(
 
     client
         .send(&ServiceRequest {
-            service_name: "ssh-userauth".into(),
+            service_name: ascii!("ssh-userauth"),
         })
         .await?;
-    let Message::ServiceAccept(_) = client.recv().await?.to()? else {
-        panic!("Service refused")
-    };
+    client
+        .recv()
+        .await?
+        .to::<ServiceAccept>()
+        .expect("Service refused by peer");
 
     client
         .send(&userauth::Request {
             username: "user".into(),
-            service_name: "?".into(),
+            service_name: ascii!("?"),
             method: ssh_packet::userauth::Method::None,
         })
         .await?;
-    let Message::AuthSuccess(_) = client.recv().await?.to()? else {
-        panic!("Auth refused")
-    };
+    client
+        .recv()
+        .await?
+        .to::<Success>()
+        .expect("Auth refused by peer");
 
     client
         .send(&ChannelOpen {
@@ -88,10 +94,11 @@ async fn end_to_end(
             context: ChannelOpenContext::Session,
         })
         .await?;
-
-    let Message::ChannelOpenConfirmation(_) = client.recv().await?.to()? else {
-        panic!("Channel refused")
-    };
+    client
+        .recv()
+        .await?
+        .to::<ChannelOpenConfirmation>()
+        .expect("Channel open refused by peer");
 
     client
         .send(&Disconnect {

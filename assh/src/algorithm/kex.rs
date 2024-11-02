@@ -2,8 +2,7 @@ use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
     arch::MpInt,
-    binrw::BinWrite,
-    cryptography::EcdhExchange,
+    crypto::exchange,
     trans::{KexEcdhInit, KexEcdhReply, KexInit},
     Id,
 };
@@ -52,8 +51,8 @@ impl Kex {
         stream: &mut Stream<S>,
         v_c: &Id,
         v_s: &Id,
-        i_c: KexInit,
-        i_s: KexInit,
+        i_c: KexInit<'_>,
+        i_s: KexInit<'_>,
     ) -> Result<TransportPair> {
         let (client_hmac, server_hmac) = hmac::negociate(&i_c, &i_s)?;
         let (client_compress, server_compress) = compress::negociate(&i_c, &i_s)?;
@@ -68,7 +67,7 @@ impl Kex {
 
                 stream
                     .send(&KexEcdhInit {
-                        q_c: q_c.as_ref().to_vec().into(),
+                        q_c: q_c.as_ref().into(),
                     })
                     .await?;
 
@@ -78,30 +77,23 @@ impl Kex {
                 );
 
                 // TODO: (security) use `secrecy` to encapsulate this value
-                let secret: MpInt = e_c.diffie_hellman(&q_s).to_bytes().to_vec().into();
+                let secret = e_c.diffie_hellman(&q_s);
+                let secret = MpInt::positive(secret.as_bytes());
 
                 let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
-                let hash = EcdhExchange {
-                    v_c: &v_c.to_string().into_bytes().into(),
-                    v_s: &v_s.to_string().into_bytes().into(),
-                    i_c: &{
-                        let mut buffer = Vec::new();
-                        i_c.write(&mut std::io::Cursor::new(&mut buffer))?;
-                        buffer.into()
-                    },
-                    i_s: &{
-                        let mut buffer = Vec::new();
-                        i_s.write(&mut std::io::Cursor::new(&mut buffer))?;
-                        buffer.into()
-                    },
-                    k_s: &ecdh.k_s,
-                    q_c: &q_c.as_ref().to_vec().into(),
-                    q_s: &q_s.to_bytes().to_vec().into(),
-                    k: &secret,
+                let hash = exchange::Ecdh {
+                    v_c: v_c.to_string().into_bytes().into(),
+                    v_s: v_s.to_string().into_bytes().into(),
+                    i_c: (&i_c).into(),
+                    i_s: (&i_s).into(),
+                    k_s: ecdh.k_s,
+                    q_c: q_c.as_ref().into(),
+                    q_s: q_s.as_ref().into(),
+                    k: secret.as_borrow(),
                 }
                 .hash::<Hash>();
 
-                Verifier::verify(&k_s, &hash, &Signature::try_from(&*ecdh.signature)?)?;
+                Verifier::verify(&k_s, &hash, &Signature::try_from(ecdh.signature.as_ref())?)?;
 
                 let session_id = stream.with_session(&hash);
 
@@ -142,8 +134,8 @@ impl Kex {
         stream: &mut Stream<S>,
         v_c: &Id,
         v_s: &Id,
-        i_c: KexInit,
-        i_s: KexInit,
+        i_c: KexInit<'_>,
+        i_s: KexInit<'_>,
         key: &PrivateKey,
     ) -> Result<TransportPair> {
         let (client_hmac, server_hmac) = hmac::negociate(&i_c, &i_s)?;
@@ -160,40 +152,33 @@ impl Kex {
                 let q_s = x25519_dalek::PublicKey::from(&e_s);
 
                 let q_c = x25519_dalek::PublicKey::from(
-                    <[u8; 32]>::try_from(&*ecdh.q_c).map_err(|_| Error::KexError)?,
+                    <[u8; 32]>::try_from(ecdh.q_c.as_ref()).map_err(|_| Error::KexError)?,
                 );
 
                 // TODO: (security) use `secrecy` to encapsulate this value
-                let secret: MpInt = e_s.diffie_hellman(&q_c).to_bytes().to_vec().into();
+                let secret = e_s.diffie_hellman(&q_c);
+                let secret = MpInt::positive(secret.as_bytes());
 
-                let k_s = key.public_key().to_bytes()?.into();
-                let q_s = q_s.as_ref().to_vec().into();
+                let k_s = key.public_key().to_bytes()?;
 
-                let hash = EcdhExchange {
-                    v_c: &v_c.to_string().into_bytes().into(),
-                    v_s: &v_s.to_string().into_bytes().into(),
-                    i_c: &{
-                        let mut buffer = Vec::new();
-                        i_c.write(&mut std::io::Cursor::new(&mut buffer))?;
-                        buffer.into()
-                    },
-                    i_s: &{
-                        let mut buffer = Vec::new();
-                        i_s.write(&mut std::io::Cursor::new(&mut buffer))?;
-                        buffer.into()
-                    },
-                    k_s: &k_s,
-                    q_c: &q_c.to_bytes().to_vec().into(),
-                    q_s: &q_s,
-                    k: &secret,
+                let hash = exchange::Ecdh {
+                    v_c: v_c.to_string().into_bytes().into(),
+                    v_s: v_s.to_string().into_bytes().into(),
+                    i_c: (&i_c).into(),
+                    i_s: (&i_s).into(),
+                    k_s: k_s.as_slice().into(),
+                    q_c: q_c.as_ref().into(),
+                    q_s: q_s.as_ref().into(),
+                    k: secret.as_borrow(),
                 }
                 .hash::<Hash>();
 
                 let signature = Signer::sign(key, &hash);
+
                 stream
                     .send(&KexEcdhReply {
-                        k_s,
-                        q_s,
+                        k_s: k_s.into(),
+                        q_s: q_s.as_ref().into(),
                         signature: signature.to_vec().into(),
                     })
                     .await?;

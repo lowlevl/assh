@@ -1,6 +1,7 @@
 //! Service handling and requesting facilities.
 
 use futures::Future;
+use ssh_packet::arch::Ascii;
 
 use crate::{side::Side, Pipe, Session};
 
@@ -14,7 +15,7 @@ pub trait Handler {
     type Ok<IO: Pipe, S: Side>;
 
     /// The handled service _identifier_.
-    const SERVICE_NAME: &'static str;
+    const SERVICE_NAME: Ascii<'static>;
 
     /// The service callback, this is called when we receive a service request from the peer.
     fn on_request<IO, S>(
@@ -34,7 +35,7 @@ pub trait Request {
     type Ok<IO: Pipe, S: Side>;
 
     /// The requested service _identifier_.
-    const SERVICE_NAME: &'static str;
+    const SERVICE_NAME: Ascii<'static>;
 
     /// The service callback, this is called when the peer accepted the service request.
     fn on_accept<IO, S>(

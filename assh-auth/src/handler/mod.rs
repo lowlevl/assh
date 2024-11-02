@@ -4,8 +4,8 @@ use assh::{service::Handler, side::Side, Error, Pipe, Result, Session};
 use enumset::EnumSet;
 use ssh_key::{public::PublicKey, Signature};
 use ssh_packet::{
-    arch::{NameList, StringAscii, StringUtf8},
-    cryptography::PublickeySignature,
+    arch::{Ascii, NameList, Utf8},
+    crypto::signature,
     trans::DisconnectReason,
     userauth,
 };
@@ -28,7 +28,7 @@ enum Attempt {
 /// The authentication service [`Handler`] for sessions.
 #[derive(Debug)]
 pub struct Auth<H, N = (), P = (), PK = ()> {
-    banner: Option<StringUtf8>,
+    banner: Option<Utf8<'static>>,
     // TODO: (compliance) Add a total attempts counter, to disconnect when exceeded.
     // TODO: (compliance) Retain methods per user-basis, because each user can attempt all the methods.
     methods: EnumSet<Method>,
@@ -67,7 +67,7 @@ where
     PK: publickey::Publickey,
 {
     /// Set the authentication banner text to be displayed upon authentication (the string should be `\r\n` terminated).
-    pub fn banner(mut self, banner: impl Into<StringUtf8>) -> Self {
+    pub fn banner(mut self, banner: impl Into<Utf8<'static>>) -> Self {
         self.banner = Some(banner.into());
 
         self
@@ -151,18 +151,15 @@ where
     async fn handle_attempt<IO: Pipe, S: Side>(
         &mut self,
         session: &mut Session<IO, S>,
-        username: StringUtf8,
-        method: userauth::Method,
-        service_name: &StringAscii,
+        username: Utf8<'_>,
+        method: userauth::Method<'_>,
+        service_name: &Ascii<'_>,
     ) -> Result<Attempt> {
         Ok(match method {
             userauth::Method::None => {
-                tracing::debug!(
-                    "Attempt using method `none` for user `{}`",
-                    username.as_str()
-                );
+                tracing::debug!("Attempt using method `none` for user `{username}`");
 
-                match self.none.process(username.to_string()) {
+                match self.none.process(username.into_string()) {
                     none::Response::Accept => Attempt::Success,
                     none::Response::Reject => Attempt::Failure,
                 }
@@ -174,13 +171,12 @@ where
                 signature,
             } => {
                 tracing::debug!(
-                    "Attempt using method `publickey` (signed: {}, algorithm: {}) for user `{}`",
+                    "Attempt using method `publickey` (signed: {}, algorithm: {}) for user `{username}`",
                     signature.is_some(),
-                    std::str::from_utf8(&algorithm).unwrap_or("unknown"),
-                    username.as_str(),
+                    std::str::from_utf8(algorithm.as_ref()).unwrap_or("unknown"),
                 );
 
-                let key = PublicKey::from_bytes(&blob);
+                let key = PublicKey::from_bytes(blob.as_ref());
 
                 match signature {
                     None => {
@@ -197,18 +193,18 @@ where
                     }
                     Some(signature) => match key {
                         Ok(key) if key.algorithm().as_str().as_bytes() == algorithm.as_ref() => {
-                            let message = PublickeySignature {
-                                session_id: &session.session_id().unwrap_or_default().into(),
-                                username: &username,
-                                service_name,
-                                algorithm: &algorithm,
-                                blob: &blob,
+                            let message = signature::Publickey {
+                                session_id: session.session_id().unwrap_or_default().into(),
+                                username: username.as_borrow(),
+                                service_name: service_name.as_borrow(),
+                                algorithm,
+                                blob,
                             };
 
                             if message
                                 .verify(&key, &Signature::try_from(signature.as_ref())?)
                                 .is_ok()
-                                && self.publickey.process(username.to_string(), key)
+                                && self.publickey.process(username.into_string(), key)
                                     == publickey::Response::Accept
                             {
                                 Attempt::Success
@@ -224,15 +220,14 @@ where
 
             userauth::Method::Password { password, new } => {
                 tracing::debug!(
-                    "Attempt using method `password` (update: {}) for user `{}`",
+                    "Attempt using method `password` (update: {}) for user `{username}`",
                     new.is_some(),
-                    username.as_str()
                 );
 
                 match self.password.process(
                     username.into_string(),
                     password.into_string(),
-                    new.map(StringUtf8::into_string),
+                    new.map(Utf8::into_string),
                 ) {
                     password::Response::Accept => Attempt::Success,
                     password::Response::PasswordExpired { prompt } => {
@@ -270,7 +265,7 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
     type Err = H::Err;
     type Ok<IO: Pipe, S: Side> = H::Ok<IO, S>;
 
-    const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
+    const SERVICE_NAME: Ascii<'static> = crate::SERVICE_NAME;
 
     async fn on_request<IO, S>(
         &mut self,
@@ -302,7 +297,7 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
                         .await?
                     {
                         Attempt::Success => {
-                            break if &*service_name == H::SERVICE_NAME {
+                            break if service_name == H::SERVICE_NAME {
                                 session.send(&userauth::Success).await?;
 
                                 self.handler.on_request(session).await
@@ -321,7 +316,9 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
                         attempt @ Attempt::Failure | attempt @ Attempt::Partial => {
                             session
                                 .send(&userauth::Failure {
-                                    continue_with: NameList::new(self.methods),
+                                    continue_with: NameList::from_iter(
+                                        self.methods.iter().map(Method::to_ascii),
+                                    ),
                                     partial_success: (attempt == Attempt::Partial).into(),
                                 })
                                 .await?;
@@ -331,7 +328,9 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
                 } else {
                     session
                         .send(&userauth::Failure {
-                            continue_with: NameList::new(self.methods),
+                            continue_with: NameList::from_iter(
+                                self.methods.iter().map(Method::to_ascii),
+                            ),
                             partial_success: false.into(),
                         })
                         .await?;

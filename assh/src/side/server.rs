@@ -111,14 +111,20 @@ impl Side for Server {
 
         KexInit {
             cookie,
-            kex_algorithms: NameList::new(&self.algorithms.kexs),
-            server_host_key_algorithms: NameList::new(self.keys.iter().map(PrivateKey::algorithm)),
-            encryption_algorithms_client_to_server: NameList::new(&self.algorithms.ciphers),
-            encryption_algorithms_server_to_client: NameList::new(&self.algorithms.ciphers),
-            mac_algorithms_client_to_server: NameList::new(&self.algorithms.macs),
-            mac_algorithms_server_to_client: NameList::new(&self.algorithms.macs),
-            compression_algorithms_client_to_server: NameList::new(&self.algorithms.compressions),
-            compression_algorithms_server_to_client: NameList::new(&self.algorithms.compressions),
+            kex_algorithms: NameList::from_iter(&self.algorithms.kexs),
+            server_host_key_algorithms: NameList::from_iter(
+                self.keys.iter().map(PrivateKey::algorithm),
+            ),
+            encryption_algorithms_client_to_server: NameList::from_iter(&self.algorithms.ciphers),
+            encryption_algorithms_server_to_client: NameList::from_iter(&self.algorithms.ciphers),
+            mac_algorithms_client_to_server: NameList::from_iter(&self.algorithms.macs),
+            mac_algorithms_server_to_client: NameList::from_iter(&self.algorithms.macs),
+            compression_algorithms_client_to_server: NameList::from_iter(
+                &self.algorithms.compressions,
+            ),
+            compression_algorithms_server_to_client: NameList::from_iter(
+                &self.algorithms.compressions,
+            ),
             languages_client_to_server: NameList::default(),
             languages_server_to_client: NameList::default(),
             first_kex_packet_follows: false.into(),
@@ -128,8 +134,8 @@ impl Side for Server {
     async fn exchange(
         &self,
         stream: &mut Stream<impl Pipe>,
-        kexinit: KexInit,
-        peerkexinit: KexInit,
+        kexinit: KexInit<'_>,
+        peerkexinit: KexInit<'_>,
         peer_id: &Id,
     ) -> Result<TransportPair> {
         let keyalg = key::negociate(&peerkexinit, &kexinit)?;

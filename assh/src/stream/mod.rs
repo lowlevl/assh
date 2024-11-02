@@ -109,7 +109,7 @@ where
             Some(packet) => Ok(packet),
             None => {
                 let packet =
-                    Packet::from_async_reader(&mut self.inner, &mut self.transport.rx, self.rxseq)
+                    Packet::from_reader(&mut self.inner, &mut self.transport.rx, self.rxseq)
                         .timeout(self.timeout)
                         .await??;
 
@@ -132,7 +132,7 @@ where
         let packet = packet.into_packet();
 
         packet
-            .to_async_writer(&mut self.inner, &mut self.transport.tx, self.txseq)
+            .to_writer(&mut self.inner, &mut self.transport.tx, self.txseq)
             .timeout(self.timeout)
             .await??;
         self.inner.flush().await?;

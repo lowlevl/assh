@@ -56,7 +56,7 @@ where
     // TODO: (ux) Compact `Self::global_request`, `Self::global_request_wait` with a trait ?
 
     /// Send a _global request_.
-    pub async fn global_request(&self, context: connect::GlobalRequestContext) -> Result<()> {
+    pub async fn global_request(&self, context: connect::GlobalRequestContext<'_>) -> Result<()> {
         self.mux
             .send(&connect::GlobalRequest {
                 want_reply: false.into(),
@@ -70,7 +70,7 @@ where
     /// Send a _global request_, and wait for it's response.
     pub async fn global_request_wait(
         &self,
-        context: connect::GlobalRequestContext,
+        context: connect::GlobalRequestContext<'_>,
     ) -> Result<global_request::Response> {
         let interest = Interest::GlobalResponse;
         let _unregister_on_drop = self.mux.register_scoped(interest);
@@ -166,7 +166,7 @@ where
     /// Send a _channel open request_, and wait for it's response to return an opened channel.
     pub async fn channel_open(
         &self,
-        context: connect::ChannelOpenContext,
+        context: connect::ChannelOpenContext<'_>,
     ) -> Result<channel_open::Response<'_, IO, S>> {
         let Some(reserved) = self.mux.channels.reserve() else {
             return Err(Error::TooManyChannels);
@@ -188,7 +188,7 @@ where
         #[br(little)]
         enum Response {
             Success(connect::ChannelOpenConfirmation),
-            Failure(connect::ChannelOpenFailure),
+            Failure(connect::ChannelOpenFailure<'static>),
         }
 
         futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))

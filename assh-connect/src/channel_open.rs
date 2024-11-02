@@ -1,7 +1,7 @@
 //! The _channel open requests_ and responses.
 
 use assh::{side::Side, Pipe};
-use ssh_packet::{arch::StringUtf8, connect};
+use ssh_packet::{arch::Utf8, connect};
 
 use crate::{
     channel::{self, Id, LocalWindow},
@@ -31,12 +31,12 @@ pub enum Response<'s, IO: Pipe, S: Side> {
 pub struct ChannelOpen<'s, IO: Pipe, S: Side> {
     mux: &'s Mux<IO, S>,
 
-    inner: Option<connect::ChannelOpen>,
+    inner: Option<connect::ChannelOpen<'static>>,
     id: Id,
 }
 
 impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
-    pub(super) fn new(mux: &'s Mux<IO, S>, inner: connect::ChannelOpen, id: Id) -> Self {
+    pub(super) fn new(mux: &'s Mux<IO, S>, inner: connect::ChannelOpen<'static>, id: Id) -> Self {
         Self {
             mux,
             inner: Some(inner),
@@ -72,7 +72,7 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
         mux: &Mux<IO, S>,
         recipient_channel: u32,
         reason: Option<connect::ChannelOpenFailureReason>,
-        description: Option<StringUtf8>,
+        description: Option<Utf8<'_>>,
     ) {
         mux.feed(&connect::ChannelOpenFailure {
             recipient_channel,
@@ -88,7 +88,7 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
     pub async fn reject(
         mut self,
         reason: connect::ChannelOpenFailureReason,
-        description: impl Into<StringUtf8>,
+        description: impl Into<Utf8<'_>>,
     ) -> Result<()> {
         self.inner
             .take()

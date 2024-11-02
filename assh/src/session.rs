@@ -2,7 +2,7 @@ use either::Either;
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
-    arch::StringUtf8,
+    arch::Utf8,
     trans::{
         Debug, Disconnect, DisconnectReason, Ignore, KexInit, ServiceAccept, ServiceRequest,
         Unimplemented,
@@ -40,10 +40,10 @@ where
     /// Create a new [`Session`] from a [`Pipe`] stream,
     /// and some configuration.
     pub async fn new(mut stream: IO, config: S) -> Result<Self> {
-        config.id().to_async_writer(&mut stream).await?;
+        config.id().to_writer(&mut stream).await?;
         stream.flush().await?;
 
-        let peer_id = Id::from_async_reader(&mut stream)
+        let peer_id = Id::from_reader(&mut stream)
             .timeout(config.timeout())
             .await??;
 
@@ -111,7 +111,7 @@ where
                 ..
             }) = packet.to()
             {
-                tracing::info!("Peer disconnected with `{reason:?}`: {}", &*description);
+                tracing::info!("Peer disconnected with `{reason:?}`: {description}");
 
                 self.stream = Either::Right(DisconnectedError {
                     by: DisconnectedBy::Them,
@@ -119,11 +119,14 @@ where
                     description: description.into_string(),
                 });
             } else if let Ok(Ignore { data }) = packet.to() {
-                tracing::debug!("Received an 'ignore' message with length {}", data.len());
+                tracing::debug!(
+                    "Received an 'ignore' message with length {}",
+                    data.as_ref().len()
+                );
             } else if let Ok(Unimplemented { seq }) = packet.to() {
                 tracing::debug!("Received an 'unimplemented' message about packet #{seq}",);
             } else if let Ok(Debug { message, .. }) = packet.to() {
-                tracing::debug!("Received a 'debug' message: {}", &*message);
+                tracing::debug!("Received a 'debug' message: {message}");
             } else {
                 break Ok(packet);
             }
@@ -153,7 +156,7 @@ where
     pub async fn disconnect(
         &mut self,
         reason: DisconnectReason,
-        description: impl Into<StringUtf8>,
+        description: impl Into<Utf8<'_>>,
     ) -> DisconnectedError {
         let stream = match &mut self.stream {
             Either::Left(stream) => stream,
@@ -187,7 +190,7 @@ where
         let packet = self.recv().await?;
 
         if let Ok(ServiceRequest { service_name }) = packet.to() {
-            if &*service_name == H::SERVICE_NAME.as_bytes() {
+            if service_name == H::SERVICE_NAME {
                 self.send(&ServiceAccept { service_name }).await?;
 
                 service.on_request(self).await
@@ -219,13 +222,13 @@ where
         R: service::Request,
     {
         self.send(&ServiceRequest {
-            service_name: R::SERVICE_NAME.into(),
+            service_name: R::SERVICE_NAME,
         })
         .await?;
 
         let packet = self.recv().await?;
         if let Ok(ServiceAccept { service_name }) = packet.to() {
-            if &*service_name == R::SERVICE_NAME.as_bytes() {
+            if service_name == R::SERVICE_NAME {
                 service.on_accept(self).await
             } else {
                 Err(Error::from(

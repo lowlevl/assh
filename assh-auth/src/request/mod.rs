@@ -4,8 +4,8 @@ use hashbrown::HashSet;
 
 use assh::{service::Request, side::Side, Error, Pipe, Result, Session};
 use ssh_packet::{
-    arch::{self, StringUtf8},
-    cryptography::PublickeySignature,
+    arch::{self, Ascii, Utf8},
+    crypto::signature,
     trans::DisconnectReason,
     userauth, Packet,
 };
@@ -23,7 +23,7 @@ pub use ssh_key::PrivateKey;
 /// The authentication service [`Request`] for sessions.
 #[derive(Debug)]
 pub struct Auth<R> {
-    username: StringUtf8,
+    username: Utf8<'static>,
     service: R,
 
     methods: HashSet<Method>,
@@ -37,7 +37,7 @@ impl<R: Request> Auth<R> {
     ///    to discover the methods available on the server.
     /// 2. While the `publickey` method allows for multiple keys,
     ///    the `password` method will only keep the last one provided to [`Self::password`].
-    pub fn new(username: impl Into<StringUtf8>, service: R) -> Self {
+    pub fn new(username: impl Into<Utf8<'static>>, service: R) -> Self {
         Self {
             username: username.into(),
             service,
@@ -66,7 +66,11 @@ impl<R: Request> Auth<R> {
 
     fn next_method(&mut self, continue_with: &arch::NameList) -> Option<Method> {
         self.methods
-            .extract_if(|m| continue_with.into_iter().any(|method| m.as_ref() == method))
+            .extract_if(|m| {
+                continue_with
+                    .into_iter()
+                    .any(|method| m.as_ascii() == method)
+            })
             .next()
     }
 
@@ -77,7 +81,7 @@ impl<R: Request> Auth<R> {
     ) -> Result<Packet> {
         let build = |method| userauth::Request {
             username: self.username.clone(),
-            service_name: R::SERVICE_NAME.into(),
+            service_name: R::SERVICE_NAME,
             method,
         };
 
@@ -88,10 +92,12 @@ impl<R: Request> Auth<R> {
                 session.recv().await
             }
             Method::Publickey { key } => {
+                let algorithm = key.algorithm();
+
                 // Probe the server to know if this algorithm is implemented.
                 session
                     .send(&build(userauth::Method::Publickey {
-                        algorithm: key.algorithm().as_str().into(),
+                        algorithm: algorithm.as_str().as_bytes().into(),
                         blob: key.public_key().to_bytes()?.into(),
                         signature: None,
                     }))
@@ -100,22 +106,20 @@ impl<R: Request> Auth<R> {
                 let response = session.recv().await?;
                 if let Ok(userauth::PkOk { algorithm, blob }) = response.to() {
                     // Actually sign the message with the key to perform real authentication.
-                    let signature = PublickeySignature {
-                        session_id: &session.session_id().unwrap_or_default().into(),
-                        username: &self.username,
-                        service_name: &R::SERVICE_NAME.into(),
-                        algorithm: &algorithm,
-                        blob: &blob,
+                    let signature = signature::Publickey {
+                        session_id: session.session_id().unwrap_or_default().into(),
+                        username: self.username.as_borrow(),
+                        service_name: R::SERVICE_NAME,
+                        algorithm: algorithm.as_borrow(),
+                        blob: blob.as_borrow(),
                     }
-                    .sign(&**key)
-                    .as_bytes()
-                    .into();
+                    .sign(key.as_ref());
 
                     session
                         .send(&build(userauth::Method::Publickey {
                             algorithm,
                             blob,
-                            signature: Some(signature),
+                            signature: Some(signature.as_bytes().into()),
                         }))
                         .await?;
 
@@ -127,7 +131,7 @@ impl<R: Request> Auth<R> {
             Method::Password { password } => {
                 session
                     .send(&build(userauth::Method::Password {
-                        password: password.into(),
+                        password: password.as_str().into(),
                         new: None,
                     }))
                     .await?;
@@ -147,7 +151,7 @@ impl<R: Request> Request for Auth<R> {
     type Err = R::Err;
     type Ok<IO: Pipe, S: Side> = R::Ok<IO, S>;
 
-    const SERVICE_NAME: &'static str = crate::SERVICE_NAME;
+    const SERVICE_NAME: Ascii<'static> = crate::SERVICE_NAME;
 
     async fn on_accept<IO, S>(
         &mut self,

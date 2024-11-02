@@ -4,7 +4,7 @@ use async_std::process::Command;
 use rstest::rstest;
 
 use assh::Result;
-use ssh_packet::Message;
+use ssh_packet::connect::ChannelRequest;
 
 mod common;
 
@@ -54,7 +54,7 @@ async fn against_openssh_client(
 
     tracing::info!("message: {message:?}, {status}");
 
-    assert!(matches!(message.to()?, Message::ChannelRequest { .. }));
+    assert!(message.to::<ChannelRequest>().is_ok());
 
     Ok(())
 }

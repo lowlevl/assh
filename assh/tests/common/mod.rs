@@ -5,9 +5,10 @@ use futures::io::BufReader;
 
 use assh::{side::server::Server, Result, Session};
 use ssh_packet::{
-    connect::ChannelOpenConfirmation,
-    trans::{Ignore, ServiceAccept},
-    userauth, Message, Packet,
+    connect::{ChannelOpen, ChannelOpenConfirmation},
+    trans::{Ignore, ServiceAccept, ServiceRequest},
+    userauth::{self, Request},
+    Packet,
 };
 
 pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Result<Packet>>)> {
@@ -34,10 +35,11 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
             })
             .await?;
 
-        let request = match session.recv().await?.to()? {
-            Message::ServiceRequest(request) => request,
-            other => panic!("Unexpected message: {:?}", other),
-        };
+        let request = session
+            .recv()
+            .await?
+            .to::<ServiceRequest>()
+            .expect("Unexpected message from the peer");
 
         session
             .send(&ServiceAccept {
@@ -45,11 +47,11 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
             })
             .await?;
 
-        if let Message::AuthRequest { .. } = session.recv().await?.to()? {
+        if session.recv().await?.to::<Request>().is_ok() {
             session.send(&userauth::Success).await?;
         }
 
-        if let Message::ChannelOpen(open) = session.recv().await?.to()? {
+        if let Ok(open) = session.recv().await?.to::<ChannelOpen>() {
             session
                 .send(&ChannelOpenConfirmation {
                     recipient_channel: open.sender_channel,

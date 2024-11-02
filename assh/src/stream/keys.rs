@@ -75,7 +75,7 @@ impl Keys {
                     .chain_update((secret.as_ref().len() as u32).to_be_bytes())
                     .chain_update(secret)
                     .chain_update(hash)
-                    .chain_update(&*key);
+                    .chain_update(key.as_slice());
 
                 key.extend_from_slice(&hasher.finalize_reset());
             }

@@ -1,5 +1,5 @@
 use enumset::EnumSetType;
-use ssh_packet::userauth;
+use ssh_packet::{arch::Ascii, userauth};
 
 /// Possible authentication methods in the SSH protocol.
 #[derive(Debug, EnumSetType)]
@@ -20,8 +20,8 @@ pub enum Method {
     KeyboardInteractive,
 }
 
-impl AsRef<str> for Method {
-    fn as_ref(&self) -> &str {
+impl Method {
+    pub fn to_ascii(self) -> Ascii<'static> {
         match self {
             Self::None => userauth::Method::NONE,
             Self::Publickey => userauth::Method::PUBLICKEY,
@@ -32,7 +32,7 @@ impl AsRef<str> for Method {
     }
 }
 
-impl AsRef<Method> for userauth::Method {
+impl AsRef<Method> for userauth::Method<'_> {
     fn as_ref(&self) -> &Method {
         match self {
             userauth::Method::None => &Method::None,

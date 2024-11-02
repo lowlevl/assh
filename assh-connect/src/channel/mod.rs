@@ -102,8 +102,8 @@ where
             #[binrw::binrw]
             #[br(little)]
             enum Data {
-                Plain(connect::ChannelData),
-                Extended(connect::ChannelExtendedData),
+                Plain(connect::ChannelData<'static>),
+                Extended(connect::ChannelExtendedData<'static>),
             }
 
             let (stream_id, data) = match result? {
@@ -191,7 +191,7 @@ where
     // TODO: (ux) Compact `Self::request`, `Self::request_wait` with a trait ?
 
     /// Send a _channel request_.
-    pub async fn request(&self, context: connect::ChannelRequestContext) -> Result<()> {
+    pub async fn request(&self, context: connect::ChannelRequestContext<'_>) -> Result<()> {
         self.mux
             .send(&connect::ChannelRequest {
                 recipient_channel: self.id.remote(),
@@ -206,7 +206,7 @@ where
     /// Send a _channel request_, and wait for it's response.
     pub async fn request_wait(
         &self,
-        context: connect::ChannelRequestContext,
+        context: connect::ChannelRequestContext<'_>,
     ) -> Result<request::Response> {
         let interest = Interest::ChannelResponse(self.id.local());
         let _unregister_on_drop = self.mux.register_scoped(interest);

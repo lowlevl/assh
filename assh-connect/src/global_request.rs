@@ -21,11 +21,11 @@ pub enum Response {
 /// A received _global request_.
 pub struct GlobalRequest<'s, IO: Pipe, S: Side> {
     mux: &'s Mux<IO, S>,
-    inner: Option<connect::GlobalRequest>,
+    inner: Option<connect::GlobalRequest<'static>>,
 }
 
 impl<'s, IO: Pipe, S: Side> GlobalRequest<'s, IO, S> {
-    pub(super) fn new(mux: &'s Mux<IO, S>, inner: connect::GlobalRequest) -> Self {
+    pub(super) fn new(mux: &'s Mux<IO, S>, inner: connect::GlobalRequest<'static>) -> Self {
         Self {
             mux,
             inner: Some(inner),
