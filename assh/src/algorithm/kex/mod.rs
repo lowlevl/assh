@@ -10,6 +10,8 @@ use crate::{
 
 use super::{Cipher, Compress, Hmac, Negociate};
 
+// TODO: (reliability) Investigate the randomly-occuring `invalid signature` occuring against OpenSSH.
+
 mod curve25519;
 
 impl Negociate for Kex {
