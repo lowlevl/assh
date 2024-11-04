@@ -147,7 +147,7 @@ impl Side for Server {
             .expect("Did our KexInit lie to the client ?");
 
         Kex::negociate(&peerkexinit, &kexinit)?
-            .reply(stream, peer_id, self.id(), peerkexinit, kexinit, key)
+            .as_server(stream, peer_id, self.id(), peerkexinit, kexinit, key)
             .await
     }
 }

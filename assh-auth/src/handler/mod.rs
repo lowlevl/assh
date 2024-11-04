@@ -173,10 +173,10 @@ where
                 tracing::debug!(
                     "Attempt using method `publickey` (signed: {}, algorithm: {}) for user `{username}`",
                     signature.is_some(),
-                    std::str::from_utf8(algorithm.as_ref()).unwrap_or("unknown"),
+                    std::str::from_utf8(&algorithm).unwrap_or("unknown"),
                 );
 
-                let key = PublicKey::from_bytes(blob.as_ref());
+                let key = PublicKey::from_bytes(&blob);
 
                 match signature {
                     None => {

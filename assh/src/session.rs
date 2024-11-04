@@ -119,10 +119,7 @@ where
                     description: description.into_string(),
                 });
             } else if let Ok(Ignore { data }) = packet.to() {
-                tracing::debug!(
-                    "Received an 'ignore' message with length {}",
-                    data.as_ref().len()
-                );
+                tracing::debug!("Received an 'ignore' message with length {}", data.len());
             } else if let Ok(Unimplemented { seq }) = packet.to() {
                 tracing::debug!("Received an 'unimplemented' message about packet #{seq}",);
             } else if let Ok(Debug { message, .. }) = packet.to() {

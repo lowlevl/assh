@@ -143,7 +143,7 @@ impl Side for Client {
         peer_id: &Id,
     ) -> Result<TransportPair> {
         Kex::negociate(&kexinit, &peerkexinit)?
-            .init(stream, self.id(), peer_id, kexinit, peerkexinit)
+            .as_client(stream, self.id(), peer_id, kexinit, peerkexinit)
             .await
     }
 }
