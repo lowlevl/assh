@@ -7,9 +7,9 @@ use rand::RngCore;
 use ssh_key::Algorithm;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
-use super::Side;
+use super::{client::Client, Side};
 use crate::{
-    algorithm::{Cipher, Compress, Hmac, Kex, Negociate},
+    algorithm::{Cipher, Compress, Hmac, Kex, KexMeta, Negociate},
     stream::{Stream, TransportPair},
     Pipe, Result,
 };
@@ -139,6 +139,9 @@ impl Side for Server {
         peerkexinit: KexInit<'_>,
         peer_id: &Id,
     ) -> Result<TransportPair> {
+        let client = KexMeta::new::<Client>(peer_id, &peerkexinit, &kexinit)?;
+        let server = KexMeta::new::<Server>(self.id(), &peerkexinit, &kexinit)?;
+
         let alg = Algorithm::negociate(&peerkexinit, &kexinit)?;
         let key = self
             .keys
@@ -147,7 +150,7 @@ impl Side for Server {
             .expect("Did our KexInit lie to the client ?");
 
         Kex::negociate(&peerkexinit, &kexinit)?
-            .as_server(stream, peer_id, self.id(), peerkexinit, kexinit, key)
+            .as_server(stream, client, server, key)
             .await
     }
 }

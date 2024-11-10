@@ -6,9 +6,9 @@ use futures_time::time::Duration as Timeout;
 use rand::RngCore;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
-use super::Side;
+use super::{server::Server, Side};
 use crate::{
-    algorithm::{Cipher, Compress, Hmac, Kex, Key, Negociate},
+    algorithm::{Cipher, Compress, Hmac, Kex, KexMeta, Key, Negociate},
     stream::{Stream, TransportPair},
     Pipe, Result,
 };
@@ -142,8 +142,11 @@ impl Side for Client {
         peerkexinit: KexInit<'_>,
         peer_id: &Id,
     ) -> Result<TransportPair> {
+        let client = KexMeta::new::<Client>(self.id(), &kexinit, &peerkexinit)?;
+        let server = KexMeta::new::<Server>(peer_id, &kexinit, &peerkexinit)?;
+
         Kex::negociate(&kexinit, &peerkexinit)?
-            .as_client(stream, self.id(), peer_id, kexinit, peerkexinit)
+            .as_client(stream, client, server)
             .await
     }
 }

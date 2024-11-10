@@ -34,6 +34,7 @@ pub use hmac::Hmac;
 
 mod kex;
 pub use kex::Kex;
+pub(super) use kex::KexMeta;
 
 mod key;
 pub use key::Key;

@@ -2,6 +2,8 @@ use digest::{Digest, FixedOutputReset};
 use secrecy::SecretBox;
 use ssh_packet::Mac;
 
+use crate::algorithm::Hmac;
+
 use super::algorithm::Cipher;
 
 #[derive(Debug, Default)]
@@ -22,7 +24,7 @@ impl Keys {
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
-        hmac: &impl Mac,
+        hmac: &Hmac,
     ) -> Self {
         let ivsize = cipher.iv_size();
         let keysize = cipher.key_size();
@@ -40,7 +42,7 @@ impl Keys {
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
-        hmac: &impl Mac,
+        hmac: &Hmac,
     ) -> Self {
         let ivsize = cipher.iv_size();
         let keysize = cipher.key_size();

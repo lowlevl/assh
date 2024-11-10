@@ -11,17 +11,18 @@ use super::Keys;
 
 #[derive(Debug, Default)]
 pub struct TransportPair {
-    pub rx: Transport,
     pub tx: Transport,
+    pub rx: Transport,
 }
 
 #[derive(Debug, Default)]
 pub struct Transport {
-    pub chain: Keys,
-    pub state: Option<CipherState>,
+    pub compress: algorithm::Compress,
     pub cipher: algorithm::Cipher,
     pub hmac: algorithm::Hmac,
-    pub compress: algorithm::Compress,
+
+    pub state: Option<CipherState>,
+    pub chain: Keys,
 }
 
 impl CipherCore for Transport {
