@@ -82,7 +82,7 @@ where
     fn poll(&self, cx: &mut task::Context) -> task::Poll<assh::Result<()>> {
         if let task::Poll::Ready(Some(result)) = self
             .mux
-            .poll_interest(cx, &Interest::ChannelClose(self.id.local()))
+            .poll_interest::<()>(cx, &Interest::ChannelClose(self.id.local()))
         {
             result?;
 
@@ -124,7 +124,7 @@ where
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .mux
-            .poll_interest(cx, &Interest::ChannelEof(self.id.local()))
+            .poll_interest::<()>(cx, &Interest::ChannelEof(self.id.local()))
         {
             result?;
 
