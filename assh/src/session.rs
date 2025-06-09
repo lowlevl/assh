@@ -165,9 +165,7 @@ where
             description: description.into(),
             language: Default::default(),
         };
-        if let Err(Error::Disconnected(err)) = stream.send(&message).await {
-            return err;
-        }
+        stream.send(&message).await.ok();
 
         let err = DisconnectedError {
             by: DisconnectedBy::Us,

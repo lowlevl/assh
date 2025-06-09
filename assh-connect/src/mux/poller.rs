@@ -57,9 +57,7 @@ where
         cx: &mut task::Context,
     ) -> task::Poll<assh::Result<&mut Option<Packet>>> {
         if self.buffer.is_none() {
-            if let Some(result) = futures::ready!(self.poll_next(cx)) {
-                self.buffer = Some(result?);
-            }
+            self.buffer = futures::ready!(self.poll_next(cx)).transpose()?;
         }
 
         task::Poll::Ready(Ok(&mut self.buffer))
@@ -87,10 +85,7 @@ where
 
                 self.state = State::Idle(Some(session));
 
-                task::Poll::Ready(match result {
-                    Err(assh::Error::Disconnected(_)) => None,
-                    other => Some(other),
-                })
+                task::Poll::Ready(Some(result))
             }
 
             State::Idle(session) => {
