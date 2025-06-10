@@ -1,6 +1,6 @@
 //! Collection of error handling types and aliases.
 
-use ssh_packet::trans;
+use ssh_packet::{arch::Utf8, trans};
 use thiserror::Error;
 
 /// The disconnection side for [`DisconnectedError`].
@@ -25,7 +25,7 @@ pub struct DisconnectedError {
     pub reason: trans::DisconnectReason,
 
     /// Description of the disconnect reason.
-    pub description: String,
+    pub description: Utf8<'static>,
 }
 
 /// The error types that can occur when manipulating this crate.

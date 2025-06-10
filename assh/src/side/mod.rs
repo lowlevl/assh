@@ -35,14 +35,14 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
     fn timeout(&self) -> Duration;
 
     /// Generate a [`KexInit`] message from the config.
-    fn kexinit(&self) -> KexInit;
+    fn kexinit(&self) -> KexInit<'static>;
 
     /// Exchange the keys from the config.
     fn exchange(
         &self,
         stream: &mut Stream<impl Pipe>,
-        kexinit: KexInit,
-        peerkexinit: KexInit,
+        kexinit: &KexInit,
+        peerkexinit: &KexInit,
         peer_id: &Id,
     ) -> impl Future<Output = Result<TransportPair>> + Send + Sync;
 
@@ -62,7 +62,9 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
 
             let peerkexinit = stream.recv().await?.to::<KexInit>()?;
 
-            let transport = self.exchange(stream, kexinit, peerkexinit, peer_id).await?;
+            let transport = self
+                .exchange(stream, &kexinit, &peerkexinit, peer_id)
+                .await?;
 
             stream.send(&NewKeys).await?;
             stream.recv().await?.to::<NewKeys>()?;

@@ -116,7 +116,7 @@ where
                 self.stream = Either::Right(DisconnectedError {
                     by: DisconnectedBy::Them,
                     reason,
-                    description: description.into_string(),
+                    description,
                 });
             } else if let Ok(Ignore { data }) = packet.to() {
                 tracing::debug!("Received an 'ignore' message with length {}", data.len());
@@ -153,7 +153,7 @@ where
     pub async fn disconnect(
         &mut self,
         reason: DisconnectReason,
-        description: impl Into<Utf8<'_>>,
+        description: impl Into<Utf8<'static>>,
     ) -> DisconnectedError {
         let stream = match &mut self.stream {
             Either::Left(stream) => stream,
@@ -170,7 +170,7 @@ where
         let err = DisconnectedError {
             by: DisconnectedBy::Us,
             reason: message.reason,
-            description: message.description.into_string(),
+            description: message.description,
         };
         self.stream = Either::Right(err.clone());
 

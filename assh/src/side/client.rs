@@ -111,7 +111,7 @@ impl Side for Client {
         self.timeout.into()
     }
 
-    fn kexinit(&self) -> KexInit {
+    fn kexinit(&self) -> KexInit<'static> {
         let mut cookie = [0u8; 16];
         rand::thread_rng().fill_bytes(&mut cookie);
 
@@ -138,14 +138,14 @@ impl Side for Client {
     async fn exchange(
         &self,
         stream: &mut Stream<impl Pipe>,
-        kexinit: KexInit<'_>,
-        peerkexinit: KexInit<'_>,
+        kexinit: &KexInit<'_>,
+        peerkexinit: &KexInit<'_>,
         peer_id: &Id,
     ) -> Result<TransportPair> {
-        let client = KexMeta::new::<Client>(self.id(), &kexinit, &peerkexinit)?;
-        let server = KexMeta::new::<Server>(peer_id, &kexinit, &peerkexinit)?;
+        let client = KexMeta::new::<Client>(self.id(), kexinit, peerkexinit)?;
+        let server = KexMeta::new::<Server>(peer_id, kexinit, peerkexinit)?;
 
-        Kex::negociate(&kexinit, &peerkexinit)?
+        Kex::negociate(kexinit, peerkexinit)?
             .as_client(stream, client, server)
             .await
     }
