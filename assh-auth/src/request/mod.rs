@@ -107,7 +107,10 @@ impl<R: Request> Auth<R> {
                 if let Ok(userauth::PkOk { algorithm, blob }) = response.to() {
                     // Actually sign the message with the key to perform real authentication.
                     let signature = signature::Publickey {
-                        session_id: session.session_id().unwrap_or_default().into(),
+                        session_id: session
+                            .session_id()
+                            .expect("authentication attempted before key-exchange")
+                            .into(),
                         username: self.username.as_borrow(),
                         service_name: R::SERVICE_NAME,
                         algorithm: algorithm.as_borrow(),

@@ -194,7 +194,10 @@ where
                     Some(signature) => match key {
                         Ok(key) if key.algorithm().as_str().as_bytes() == algorithm.as_ref() => {
                             let message = signature::Publickey {
-                                session_id: session.session_id().unwrap_or_default().into(),
+                                session_id: session
+                                    .session_id()
+                                    .expect("authentication attempted before key-exchange")
+                                    .into(),
                                 username: username.as_borrow(),
                                 service_name: service_name.as_borrow(),
                                 algorithm,
