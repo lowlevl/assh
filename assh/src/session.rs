@@ -18,7 +18,6 @@ use crate::{
 };
 
 // TODO: (feature) Handle extension negotiation described in RFC8308.
-// TODO: (reliability) Fix out-of-band rekeying, it expects the packet right away while we are not sure the peer is that fast.
 
 /// A trait alias for something _pipe-alike_, implementing [`AsyncBufRead`] and [`AsyncWrite`].
 pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static {}
@@ -29,6 +28,7 @@ pub struct Session<IO: Pipe, S: Side> {
     stream: Either<Stream<IO>, DisconnectedError>,
     config: S,
 
+    kexinit: Option<KexInit<'static>>,
     peer_id: Id,
 }
 
@@ -54,6 +54,7 @@ where
         Ok(Self {
             stream: Either::Left(stream),
             config,
+            kexinit: None,
             peer_id,
         })
     }
@@ -92,15 +93,11 @@ where
                 Either::Right(err) => return Err(err.clone().into()),
             };
 
-            if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
-                if let Err(err) = self.config.kex(stream, &self.peer_id).await {
-                    return Err(self
-                        .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
-                        .await
-                        .into());
-                }
+            if self.kexinit.is_none() && stream.is_rekeyable() {
+                let kexinit = self.config.kexinit();
+                stream.send(&kexinit).await?;
 
-                continue;
+                self.kexinit = Some(kexinit);
             }
 
             let packet = stream.recv().await?;
@@ -124,6 +121,26 @@ where
                 tracing::debug!("Received an 'unimplemented' message about packet #{seq}",);
             } else if let Ok(Debug { message, .. }) = packet.to() {
                 tracing::debug!("Received a 'debug' message: {message}");
+            } else if let Ok(peerkexinit @ KexInit { .. }) = packet.to() {
+                let kexinit = match self.kexinit.take() {
+                    Some(kexinit) => kexinit,
+                    None => {
+                        let kexinit = self.config.kexinit();
+                        stream.send(&kexinit).await?;
+                        kexinit
+                    }
+                };
+
+                if let Err(err) = self
+                    .config
+                    .kex(stream, &kexinit, &peerkexinit, &self.peer_id)
+                    .await
+                {
+                    return Err(self
+                        .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
+                        .await
+                        .into());
+                }
             } else {
                 break Ok(packet);
             }
@@ -137,13 +154,13 @@ where
             Either::Right(err) => return Err(err.clone().into()),
         };
 
-        if stream.is_rekeyable() {
-            if let Err(err) = self.config.kex(stream, &self.peer_id).await {
-                return Err(self
-                    .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
-                    .await
-                    .into());
-            }
+        if self.kexinit.is_none() && stream.is_rekeyable() {
+            let kexinit = self.config.kexinit();
+            stream.send(&kexinit).await?;
+
+            self.kexinit = Some(kexinit);
+
+            // TODO: (compliance) restrict sending if we trigger kexinit
         }
 
         stream.send(message).await
