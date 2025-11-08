@@ -74,20 +74,12 @@ impl RemoteWindow {
                 } else {
                     amount = window;
 
-                    if amount > 0 {
-                        Some(0)
-                    } else {
-                        None
-                    }
+                    if amount > 0 { Some(0) } else { None }
                 }
             })
             .is_ok();
 
-        if reserved {
-            Some(amount)
-        } else {
-            None
-        }
+        if reserved { Some(amount) } else { None }
     }
 
     pub fn poll_reserve(&self, cx: &mut task::Context, amount: u32) -> task::Poll<u32> {

@@ -1,14 +1,14 @@
 //! Facilities to interract with the SSH _connect_ protocol.
 
-use assh::{side::Side, Pipe};
-use futures::{task, FutureExt, TryStream};
+use assh::{Pipe, side::Side};
+use futures::{FutureExt, TryStream, task};
 use ssh_packet::{binrw, connect};
 
 use crate::{
+    Error, Result,
     channel::{self, LocalWindow},
     channel_open, global_request,
     mux::{Interest, Mux},
-    Error, Result,
 };
 
 mod service;
@@ -130,10 +130,10 @@ where
             let _moved = &unregister_on_drop;
             let _span = tracing::debug_span!("Connect::channel_opens").entered();
 
-            match futures::ready!(self
-                .mux
-                .poll_interest::<connect::ChannelOpen>(cx, &interest))
-            {
+            match futures::ready!(
+                self.mux
+                    .poll_interest::<connect::ChannelOpen>(cx, &interest)
+            ) {
                 Some(Ok(inner)) => {
                     let Some(id) = self
                         .mux

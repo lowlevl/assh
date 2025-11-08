@@ -3,7 +3,7 @@
 use futures::Future;
 use ssh_packet::arch::Ascii;
 
-use crate::{side::Side, Pipe, Session};
+use crate::{Pipe, Session, side::Side};
 
 // TODO: (feature) Handle multiple services at once ?
 

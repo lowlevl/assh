@@ -2,12 +2,13 @@
 
 use hashbrown::HashSet;
 
-use assh::{service::Request, side::Side, Error, Pipe, Result, Session};
+use assh::{Error, Pipe, Result, Session, service::Request, side::Side};
 use ssh_packet::{
+    Packet,
     arch::{self, Ascii, Utf8},
     crypto::signature,
     trans::DisconnectReason,
-    userauth, Packet,
+    userauth,
 };
 
 mod method;

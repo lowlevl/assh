@@ -1,7 +1,7 @@
 //! A dummy subservice to test for authentication success.
 
-use assh::{side::Side, Pipe, Result, Session};
-use ssh_packet::arch::{ascii, Ascii};
+use assh::{Pipe, Result, Session, side::Side};
+use ssh_packet::arch::{Ascii, ascii};
 
 const SERVICE_NAME: Ascii<'_> = ascii!("dummy-service@assh.rs");
 

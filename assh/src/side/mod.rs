@@ -8,8 +8,8 @@ use ssh_packet::{
 };
 
 use crate::{
-    stream::{Stream, TransportPair},
     Pipe, Result,
+    stream::{Stream, TransportPair},
 };
 
 pub mod client;

@@ -1,6 +1,6 @@
 use assh::{
-    side::{client::Client, server::Server},
     Result,
+    side::{client::Client, server::Server},
 };
 use assh_auth::{handler, request};
 use async_compat::CompatExt;
@@ -18,11 +18,13 @@ async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
     tokio::try_join!(
         async {
             let server = Server {
-                keys: vec![ssh_key::private::PrivateKey::random(
-                    &mut rand::thread_rng(),
-                    ssh_key::Algorithm::Ed25519,
-                )
-                .unwrap()],
+                keys: vec![
+                    ssh_key::private::PrivateKey::random(
+                        &mut rand::thread_rng(),
+                        ssh_key::Algorithm::Ed25519,
+                    )
+                    .unwrap(),
+                ],
                 ..Default::default()
             };
             let server = assh::Session::new(BufStream::new(duplex.0).compat(), server).await?;

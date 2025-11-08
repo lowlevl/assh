@@ -7,11 +7,11 @@ use rand::RngCore;
 use ssh_key::Algorithm;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
-use super::{client::Client, Side};
+use super::{Side, client::Client};
 use crate::{
+    Pipe, Result,
     algorithm::{Cipher, Compress, Hmac, Kex, KexMeta, Negociate},
     stream::{Stream, TransportPair},
-    Pipe, Result,
 };
 
 #[doc(no_inline)]

@@ -6,7 +6,7 @@ use std::{
     task,
 };
 
-use assh::{side::Side, Pipe};
+use assh::{Pipe, side::Side};
 use ssh_packet::connect;
 
 use crate::channel::Channel;

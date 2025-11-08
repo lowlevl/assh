@@ -2,12 +2,12 @@ use either::Either;
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
-    arch::{id::Id, Utf8},
+    IntoPacket, Packet,
+    arch::{Utf8, id::Id},
     trans::{
         Debug, Disconnect, DisconnectReason, Ignore, KexInit, ServiceAccept, ServiceRequest,
         Unimplemented,
     },
-    IntoPacket, Packet,
 };
 
 use crate::{
@@ -137,13 +137,13 @@ where
             Either::Right(err) => return Err(err.clone().into()),
         };
 
-        if stream.is_rekeyable() {
-            if let Err(err) = self.config.kex(stream, &self.peer_id).await {
-                return Err(self
-                    .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
-                    .await
-                    .into());
-            }
+        if stream.is_rekeyable()
+            && let Err(err) = self.config.kex(stream, &self.peer_id).await
+        {
+            return Err(self
+                .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
+                .await
+                .into());
         }
 
         stream.send(message).await

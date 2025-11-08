@@ -1,7 +1,7 @@
-use assh::{side::Side, Pipe, Session};
+use assh::{Pipe, Session, side::Side};
 use dashmap::DashMap;
-use futures::{lock::Mutex, task, FutureExt};
-use ssh_packet::{binrw, connect, IntoPacket, Packet};
+use futures::{FutureExt, lock::Mutex, task};
+use ssh_packet::{IntoPacket, Packet, binrw, connect};
 
 mod interest;
 pub use interest::Interest;
@@ -137,7 +137,9 @@ where
                 } else {
                     match self.interests.get(&packet_interest).as_deref() {
                         Some(waker) => {
-                            tracing::trace!("{interest:?} != {packet_interest:?}: Storing packet and waking task");
+                            tracing::trace!(
+                                "{interest:?} != {packet_interest:?}: Storing packet and waking task"
+                            );
 
                             *buffer = Some(packet);
                             waker.wake();
@@ -165,17 +167,18 @@ where
                                     None,
                                 );
                             } else if let Ok(message) = packet.to::<connect::ChannelRequest>() {
-                                tracing::debug!("{packet_interest:?}: Rejectected an unhandled `ChannelRequest`");
+                                tracing::debug!(
+                                    "{packet_interest:?}: Rejectected an unhandled `ChannelRequest`"
+                                );
 
-                                if *message.want_reply {
-                                    if let Some(id) = self
+                                if *message.want_reply
+                                    && let Some(id) = self
                                         .channels
                                         .get(message.recipient_channel as usize)
                                         .as_ref()
                                         .map(Lease::value)
-                                    {
-                                        crate::channel::request::Request::rejected(self, *id);
-                                    }
+                                {
+                                    crate::channel::request::Request::rejected(self, *id);
                                 }
                             } else {
                                 tracing::warn!(

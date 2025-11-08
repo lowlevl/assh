@@ -20,7 +20,7 @@
 )]
 #![forbid(unsafe_code)]
 
-use ssh_packet::arch::{ascii, Ascii};
+use ssh_packet::arch::{Ascii, ascii};
 
 const SERVICE_NAME: Ascii = ascii!("ssh-userauth");
 

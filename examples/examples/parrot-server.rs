@@ -1,14 +1,14 @@
 use std::{net::SocketAddr, time::Duration};
 
-use assh::{side::server::Server, Session};
-use assh_auth::handler::{none, Auth};
+use assh::{Session, side::server::Server};
+use assh_auth::handler::{Auth, none};
 
 use async_compat::CompatExt;
 use clap::Parser;
 use color_eyre::eyre;
 use futures::{
-    io::{BufReader, BufWriter},
     AsyncReadExt, AsyncWriteExt, FutureExt, TryFutureExt, TryStreamExt,
+    io::{BufReader, BufWriter},
 };
 use ssh_key::PrivateKey;
 use ssh_packet::connect::ChannelRequestContext;
@@ -135,11 +135,10 @@ async fn main() -> eyre::Result<()> {
         .try_init()
         .ok();
 
-    let keys = vec![ssh_key::private::PrivateKey::random(
-        &mut rand::thread_rng(),
-        ssh_key::Algorithm::Ed25519,
-    )
-    .expect("Cannot generate private keys")];
+    let keys = vec![
+        ssh_key::private::PrivateKey::random(&mut rand::thread_rng(), ssh_key::Algorithm::Ed25519)
+            .expect("Cannot generate private keys"),
+    ];
     let listener = TcpListener::bind(args.address).await?;
 
     loop {

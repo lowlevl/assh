@@ -1,6 +1,6 @@
 use std::{io, num::NonZeroU32, pin::Pin, task};
 
-use assh::{side::Side, Pipe};
+use assh::{Pipe, side::Side};
 use ssh_packet::connect;
 
 use crate::channel::Channel;

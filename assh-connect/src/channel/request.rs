@@ -1,10 +1,10 @@
 //! The _channel requests_ and responses.
 
-use assh::{side::Side, Pipe};
+use assh::{Pipe, side::Side};
 use ssh_packet::connect;
 
 use super::Channel;
-use crate::{mux::Mux, Result};
+use crate::{Result, mux::Mux};
 
 #[doc(no_inline)]
 pub use connect::ChannelRequestContext;
@@ -75,7 +75,7 @@ impl<'s, IO: Pipe, S: Side> Request<'s, IO, S> {
     }
 
     /// Access the _context_ of the channel request.
-    pub fn cx(&self) -> &connect::ChannelRequestContext {
+    pub fn cx(&self) -> &connect::ChannelRequestContext<'_> {
         &self
             .inner
             .as_ref()

@@ -5,7 +5,7 @@ use futures::{AsyncBufReadExt, AsyncWriteExt, FutureExt};
 use futures_time::{future::FutureExt as _, time::Duration};
 use ssh_packet::IntoPacket;
 
-use crate::{algorithm, Pipe, Result};
+use crate::{Pipe, Result, algorithm};
 
 mod counter;
 use counter::IoCounter;

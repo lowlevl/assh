@@ -1,4 +1,4 @@
-use ssh_packet::{binrw::meta::ReadMagic, connect, Packet};
+use ssh_packet::{Packet, binrw::meta::ReadMagic, connect};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Interest {

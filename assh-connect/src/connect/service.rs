@@ -1,5 +1,5 @@
-use assh::{service, side::Side, Pipe, Session};
-use ssh_packet::arch::{ascii, Ascii};
+use assh::{Pipe, Session, service, side::Side};
+use ssh_packet::arch::{Ascii, ascii};
 
 use super::Connect;
 

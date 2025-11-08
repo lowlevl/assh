@@ -8,7 +8,7 @@ use ssh_packet::{
     trans::{KexEcdhInit, KexEcdhReply},
 };
 
-use crate::{stream::Stream, Error, Pipe, Result};
+use crate::{Error, Pipe, Result, stream::Stream};
 
 use super::{KexMeta, Keys, Transport};
 

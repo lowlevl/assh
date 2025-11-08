@@ -1,9 +1,9 @@
 //! The _global requests_ and responses.
 
-use assh::{side::Side, Pipe};
+use assh::{Pipe, side::Side};
 use ssh_packet::connect;
 
-use crate::{mux::Mux, Result};
+use crate::{Result, mux::Mux};
 
 #[doc(no_inline)]
 pub use ssh_packet::connect::GlobalRequestContext;
@@ -73,7 +73,7 @@ impl<'s, IO: Pipe, S: Side> GlobalRequest<'s, IO, S> {
     }
 
     /// Access the _context_ of the global request.
-    pub fn cx(&self) -> &connect::GlobalRequestContext {
+    pub fn cx(&self) -> &connect::GlobalRequestContext<'_> {
         &self
             .inner
             .as_ref()

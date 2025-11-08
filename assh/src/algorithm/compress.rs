@@ -4,8 +4,8 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
 use crate::{
-    side::{client::Client, server::Server},
     Error, Result,
+    side::{client::Client, server::Server},
 };
 
 use super::Negociate;

@@ -9,7 +9,7 @@ license = "GPL-3.0"
 keywords = ["ssh", "server", "client"]
 authors = ["Maya the bee <15341887+lowlevl@users.noreply.github.com>"]
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
 
 [workspace.dependencies]
 assh = "^0"

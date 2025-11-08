@@ -3,12 +3,12 @@ use std::net::SocketAddr;
 use async_std::{net::TcpListener, stream::StreamExt};
 use futures::io::BufReader;
 
-use assh::{side::server::Server, Result, Session};
+use assh::{Result, Session, side::server::Server};
 use ssh_packet::{
+    Packet,
     connect::{ChannelOpen, ChannelOpenConfirmation},
     trans::{Ignore, ServiceAccept, ServiceRequest},
     userauth::{self, Request},
-    Packet,
 };
 
 pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Result<Packet>>)> {
@@ -19,11 +19,10 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
         let stream = BufReader::new(socket.incoming().next().await.unwrap()?);
 
         let server = Server {
-            keys: vec![ssh_key::PrivateKey::random(
-                &mut rand::thread_rng(),
-                ssh_key::Algorithm::Ed25519,
-            )
-            .unwrap()],
+            keys: vec![
+                ssh_key::PrivateKey::random(&mut rand::thread_rng(), ssh_key::Algorithm::Ed25519)
+                    .unwrap(),
+            ],
             ..Default::default()
         };
         let mut session = Session::new(stream, server).await?;

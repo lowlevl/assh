@@ -2,14 +2,14 @@
 
 use std::{num::NonZeroU32, task};
 
-use assh::{side::Side, Pipe};
+use assh::{Pipe, side::Side};
 use dashmap::DashMap;
 use futures::{AsyncRead, AsyncWrite, FutureExt, TryStream};
 use ssh_packet::{binrw, connect};
 
 use crate::{
-    mux::{Interest, Mux},
     Error, Result,
+    mux::{Interest, Mux},
 };
 
 mod io;

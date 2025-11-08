@@ -1,5 +1,5 @@
-use assh::{side::Side, Pipe, Session};
-use futures::{future::BoxFuture, task, FutureExt};
+use assh::{Pipe, Session, side::Side};
+use futures::{FutureExt, future::BoxFuture, task};
 use ssh_packet::Packet;
 
 type SendFut<IO, S> = BoxFuture<'static, (assh::Result<()>, Box<Session<IO, S>>)>;

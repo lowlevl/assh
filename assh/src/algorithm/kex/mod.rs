@@ -3,8 +3,8 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
 use crate::{
-    stream::{Keys, Stream, Transport, TransportPair},
     Error, Pipe, Result,
+    stream::{Keys, Stream, Transport, TransportPair},
 };
 
 use super::Negociate;

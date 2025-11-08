@@ -1,12 +1,12 @@
 //! The _channel open requests_ and responses.
 
-use assh::{side::Side, Pipe};
+use assh::{Pipe, side::Side};
 use ssh_packet::{arch::Utf8, connect};
 
 use crate::{
+    Result,
     channel::{self, Id, LocalWindow},
     mux::Mux,
-    Result,
 };
 
 #[doc(no_inline)]
@@ -105,7 +105,7 @@ impl<'s, IO: Pipe, S: Side> ChannelOpen<'s, IO, S> {
     }
 
     /// Access the _context_ of the channel open request.
-    pub fn cx(&self) -> &connect::ChannelOpenContext {
+    pub fn cx(&self) -> &connect::ChannelOpenContext<'_> {
         &self
             .inner
             .as_ref()

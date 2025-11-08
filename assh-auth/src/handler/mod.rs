@@ -1,8 +1,8 @@
 //! Authentication _handling_ mechanics.
 
-use assh::{service::Handler, side::Side, Error, Pipe, Result, Session};
+use assh::{Error, Pipe, Result, Session, service::Handler, side::Side};
 use enumset::EnumSet;
-use ssh_key::{public::PublicKey, Signature};
+use ssh_key::{Signature, public::PublicKey};
 use ssh_packet::{
     arch::{Ascii, NameList, Utf8},
     crypto::signature,
@@ -314,7 +314,7 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
                                         .await,
                                 )
                                 .into())
-                            }
+                            };
                         }
                         attempt @ Attempt::Failure | attempt @ Attempt::Partial => {
                             session

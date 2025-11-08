@@ -3,8 +3,8 @@ use secrecy::ExposeSecret;
 use ssh_packet::{CipherCore, Mac, OpeningCipher, SealingCipher};
 
 use crate::{
-    stream::algorithm::{self, Cipher, CipherState},
     Error, Result,
+    stream::algorithm::{self, Cipher, CipherState},
 };
 
 use super::Keys;
@@ -79,7 +79,7 @@ impl SealingCipher for Transport {
         padded.append(&mut buf);
 
         // fill with random
-        padded.resize_with(padded.len() + padding as usize, || rng.gen());
+        padded.resize_with(padded.len() + padding as usize, || rng.r#gen());
 
         Ok(padded)
     }

@@ -3,10 +3,10 @@ use std::any::TypeId;
 use ssh_packet::{arch::id::Id, trans::KexInit};
 
 use crate::{
-    algorithm::{Cipher, Compress, Hmac, Negociate},
-    side::{client::Client, server::Server, Side},
-    stream::{Keys, Transport},
     Result,
+    algorithm::{Cipher, Compress, Hmac, Negociate},
+    side::{Side, client::Client, server::Server},
+    stream::{Keys, Transport},
 };
 
 pub struct KexMeta<'k> {

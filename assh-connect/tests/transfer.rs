@@ -1,10 +1,10 @@
 use assh::{
+    Result,
     algorithm::Key,
     side::{
         client::Client,
         server::{PrivateKey, Server},
     },
-    Result,
 };
 use assh_connect::{
     channel,
@@ -12,7 +12,7 @@ use assh_connect::{
 };
 
 use async_compat::{Compat, CompatExt};
-use futures::{future::BoxFuture, FutureExt, TryFutureExt, TryStreamExt};
+use futures::{FutureExt, TryFutureExt, TryStreamExt, future::BoxFuture};
 use rand::{Rng, SeedableRng};
 use sha1::Digest;
 use tokio::io::{BufStream, DuplexStream};
@@ -102,7 +102,7 @@ async fn small() -> Result<(), eyre::Error> {
 
                 tokio::join!(
                     async {
-                        let buffer = rng.gen::<[u8; 8192]>();
+                        let buffer = rng.r#gen::<[u8; 8192]>();
                         local.update(buffer);
 
                         futures::io::copy(&mut &buffer[..], &mut channel.as_writer())
@@ -158,7 +158,7 @@ async fn large() -> Result<(), eyre::Error> {
                         let mut current = 0;
 
                         while current < BYTES_TO_SEND {
-                            let buffer = rng.gen::<[u8; 65535]>();
+                            let buffer = rng.r#gen::<[u8; 65535]>();
                             local.update(buffer);
 
                             current +=
