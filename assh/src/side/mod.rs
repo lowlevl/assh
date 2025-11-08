@@ -3,8 +3,8 @@
 use futures::Future;
 use futures_time::time::Duration;
 use ssh_packet::{
+    arch::id::Id,
     trans::{KexInit, NewKeys},
-    Id,
 };
 
 use crate::{

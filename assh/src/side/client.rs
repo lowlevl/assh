@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[doc(no_inline)]
-pub use ssh_packet::Id;
+pub use ssh_packet::arch::id::Id;
 
 // TODO: (compliance) Hostkey verification in client key-exchange.
 

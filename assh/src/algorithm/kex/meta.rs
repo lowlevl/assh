@@ -1,6 +1,6 @@
 use std::any::TypeId;
 
-use ssh_packet::{trans::KexInit, Id};
+use ssh_packet::{arch::id::Id, trans::KexInit};
 
 use crate::{
     algorithm::{Cipher, Compress, Hmac, Negociate},

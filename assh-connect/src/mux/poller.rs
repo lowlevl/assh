@@ -80,7 +80,7 @@ where
 
                 tracing::trace!(
                     "Polled incoming data from peer: ^{:x?}",
-                    result.as_ref().map(|packet| packet.payload[0])
+                    result.as_ref().map(|packet| packet[0])
                 );
 
                 self.state = State::Idle(Some(session));

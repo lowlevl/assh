@@ -180,7 +180,7 @@ where
                             } else {
                                 tracing::warn!(
                                     "!{packet_interest:?}: Dropping {}bytes, unregistered interest",
-                                    packet.payload.len()
+                                    packet.len()
                                 );
                             }
 

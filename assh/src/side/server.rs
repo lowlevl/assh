@@ -17,7 +17,7 @@ use crate::{
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
 #[doc(no_inline)]
-pub use ssh_packet::Id;
+pub use ssh_packet::arch::id::Id;
 
 /// A _server_-side session configuration.
 #[derive(Debug, Clone)]

@@ -34,7 +34,7 @@ pub struct DisconnectedError {
 pub enum Error {
     /// Identifier parsing error.
     #[error(transparent)]
-    Id(#[from] ssh_packet::Error),
+    Id(#[from] ssh_packet::arch::id::ParseError),
 
     /// I/O Error.
     #[error(transparent)]

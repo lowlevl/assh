@@ -2,12 +2,12 @@ use either::Either;
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use futures_time::future::FutureExt;
 use ssh_packet::{
-    arch::Utf8,
+    arch::{id::Id, Utf8},
     trans::{
         Debug, Disconnect, DisconnectReason, Ignore, KexInit, ServiceAccept, ServiceRequest,
         Unimplemented,
     },
-    Id, IntoPacket, Packet,
+    IntoPacket, Packet,
 };
 
 use crate::{

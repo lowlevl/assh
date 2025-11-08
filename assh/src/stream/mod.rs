@@ -116,8 +116,8 @@ where
                 tracing::trace!(
                     "<~- #{}: ^{:#x} ({} bytes)",
                     self.rxseq,
-                    packet.payload[0],
-                    packet.payload.len(),
+                    packet[0],
+                    packet.len(),
                 );
 
                 self.rxseq = self.rxseq.wrapping_add(1);
@@ -140,8 +140,8 @@ where
         tracing::trace!(
             "-~> #{}: ^{:#x} ({} bytes)",
             self.txseq,
-            packet.payload[0],
-            packet.payload.len(),
+            packet[0],
+            packet.len(),
         );
 
         self.txseq = self.txseq.wrapping_add(1);
