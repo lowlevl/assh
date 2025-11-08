@@ -28,11 +28,12 @@ ssh-key.workspace = true
 
 tracing.workspace = true
 futures.workspace = true
-hashbrown = "0.14.3"
-enumset = "1.1.3"
+
+hashbrown = "0.16.0"
+enumset = "1.1.10"
 
 [dev-dependencies]
 async-compat.workspace = true
 rand.workspace = true
 
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { version = "1.48.0", features = ["full"] }

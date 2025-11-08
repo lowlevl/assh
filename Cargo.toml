@@ -22,7 +22,7 @@ ssh-packet = { version = "0.10.0-rc.1", features = [
     "signature",
     "zeroize",
 ] }
-ssh-key = { version = "0.6.1", features = [
+ssh-key = { version = "0.6.7", features = [
     "dsa",
     "rsa",
     "p256",
@@ -30,12 +30,12 @@ ssh-key = { version = "0.6.1", features = [
     "ed25519",
 ] }
 
-async-compat = "0.2.3"
-futures = "0.3.28"
-tracing = "0.1.40"
+async-compat = "0.2.5"
+futures = "0.3.31"
+tracing = "0.1.41"
 
-thiserror = "1.0.58"
-either = "1.12.0"
+thiserror = "2.0.17"
+either = "1.15.0"
 rand = "0.8.5"
 
 [patch.crates-io]

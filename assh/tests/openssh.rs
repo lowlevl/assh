@@ -23,6 +23,7 @@ mod common;
 #[case("aes128-ctr", "hmac-sha1-etm@openssh.com", "curve25519-sha256")]
 #[case("aes192-ctr", "hmac-sha2-256-etm@openssh.com", "curve25519-sha256")]
 #[case("aes256-ctr", "hmac-sha2-512-etm@openssh.com", "curve25519-sha256")]
+#[async_std::test]
 async fn against_openssh_client(
     #[case] cipher: &str,
     #[case] mac: &str,
