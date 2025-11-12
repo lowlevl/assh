@@ -1,9 +1,9 @@
 use rand::Rng;
 use secrecy::ExposeSecret;
-use ssh_packet::{CipherCore, Mac, OpeningCipher, SealingCipher};
+use ssh_packet::Packet;
 
 use crate::{
-    Error, Result,
+    Result,
     stream::algorithm::{self, Cipher, CipherState},
 };
 
@@ -25,21 +25,12 @@ pub struct Transport {
     pub chain: Keys,
 }
 
-impl CipherCore for Transport {
-    type Err = Error;
-    type Mac = algorithm::Hmac;
-
-    fn mac(&self) -> &Self::Mac {
-        &self.hmac
-    }
-
-    fn block_size(&self) -> usize {
+impl Transport {
+    pub fn block_size(&self) -> usize {
         self.cipher.block_size()
     }
-}
 
-impl OpeningCipher for Transport {
-    fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
+    pub fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<()> {
         if self.cipher != Cipher::None {
             self.cipher.decrypt(
                 &mut self.state,
@@ -52,8 +43,8 @@ impl OpeningCipher for Transport {
         Ok(())
     }
 
-    fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>, seq: u32) -> Result<(), Self::Err> {
-        if self.mac().size() > 0 {
+    pub fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>, seq: u32) -> Result<()> {
+        if self.hmac.size() > 0 {
             self.hmac
                 .verify(seq, buf.as_ref(), self.chain.hmac.expose_secret(), &mac)?;
         }
@@ -61,18 +52,44 @@ impl OpeningCipher for Transport {
         Ok(())
     }
 
-    fn decompress(&mut self, buf: Vec<u8>) -> Result<Vec<u8>, Self::Err> {
+    pub fn decompress(&mut self, buf: Vec<u8>) -> Result<Vec<u8>> {
         self.compress.decompress(buf)
     }
-}
 
-impl SealingCipher for Transport {
-    fn compress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>, Self::Err> {
+    pub fn compress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>> {
         self.compress.compress(buf.as_ref())
     }
 
-    fn pad(&mut self, mut buf: Vec<u8>, padding: u8) -> Result<Vec<u8>, Self::Err> {
+    fn padding(&self, payload: usize) -> u8 {
+        const MIN_PAD_SIZE: usize = 4;
+        const MIN_ALIGN: usize = 8;
+
+        let align = self.block_size().max(MIN_ALIGN);
+
+        let size = if self.hmac.etm() {
+            std::mem::size_of::<u8>() + payload
+        } else {
+            std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + payload
+        };
+        let padding = align - size % align;
+
+        let padding = if padding < MIN_PAD_SIZE {
+            padding + align
+        } else {
+            padding
+        };
+
+        if size + padding < self.block_size().max(Packet::MIN_SIZE) {
+            (padding + align) as u8
+        } else {
+            padding as u8
+        }
+    }
+
+    pub fn pad(&mut self, mut buf: Vec<u8>) -> Result<Vec<u8>> {
         let mut rng = rand::thread_rng();
+
+        let padding = self.padding(buf.len());
 
         // prefix with the size
         let mut padded = vec![padding];
@@ -84,7 +101,7 @@ impl SealingCipher for Transport {
         Ok(padded)
     }
 
-    fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<(), Self::Err> {
+    pub fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<()> {
         if self.cipher != Cipher::None {
             self.cipher.encrypt(
                 &mut self.state,
@@ -97,7 +114,7 @@ impl SealingCipher for Transport {
         Ok(())
     }
 
-    fn seal<B: AsRef<[u8]>>(&mut self, buf: B, seq: u32) -> Result<Vec<u8>, Self::Err> {
+    pub fn seal<B: AsRef<[u8]>>(&mut self, buf: B, seq: u32) -> Result<Vec<u8>> {
         Ok(self
             .hmac
             .sign(seq, buf.as_ref(), self.chain.hmac.expose_secret()))

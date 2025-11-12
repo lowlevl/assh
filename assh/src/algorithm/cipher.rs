@@ -85,10 +85,10 @@ impl Cipher {
     ) -> &'s mut T {
         state
             .get_or_insert_with(|| {
-                Box::new(T::new_from_slices(key, iv).expect("Key derivation failed horribly"))
+                Box::new(T::new_from_slices(key, iv).expect("key derivation failed horribly"))
             })
             .downcast_mut()
-            .expect("State changed in the meanwhile")
+            .expect("failed to downcast CipherState")
     }
 
     fn ctr<C: ctr::cipher::StreamCipher>(cipher: &mut C, buffer: &mut [u8]) -> Result<Option<Tag>> {

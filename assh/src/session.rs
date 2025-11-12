@@ -24,7 +24,7 @@ use crate::{
 pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static {}
 impl<T: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static> Pipe for T {}
 
-/// A session wrapping a `stream` to handle **key-exchange** and **[`SSH-TRANS`]** layer messages.
+/// A session wrapping a `stream` to handle **key-exchange** and **`SSH-TRANS`** layer messages.
 pub struct Session<IO: Pipe, S: Side> {
     stream: Either<Stream<IO>, DisconnectedError>,
     config: S,

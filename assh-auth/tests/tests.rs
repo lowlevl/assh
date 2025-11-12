@@ -10,7 +10,7 @@ mod cookie;
 
 #[tokio::test]
 async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
-    let duplex = tokio::io::duplex(ssh_packet::PACKET_MAX_SIZE * 16);
+    let duplex = tokio::io::duplex(ssh_packet::Packet::MAX_SIZE * 16);
 
     let cookie0 = cookie::Cookie::default();
     let cookie1 = cookie::Cookie::default();

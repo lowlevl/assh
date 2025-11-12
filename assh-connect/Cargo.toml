@@ -1,6 +1,6 @@
 [package]
 name = "assh-connect"
-description = "An extension to [`assh`] that provides the [`SSH-CONNECT`] service."
+description = "An extension to [`assh`] that provides the `SSH-CONNECT` service."
 documentation = "https://docs.rs/assh-connect"
 repository.workspace = true
 readme.workspace = true

@@ -121,10 +121,8 @@ impl Hmac {
             Self::None => Default::default(),
         }
     }
-}
 
-impl ssh_packet::Mac for Hmac {
-    fn size(&self) -> usize {
+    pub(crate) fn size(&self) -> usize {
         match self {
             Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
             Self::HmacSha256ETM | Self::HmacSha256 => Sha256::output_size(),
@@ -134,7 +132,7 @@ impl ssh_packet::Mac for Hmac {
         }
     }
 
-    fn etm(&self) -> bool {
+    pub(crate) fn etm(&self) -> bool {
         matches!(
             self,
             Self::HmacSha512ETM | Self::HmacSha256ETM | Self::HmacSha1ETM | Self::HmacMd5ETM

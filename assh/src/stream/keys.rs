@@ -1,6 +1,5 @@
 use digest::{Digest, FixedOutputReset};
 use secrecy::SecretBox;
-use ssh_packet::Mac;
 
 use crate::algorithm::Hmac;
 

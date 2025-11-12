@@ -1,7 +1,9 @@
 //! Primitives to manipulate binary data to extract and encode
 //! messages from/to a [`Pipe`] stream.
 
-use futures::{AsyncBufReadExt, AsyncWriteExt, FutureExt};
+use std::io;
+
+use futures::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
 use futures_time::{future::FutureExt as _, time::Duration};
 use ssh_packet::IntoPacket;
 
@@ -108,10 +110,9 @@ where
         match self.buffer.take() {
             Some(packet) => Ok(packet),
             None => {
-                let packet =
-                    Packet::from_reader(&mut self.inner, &mut self.transport.rx, self.rxseq)
-                        .timeout(self.timeout)
-                        .await??;
+                let packet = Self::inner_recv(&mut self.inner, &mut self.transport.rx, self.rxseq)
+                    .timeout(self.timeout)
+                    .await??;
 
                 tracing::trace!(
                     "<~- #{}: ^{:#x} ({} bytes)",
@@ -131,8 +132,7 @@ where
     pub async fn send(&mut self, packet: impl IntoPacket) -> Result<()> {
         let packet = packet.into_packet();
 
-        packet
-            .to_writer(&mut self.inner, &mut self.transport.tx, self.txseq)
+        Self::inner_send(&mut self.inner, &mut self.transport.tx, self.txseq, &packet)
             .timeout(self.timeout)
             .await??;
         self.inner.flush().await?;
@@ -145,6 +145,97 @@ where
         );
 
         self.txseq = self.txseq.wrapping_add(1);
+
+        Ok(())
+    }
+
+    async fn inner_recv(
+        mut reader: impl AsyncRead + Unpin,
+        cipher: &mut Transport,
+        seq: u32,
+    ) -> Result<Packet> {
+        let mut buf = vec![0; cipher.block_size()];
+        reader.read_exact(&mut buf[..]).await?;
+
+        if !cipher.hmac.etm() {
+            cipher.decrypt(&mut buf[..])?;
+        }
+
+        let len = u32::from_be_bytes(
+            buf[..4]
+                .try_into()
+                .expect("the buffer of size 4 is not of size 4"),
+        );
+
+        if len as usize > Packet::MAX_SIZE {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("payload size too large, {len} > {}", Packet::MAX_SIZE),
+            ))?
+        }
+
+        // read the rest of the data from the reader
+        buf.resize(std::mem::size_of_val(&len) + len as usize, 0);
+        reader.read_exact(&mut buf[cipher.block_size()..]).await?;
+
+        let mut mac = vec![0; cipher.hmac.size()];
+        reader.read_exact(&mut mac[..]).await?;
+
+        if cipher.hmac.etm() {
+            cipher.open(&buf, mac, seq)?;
+            cipher.decrypt(&mut buf[4..])?;
+        } else {
+            cipher.decrypt(&mut buf[cipher.block_size()..])?;
+            cipher.open(&buf, mac, seq)?;
+        }
+
+        let (padlen, mut decrypted) = buf[4..].split_first().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unable to read padding length",
+            )
+        })?;
+
+        if *padlen as usize > len as usize - 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("padding size too large, {padlen} > {} - 1", len),
+            ))?;
+        }
+
+        let mut payload = vec![0; len as usize - *padlen as usize - std::mem::size_of_val(padlen)];
+        io::Read::read_exact(&mut decrypted, &mut payload[..])?;
+
+        let payload = cipher.decompress(payload)?;
+
+        Ok(Packet(payload))
+    }
+
+    async fn inner_send(
+        mut writer: impl AsyncWrite + Unpin,
+        cipher: &mut Transport,
+        seq: u32,
+        packet: &Packet,
+    ) -> Result<()> {
+        let compressed = cipher.compress(packet.as_ref())?;
+
+        let buf = cipher.pad(compressed)?;
+        let mut buf = [(buf.len() as u32).to_be_bytes().to_vec(), buf].concat();
+
+        let (buf, mac) = if cipher.hmac.etm() {
+            cipher.encrypt(&mut buf[4..])?;
+            let mac = cipher.seal(&buf, seq)?;
+
+            (buf, mac)
+        } else {
+            let mac = cipher.seal(&buf, seq)?;
+            cipher.encrypt(&mut buf[..])?;
+
+            (buf, mac)
+        };
+
+        writer.write_all(&buf).await?;
+        writer.write_all(&mac).await?;
 
         Ok(())
     }

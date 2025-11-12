@@ -25,7 +25,7 @@ where
     S: Fn(channel::Channel<'_, IO, Server>) -> BoxFuture<'_, ()>,
     C: Fn(channel::Channel<'_, IO, Client>) -> BoxFuture<'_, ()>,
 {
-    let duplex = tokio::io::duplex(ssh_packet::PACKET_MAX_SIZE * 16);
+    let duplex = tokio::io::duplex(ssh_packet::Packet::MAX_SIZE * 16);
     let keys = vec![PrivateKey::random(&mut rand::thread_rng(), Key::Ed25519)?];
 
     tokio::try_join!(
