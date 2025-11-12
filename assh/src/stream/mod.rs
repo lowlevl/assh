@@ -3,7 +3,7 @@
 
 use std::io;
 
-use futures::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt};
+use futures::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use futures_time::{future::FutureExt as _, time::Duration};
 use ssh_packet::IntoPacket;
 
@@ -82,20 +82,6 @@ where
         self.inner.fill_buf().await?;
 
         Ok(())
-    }
-
-    /// Poll the stream to detect whether data is immediately readable.
-    pub async fn is_readable(&mut self) -> Result<bool> {
-        futures::select_biased! {
-            buf = self.inner.fill_buf().fuse() => {
-                buf?;
-
-                Ok(true)
-            }
-            _ = futures::future::ready(()).fuse() => {
-                Ok(false)
-            }
-        }
     }
 
     /// Receive and decrypt a _packet_ from the peer without removing it from the queue.
