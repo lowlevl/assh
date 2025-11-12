@@ -4,7 +4,6 @@
 use std::io;
 
 use futures::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use futures_time::{future::FutureExt as _, time::Duration};
 use ssh_packet::IntoPacket;
 
 use crate::{Pipe, Result, algorithm};
@@ -27,7 +26,6 @@ const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 /// A wrapper around a [`Pipe`] to interface with to the SSH binary protocol.
 pub struct Stream<S> {
     inner: IoCounter<S>,
-    timeout: Duration,
 
     /// The pair of transport algorithms and keys computed from the key exchange.
     transport: TransportPair,
@@ -49,10 +47,9 @@ impl<S> Stream<S>
 where
     S: Pipe,
 {
-    pub fn new(stream: S, timeout: Duration) -> Self {
+    pub fn new(stream: S) -> Self {
         Self {
             inner: IoCounter::new(stream),
-            timeout,
             transport: Default::default(),
             session: None,
             txseq: 0,
@@ -96,9 +93,8 @@ where
         match self.buffer.take() {
             Some(packet) => Ok(packet),
             None => {
-                let packet = Self::inner_recv(&mut self.inner, &mut self.transport.rx, self.rxseq)
-                    .timeout(self.timeout)
-                    .await??;
+                let packet =
+                    Self::inner_recv(&mut self.inner, &mut self.transport.rx, self.rxseq).await?;
 
                 tracing::trace!(
                     "<~- #{}: ^{:#x} ({} bytes)",
@@ -118,9 +114,7 @@ where
     pub async fn send(&mut self, packet: impl IntoPacket) -> Result<()> {
         let packet = packet.into_packet();
 
-        Self::inner_send(&mut self.inner, &mut self.transport.tx, self.txseq, &packet)
-            .timeout(self.timeout)
-            .await??;
+        Self::inner_send(&mut self.inner, &mut self.transport.tx, self.txseq, &packet).await?;
         self.inner.flush().await?;
 
         tracing::trace!(

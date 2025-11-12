@@ -2,7 +2,6 @@
 
 use std::time::Duration;
 
-use futures_time::time::Duration as Timeout;
 use rand::RngCore;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
@@ -105,10 +104,6 @@ impl Default for Algorithms {
 impl Side for Client {
     fn id(&self) -> &Id {
         &self.id
-    }
-
-    fn timeout(&self) -> Timeout {
-        self.timeout.into()
     }
 
     fn kexinit(&self) -> KexInit<'static> {

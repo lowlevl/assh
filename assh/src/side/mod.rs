@@ -1,7 +1,6 @@
 //! Session's [`Side`]s, either [`Client`] or [`Server`].
 
 use futures::Future;
-use futures_time::time::Duration;
 use ssh_packet::{
     arch::id::Id,
     trans::{KexInit, NewKeys},
@@ -29,10 +28,6 @@ mod private {
 pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
     /// Get the [`Id`] for this session.
     fn id(&self) -> &Id;
-
-    // TODO: (compliance) Is a timeout really needed in SSH2 ?
-    /// Get the _timeout_ for this session.
-    fn timeout(&self) -> Duration;
 
     /// Generate a [`KexInit`] message from the config.
     fn kexinit(&self) -> KexInit<'static>;

@@ -22,7 +22,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 futures.workspace = true
-futures-time = "3.0.0"
 
 either.workspace = true
 tracing.workspace = true

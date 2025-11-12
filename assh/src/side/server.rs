@@ -1,8 +1,5 @@
 //! Server-[`Side`] implementation of the _session_.
 
-use std::time::Duration;
-
-use futures_time::time::Duration as Timeout;
 use rand::RngCore;
 use ssh_key::Algorithm;
 use ssh_packet::{arch::NameList, trans::KexInit};
@@ -25,9 +22,6 @@ pub struct Server {
     /// [`Id`] for this _server_ session.
     pub id: Id,
 
-    /// Timeout for sending and receiving packets.
-    pub timeout: Duration,
-
     /// Server keys for key-exchange signature.
     pub keys: Vec<PrivateKey>,
 
@@ -46,7 +40,6 @@ impl Default for Server {
                 ),
                 None::<&str>,
             ),
-            timeout: Duration::from_secs(120),
             keys: Default::default(),
             algorithms: Default::default(),
         }
@@ -100,10 +93,6 @@ impl Default for Algorithms {
 impl Side for Server {
     fn id(&self) -> &Id {
         &self.id
-    }
-
-    fn timeout(&self) -> Timeout {
-        self.timeout.into()
     }
 
     fn kexinit(&self) -> KexInit<'static> {

@@ -1,6 +1,5 @@
 use either::Either;
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
-use futures_time::future::FutureExt;
 use ssh_packet::{
     IntoPacket, Packet,
     arch::{Utf8, id::Id},
@@ -43,11 +42,8 @@ where
         config.id().to_writer(&mut stream).await?;
         stream.flush().await?;
 
-        let peer_id = Id::from_reader(&mut stream)
-            .timeout(config.timeout())
-            .await??;
-
-        let stream = Stream::new(stream, config.timeout());
+        let peer_id = Id::from_reader(&mut stream).await?;
+        let stream = Stream::new(stream);
 
         tracing::debug!("Session started with peer `{peer_id}`");
 
