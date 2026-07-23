@@ -88,7 +88,7 @@ where
                 Either::Right(err) => return Err(err.clone().into()),
             };
 
-            if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
+            if stream.should_rekey() || stream.peek().await?.to::<KexInit>().is_ok() {
                 if let Err(err) = self.config.kex(stream, &self.peer_id).await {
                     return Err(self
                         .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
@@ -133,7 +133,7 @@ where
             Either::Right(err) => return Err(err.clone().into()),
         };
 
-        if stream.is_rekeyable()
+        if stream.should_rekey()
             && let Err(err) = self.config.kex(stream, &self.peer_id).await
         {
             return Err(self

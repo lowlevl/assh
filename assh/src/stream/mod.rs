@@ -58,11 +58,11 @@ where
         }
     }
 
-    pub fn is_rekeyable(&self) -> bool {
+    pub fn should_rekey(&self) -> bool {
         self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
 
-    pub fn with_transport(&mut self, transport: TransportPair) {
+    pub fn set_transport(&mut self, transport: TransportPair) {
         self.transport = transport;
         self.inner.reset();
     }
