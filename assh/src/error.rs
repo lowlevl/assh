@@ -32,17 +32,17 @@ pub struct DisconnectedError {
 #[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Identifier parsing error.
-    #[error(transparent)]
-    Id(#[from] ssh_packet::arch::id::ParseError),
-
     /// I/O Error.
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
+    /// Identifier parsing error.
+    #[error(transparent)]
+    Id(#[from] ssh_packet::arch::id::ParseError),
+
     /// Binary (de)-serialization error.
     #[error(transparent)]
-    Binary(#[from] ssh_packet::binrw::Error),
+    Binary(#[from] ssh_packet::Error),
 
     /// SSH Key error.
     #[error(transparent)]

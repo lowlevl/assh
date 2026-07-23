@@ -31,6 +31,7 @@ impl<'s, IO: Pipe, S: Side> Write<'s, IO, S> {
                 data_type,
                 data,
             }),
+
             None => self.channel.mux.feed(&connect::ChannelData {
                 recipient_channel: self.channel.id.remote(),
                 data,

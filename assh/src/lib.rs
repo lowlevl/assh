@@ -23,14 +23,14 @@
 )]
 #![forbid(unsafe_code)]
 
-mod stream;
-
 pub mod algorithm;
 pub mod service;
 pub mod side;
 
-pub mod error;
-pub use error::{Error, Result};
+mod stream;
 
 mod session;
 pub use session::{Pipe, Session};
+
+pub mod error;
+pub use error::{Error, Result};

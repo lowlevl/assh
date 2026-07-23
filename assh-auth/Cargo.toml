@@ -29,6 +29,7 @@ ssh-key.workspace = true
 tracing.workspace = true
 futures.workspace = true
 
+bytes.workspace = true
 enumset = "1.1.10"
 
 [dev-dependencies]

@@ -3,10 +3,11 @@
 use std::collections::HashSet;
 
 use assh::{Error, Pipe, Result, Session, service::Request, side::Side};
+use bytes::Bytes;
 use ssh_packet::{
     Packet,
     arch::{self, Ascii, Utf8},
-    crypto::signature,
+    sig,
     trans::DisconnectReason,
     userauth,
 };
@@ -79,7 +80,7 @@ impl<R: Request> Auth<R> {
         &mut self,
         session: &mut Session<IO, S>,
         method: &Method,
-    ) -> Result<Packet> {
+    ) -> Result<Bytes> {
         let build = |method| userauth::Request {
             username: self.username.clone(),
             service_name: R::SERVICE_NAME,
@@ -88,7 +89,9 @@ impl<R: Request> Auth<R> {
 
         match method {
             Method::None => {
-                session.send(&build(userauth::Method::None)).await?;
+                session
+                    .send(&build(userauth::Method::None).to_bytes())
+                    .await?;
 
                 session.recv().await
             }
@@ -105,9 +108,9 @@ impl<R: Request> Auth<R> {
                     .await?;
 
                 let response = session.recv().await?;
-                if let Ok(userauth::PkOk { algorithm, blob }) = response.to() {
+                if let Ok(userauth::PkOk { algorithm, blob }) = Packet::from_bytes(&response) {
                     // Actually sign the message with the key to perform real authentication.
-                    let signature = signature::Publickey {
+                    let signature = sig::Publickey {
                         session_id: session
                             .session_id()
                             .expect("authentication attempted before key-exchange")
@@ -141,7 +144,7 @@ impl<R: Request> Auth<R> {
                     .await?;
 
                 let response = session.recv().await?;
-                if let Ok(userauth::PasswdChangereq { .. }) = response.to() {
+                if let Ok(userauth::PasswdChangereq { .. }) = Packet::from_bytes(&response) {
                     todo!() // TODO: (compliance) Handle the change request case
                 } else {
                     Ok(response)
@@ -170,9 +173,10 @@ impl<R: Request> Request for Auth<R> {
         loop {
             let response = self.attempt_method(&mut session, &method).await?;
 
-            if response.to::<userauth::Success>().is_ok() {
+            if userauth::Success::from_bytes(&response).is_ok() {
                 break self.service.on_accept(session).await;
-            } else if let Ok(userauth::Failure { continue_with, .. }) = response.to() {
+            } else if let Ok(userauth::Failure { continue_with, .. }) = Packet::from_bytes(response)
+            {
                 // TODO: (compliance) Take care of partial success
 
                 if let Some(next) = self.next_method(&continue_with) {

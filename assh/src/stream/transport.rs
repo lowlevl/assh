@@ -1,6 +1,5 @@
 use rand::Rng;
 use secrecy::ExposeSecret;
-use ssh_packet::Packet;
 
 use crate::{
     Result,
@@ -79,7 +78,7 @@ impl Transport {
             padding
         };
 
-        if size + padding < self.block_size().max(Packet::MIN_SIZE) {
+        if size + padding < self.block_size().max(ssh_packet::MIN_SIZE) {
             (padding + align) as u8
         } else {
             padding as u8

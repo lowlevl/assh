@@ -2,7 +2,7 @@
 
 use assh::{Pipe, side::Side};
 use futures::{FutureExt, TryStream, task};
-use ssh_packet::{binrw, connect};
+use ssh_packet::{Packet, connect};
 
 use crate::{
     Error, Result,
@@ -85,18 +85,22 @@ where
             .await?;
 
         #[binrw::binrw]
-        #[br(little)]
+        #[brw(big)]
         enum Response {
             Success(connect::RequestSuccess),
             Failure(connect::RequestFailure),
         }
 
+        impl Packet for Response {}
+
         #[binrw::binrw]
-        #[br(little)]
+        #[brw(big)]
         enum ResponsePort {
             Success(connect::ForwardingSuccess),
             Failure(connect::RequestFailure),
         }
+
+        impl Packet for ResponsePort {}
 
         if !with_port {
             futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))
@@ -185,11 +189,13 @@ where
             .await?;
 
         #[binrw::binrw]
-        #[br(little)]
+        #[brw(big)]
         enum Response {
             Success(connect::ChannelOpenConfirmation),
             Failure(connect::ChannelOpenFailure<'static>),
         }
+
+        impl Packet for Response {}
 
         futures::future::poll_fn(|cx| self.mux.poll_interest::<Response>(cx, &interest))
             .map(|polled| match polled.transpose()? {
@@ -203,10 +209,12 @@ where
                         message.maximum_packet_size,
                     )))
                 }
+
                 Some(Response::Failure(message)) => Ok(channel_open::Response::Failure {
                     reason: message.reason,
                     description: message.description.into_string(),
                 }),
+
                 _ => Err(Error::SessionClosed),
             })
             .await

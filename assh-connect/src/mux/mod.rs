@@ -1,7 +1,8 @@
 use assh::{Pipe, Session, side::Side};
+use bytes::Bytes;
 use dashmap::DashMap;
 use futures::{FutureExt, lock::Mutex, task};
-use ssh_packet::{IntoPacket, Packet, binrw, connect};
+use ssh_packet::{Packet, connect};
 
 mod interest;
 pub use interest::Interest;
@@ -15,7 +16,7 @@ use slots::{Lease, Slots};
 const CHANNEL_MAX_COUNT: usize = 8;
 
 pub struct Mux<IO: Pipe, S: Side> {
-    queue: flume::Sender<Packet>,
+    queue: flume::Sender<Bytes>,
     poller: Mutex<Poller<IO, S>>,
     interests: DashMap<Interest, task::AtomicWaker>,
     pub(crate) channels: Slots<u32, CHANNEL_MAX_COUNT>,
@@ -87,14 +88,11 @@ where
         }
     }
 
-    pub fn poll_interest<T>(
+    pub fn poll_interest<T: Packet>(
         &self,
         cx: &mut task::Context,
         interest: &Interest,
-    ) -> task::Poll<Option<assh::Result<T>>>
-    where
-        T: for<'args> binrw::BinRead<Args<'args> = ()> + binrw::meta::ReadEndian,
-    {
+    ) -> task::Poll<Option<assh::Result<T>>> {
         tracing::trace!("Polled with interest `{interest:?}`");
 
         if self
@@ -123,15 +121,16 @@ where
 
                 task::Poll::Ready(None)
             }
-            Some(packet) => {
-                let Some(packet_interest) = Interest::parse(&packet) else {
+
+            Some(buf) => {
+                let Some(packet_interest) = Interest::parse(&buf) else {
                     return task::Poll::Ready(Some(Err(assh::Error::UnexpectedMessage)));
                 };
 
                 if interest == &packet_interest {
                     tracing::trace!("{interest:?}: Matched, popping packet");
 
-                    task::Poll::Ready(Some(Ok(packet.to().expect(
+                    task::Poll::Ready(Some(Ok(T::from_bytes(buf).expect(
                         "Internal programming error: Polled with diverging `interest` and `T`",
                     ))))
                 } else {
@@ -141,13 +140,14 @@ where
                                 "{interest:?} != {packet_interest:?}: Storing packet and waking task"
                             );
 
-                            *buffer = Some(packet);
+                            *buffer = Some(buf);
                             waker.wake();
 
                             task::Poll::Pending
                         }
+
                         None => {
-                            if let Ok(message) = packet.to::<connect::GlobalRequest>() {
+                            if let Ok(message) = connect::GlobalRequest::from_bytes(&buf) {
                                 tracing::debug!(
                                     "{packet_interest:?}: Rejectected an unhandled `GlobalRequest`"
                                 );
@@ -155,7 +155,7 @@ where
                                 if *message.want_reply {
                                     crate::global_request::GlobalRequest::rejected(self);
                                 }
-                            } else if let Ok(message) = packet.to::<connect::ChannelOpen>() {
+                            } else if let Ok(message) = connect::ChannelOpen::from_bytes(&buf) {
                                 tracing::debug!(
                                     "{packet_interest:?}: Rejectected an unhandled `ChannelOpenRequest`"
                                 );
@@ -166,7 +166,7 @@ where
                                     None,
                                     None,
                                 );
-                            } else if let Ok(message) = packet.to::<connect::ChannelRequest>() {
+                            } else if let Ok(message) = connect::ChannelRequest::from_bytes(&buf) {
                                 tracing::debug!(
                                     "{packet_interest:?}: Rejectected an unhandled `ChannelRequest`"
                                 );
@@ -183,7 +183,7 @@ where
                             } else {
                                 tracing::warn!(
                                     "!{packet_interest:?}: Dropping {}bytes, unregistered interest",
-                                    packet.len()
+                                    buf.len()
                                 );
                             }
 
@@ -196,8 +196,8 @@ where
         }
     }
 
-    pub fn feed(&self, item: impl IntoPacket) {
-        self.queue.send(item.into_packet()).ok();
+    pub fn feed(&self, item: &impl Packet) {
+        self.queue.send(item.to_bytes().into()).ok();
     }
 
     pub fn poll_flush(&self, cx: &mut task::Context) -> task::Poll<assh::Result<()>> {
@@ -210,7 +210,7 @@ where
         futures::future::poll_fn(|cx| self.poll_flush(cx)).await
     }
 
-    pub async fn send(&self, item: impl IntoPacket) -> assh::Result<()> {
+    pub async fn send(&self, item: &impl Packet) -> assh::Result<()> {
         self.feed(item);
         self.flush().await
     }

@@ -3,8 +3,9 @@ use signature::digest::{Digest, FixedOutputReset};
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
+    Packet,
     arch::MpInt,
-    crypto::exchange,
+    kex,
     trans::{KexEcdhInit, KexEcdhReply},
 };
 
@@ -21,12 +22,15 @@ pub async fn as_client<H: Digest + FixedOutputReset>(
     let q_c = x25519_dalek::PublicKey::from(&e_c);
 
     stream
-        .send(&KexEcdhInit {
-            q_c: q_c.as_ref().into(),
-        })
+        .send(
+            &KexEcdhInit {
+                q_c: q_c.as_ref().into(),
+            }
+            .to_bytes(),
+        )
         .await?;
 
-    let ecdh: KexEcdhReply = stream.recv().await?.to()?;
+    let ecdh = KexEcdhReply::from_bytes(stream.recv().await?)?;
     let q_s = x25519_dalek::PublicKey::from(
         <[u8; 32]>::try_from(ecdh.q_s.as_ref()).map_err(|_| Error::KexError)?,
     );
@@ -35,7 +39,7 @@ pub async fn as_client<H: Digest + FixedOutputReset>(
     let secret = SecretBox::new(MpInt::positive(secret.as_bytes()).into());
 
     let k_s = ssh_key::PublicKey::from_bytes(&ecdh.k_s)?;
-    let hash = exchange::Ecdh {
+    let hash = kex::Ecdh {
         v_c: client.id.to_string().into_bytes().into(),
         v_s: server.id.to_string().into_bytes().into(),
         i_c: (client.kexinit).into(),
@@ -78,7 +82,7 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
     server: KexMeta<'_>,
     key: &PrivateKey,
 ) -> Result<(Transport, Transport)> {
-    let ecdh: KexEcdhInit = stream.recv().await?.to()?;
+    let ecdh = KexEcdhInit::from_bytes(stream.recv().await?)?;
 
     let e_s = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
     let q_s = x25519_dalek::PublicKey::from(&e_s);
@@ -92,7 +96,7 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
 
     let k_s = key.public_key().to_bytes()?;
 
-    let hash = exchange::Ecdh {
+    let hash = kex::Ecdh {
         v_c: client.id.to_string().into_bytes().into(),
         v_s: server.id.to_string().into_bytes().into(),
         i_c: (client.kexinit).into(),
@@ -107,11 +111,14 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
     let signature = Signer::sign(key, &hash);
 
     stream
-        .send(&KexEcdhReply {
-            k_s: k_s.into(),
-            q_s: q_s.as_ref().into(),
-            signature: signature.to_vec().into(),
-        })
+        .send(
+            &KexEcdhReply {
+                k_s: k_s.into(),
+                q_s: q_s.as_ref().into(),
+                signature: signature.to_vec().into(),
+            }
+            .to_bytes(),
+        )
         .await?;
 
     let session_id = stream.with_session(&hash);

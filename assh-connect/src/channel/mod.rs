@@ -5,7 +5,10 @@ use std::{num::NonZeroU32, task};
 use assh::{Pipe, side::Side};
 use dashmap::DashMap;
 use futures::{AsyncRead, AsyncWrite, FutureExt, TryStream};
-use ssh_packet::{binrw, connect};
+use ssh_packet::{
+    Packet,
+    connect::{self, ChannelClose, ChannelEof},
+};
 
 use crate::{
     Error, Result,
@@ -82,7 +85,7 @@ where
     fn poll(&self, cx: &mut task::Context) -> task::Poll<assh::Result<()>> {
         if let task::Poll::Ready(Some(result)) = self
             .mux
-            .poll_interest::<()>(cx, &Interest::ChannelClose(self.id.local()))
+            .poll_interest::<ChannelClose>(cx, &Interest::ChannelClose(self.id.local()))
         {
             result?;
 
@@ -100,11 +103,13 @@ where
             .poll_interest(cx, &Interest::ChannelData(self.id.local()))
         {
             #[binrw::binrw]
-            #[br(little)]
+            #[brw(little)]
             enum Data {
                 Plain(connect::ChannelData<'static>),
                 Extended(connect::ChannelExtendedData<'static>),
             }
+
+            impl Packet for Data {}
 
             let (stream_id, data) = match result? {
                 Data::Plain(message) => (None, message.data.into_vec()),
@@ -124,7 +129,7 @@ where
             task::Poll::Pending
         } else if let task::Poll::Ready(Some(result)) = self
             .mux
-            .poll_interest::<()>(cx, &Interest::ChannelEof(self.id.local()))
+            .poll_interest::<ChannelEof>(cx, &Interest::ChannelEof(self.id.local()))
         {
             result?;
 
@@ -159,14 +164,11 @@ where
         }
     }
 
-    fn poll_interest<T>(
+    fn poll_interest<T: Packet>(
         &self,
         cx: &mut task::Context,
         interest: &Interest,
-    ) -> task::Poll<Option<assh::Result<T>>>
-    where
-        T: for<'args> binrw::BinRead<Args<'args> = ()> + binrw::meta::ReadEndian,
-    {
+    ) -> task::Poll<Option<assh::Result<T>>> {
         futures::ready!(self.poll(cx))?;
 
         self.mux.poll_interest(cx, interest)
@@ -220,11 +222,13 @@ where
             .await?;
 
         #[binrw::binrw]
-        #[br(little)]
+        #[brw(big)]
         enum Response {
             Success(connect::ChannelSuccess),
             Failure(connect::ChannelFailure),
         }
+
+        impl Packet for Response {}
 
         futures::future::poll_fn(|cx| self.mux.poll_interest(cx, &interest))
             .map(|polled| match polled.transpose()? {

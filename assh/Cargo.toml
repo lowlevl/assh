@@ -23,6 +23,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 futures.workspace = true
 
+bytes.workspace = true
 either.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
@@ -38,7 +39,6 @@ signature = "2.2.0" # blocked by `ssh-key`
 
 # Key-exchange algorithms
 x25519-dalek = { version = "2.0.1", features = ["zeroize"] } # blocked by `rand`
-
 # Compression algorithms
 libflate = "2.2.0"
 

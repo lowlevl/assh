@@ -53,7 +53,7 @@ impl Compress {
                 let decoder = libflate::zlib::Decoder::new(std::io::Cursor::new(buf))?;
 
                 decoder
-                    .take(ssh_packet::Packet::MAX_SIZE as u64)
+                    .take(ssh_packet::MAX_SIZE as u64)
                     .read_to_end(&mut buffer)?;
 
                 Ok(buffer)

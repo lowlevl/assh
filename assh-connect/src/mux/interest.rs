@@ -1,4 +1,5 @@
-use ssh_packet::{Packet, binrw::meta::ReadMagic, connect};
+use binrw::meta::ReadMagic;
+use ssh_packet::connect;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Interest {
@@ -18,14 +19,16 @@ pub enum Interest {
 }
 
 impl Interest {
-    fn recipient_channel_for(packet: &Packet) -> u32 {
+    fn recipient_channel_for(packet: impl AsRef<[u8]>) -> u32 {
         let mut bytes = [0u8; 4];
-        bytes.copy_from_slice(&packet[1..5]);
+        bytes.copy_from_slice(&packet.as_ref()[1..5]);
 
         u32::from_le_bytes(bytes)
     }
 
-    pub fn parse(packet: &Packet) -> Option<Self> {
+    pub fn parse(packet: impl AsRef<[u8]>) -> Option<Self> {
+        let packet = packet.as_ref();
+
         if packet[0] == connect::GlobalRequest::MAGIC {
             Some(Self::GlobalRequest)
         } else if packet[0] == connect::RequestSuccess::MAGIC

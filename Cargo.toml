@@ -37,10 +37,11 @@ tracing = "0.1.41"
 thiserror = "2.0.17"
 either = "1.15.0"
 rand = "0.8.7" # blocked by `ssh-key`
+bytes = "1.11.0"
 
 [patch.crates-io]
 assh = { path = "assh" }
 assh-auth = { path = "assh-auth" }
 assh-connect = { path = "assh-connect" }
 
-# ssh-packet = { path = "../ssh-packet" }
+ssh-packet = { path = "../ssh-packet" }

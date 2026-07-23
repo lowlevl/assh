@@ -27,6 +27,7 @@ ssh-packet.workspace = true
 futures.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+bytes.workspace = true
 rand.workspace = true
 
 either.workspace = true
@@ -35,11 +36,13 @@ defer = "0.2.1"
 dashmap = "6.1.0"
 flume = "0.12.0"
 
+binrw = { version = "0.15.0", default-features = false }
+
 [dev-dependencies]
-sha1 = "0.10.6"
+sha1 = "0.11.0"
 eyre = "0.6.12"
 
-rand = { workspace = true, features = ["small_rng", "min_const_gen"] }
+rand.workspace = true
 
 async-compat.workspace = true
 tokio = { version = "1.48.0", features = ["full"] }

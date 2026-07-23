@@ -86,7 +86,7 @@ impl Hmac {
                 .expect("Key derivation failed horribly")
                 .chain_update(seq.to_be_bytes())
                 .chain_update(buf)
-                .verify(mac.into())
+                .verify_slice(mac)
         }
 
         match self {

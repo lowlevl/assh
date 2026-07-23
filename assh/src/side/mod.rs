@@ -2,6 +2,7 @@
 
 use futures::Future;
 use ssh_packet::{
+    Packet,
     arch::id::Id,
     trans::{KexInit, NewKeys},
 };
@@ -51,18 +52,18 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
             tracing::debug!("Starting key-exchange procedure");
 
             let kexinit = self.kexinit();
-            stream.send(&kexinit).await?;
+            stream.send(&kexinit.to_bytes()).await?;
 
             // TODO: (compliance) Take care of `KexInit::first_kex_packet_follows` being true.
 
-            let peerkexinit = stream.recv().await?.to::<KexInit>()?;
+            let peerkexinit = KexInit::from_bytes(stream.recv().await?)?;
 
             let transport = self
                 .exchange(stream, &kexinit, &peerkexinit, peer_id)
                 .await?;
 
-            stream.send(&NewKeys).await?;
-            stream.recv().await?.to::<NewKeys>()?;
+            stream.send(&NewKeys.to_bytes()).await?;
+            NewKeys::from_bytes(stream.recv().await?)?;
 
             tracing::debug!(
                 "Key exchange success, negociated algorithms:\nrx: {:?}\ntx: {:?}",

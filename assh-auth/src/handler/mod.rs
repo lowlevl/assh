@@ -4,8 +4,9 @@ use assh::{Error, Pipe, Result, Session, service::Handler, side::Side};
 use enumset::EnumSet;
 use ssh_key::{Signature, public::PublicKey};
 use ssh_packet::{
+    Packet,
     arch::{Ascii, NameList, Utf8},
-    crypto::signature,
+    sig,
     trans::DisconnectReason,
     userauth,
 };
@@ -193,7 +194,7 @@ where
                     }
                     Some(signature) => match key {
                         Ok(key) if key.algorithm().as_str().as_bytes() == algorithm.as_ref() => {
-                            let message = signature::Publickey {
+                            let message = sig::Publickey {
                                 session_id: session
                                     .session_id()
                                     .expect("authentication attempted before key-exchange")
@@ -292,7 +293,7 @@ impl<H: Handler, N: none::None, P: password::Password, PK: publickey::Publickey>
                 username,
                 service_name,
                 method,
-            }) = session.recv().await?.to()
+            }) = Packet::from_bytes(session.recv().await?)
             {
                 if self.methods.remove(*method.as_ref()) {
                     match self

@@ -1,7 +1,8 @@
+use bytes::Bytes;
 use either::Either;
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use ssh_packet::{
-    IntoPacket, Packet,
+    Packet,
     arch::{Utf8, id::Id},
     trans::{
         Debug, Disconnect, DisconnectReason, Ignore, KexInit, ServiceAccept, ServiceRequest,
@@ -81,14 +82,14 @@ where
     /// # Cancel safety
     /// This method is **not cancel-safe**, if used within a [`futures::select`] call,
     /// some data may be partially received.
-    pub async fn recv(&mut self) -> Result<Packet> {
+    pub async fn recv(&mut self) -> Result<Bytes> {
         loop {
             let stream = match &mut self.stream {
                 Either::Left(stream) => stream,
                 Either::Right(err) => return Err(err.clone().into()),
             };
 
-            if stream.is_rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
+            if stream.is_rekeyable() || KexInit::from_bytes(stream.peek().await?).is_ok() {
                 if let Err(err) = self.config.kex(stream, &self.peer_id).await {
                     return Err(self
                         .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
@@ -99,13 +100,13 @@ where
                 continue;
             }
 
-            let packet = stream.recv().await?;
+            let bytes = stream.recv().await?;
 
             if let Ok(Disconnect {
                 reason,
                 description,
                 ..
-            }) = packet.to()
+            }) = Packet::from_bytes(&bytes)
             {
                 tracing::info!("Peer disconnected with `{reason:?}`: {description}");
 
@@ -114,20 +115,20 @@ where
                     reason,
                     description,
                 });
-            } else if let Ok(Ignore { data }) = packet.to() {
+            } else if let Ok(Ignore { data }) = Packet::from_bytes(&bytes) {
                 tracing::debug!("Received an 'ignore' message with length {}", data.len());
-            } else if let Ok(Unimplemented { seq }) = packet.to() {
+            } else if let Ok(Unimplemented { seq }) = Packet::from_bytes(&bytes) {
                 tracing::debug!("Received an 'unimplemented' message about packet #{seq}",);
-            } else if let Ok(Debug { message, .. }) = packet.to() {
+            } else if let Ok(Debug { message, .. }) = Packet::from_bytes(&bytes) {
                 tracing::debug!("Received a 'debug' message: {message}");
             } else {
-                break Ok(packet);
+                break Ok(bytes);
             }
         }
     }
 
     /// Send a _packet_ to the connected peer.
-    pub async fn send(&mut self, message: impl IntoPacket) -> Result<()> {
+    pub async fn send(&mut self, message: impl AsRef<[u8]>) -> Result<()> {
         let stream = match &mut self.stream {
             Either::Left(stream) => stream,
             Either::Right(err) => return Err(err.clone().into()),
@@ -161,7 +162,7 @@ where
             description: description.into(),
             language: Default::default(),
         };
-        stream.send(&message).await.ok();
+        stream.send(message.to_bytes()).await.ok();
 
         let err = DisconnectedError {
             by: DisconnectedBy::Us,
@@ -178,11 +179,12 @@ where
     where
         H: service::Handler,
     {
-        let packet = self.recv().await?;
+        let bytes = self.recv().await?;
 
-        if let Ok(ServiceRequest { service_name }) = packet.to() {
+        if let Ok(ServiceRequest { service_name }) = Packet::from_bytes(bytes) {
             if service_name == H::SERVICE_NAME {
-                self.send(&ServiceAccept { service_name }).await?;
+                self.send(&ServiceAccept { service_name }.to_bytes())
+                    .await?;
 
                 service.on_request(self).await
             } else {
@@ -212,13 +214,17 @@ where
     where
         R: service::Request,
     {
-        self.send(&ServiceRequest {
-            service_name: R::SERVICE_NAME,
-        })
+        self.send(
+            &ServiceRequest {
+                service_name: R::SERVICE_NAME,
+            }
+            .to_bytes(),
+        )
         .await?;
 
-        let packet = self.recv().await?;
-        if let Ok(ServiceAccept { service_name }) = packet.to() {
+        let bytes = self.recv().await?;
+
+        if let Ok(ServiceAccept { service_name }) = Packet::from_bytes(bytes) {
             if service_name == R::SERVICE_NAME {
                 service.on_accept(self).await
             } else {

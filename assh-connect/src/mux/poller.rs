@@ -1,9 +1,9 @@
 use assh::{Pipe, Session, side::Side};
+use bytes::Bytes;
 use futures::{FutureExt, future::BoxFuture, task};
-use ssh_packet::Packet;
 
 type SendFut<IO, S> = BoxFuture<'static, (assh::Result<()>, Box<Session<IO, S>>)>;
-type RecvFut<IO, S> = BoxFuture<'static, (assh::Result<Packet>, Box<Session<IO, S>>)>;
+type RecvFut<IO, S> = BoxFuture<'static, (assh::Result<Bytes>, Box<Session<IO, S>>)>;
 
 enum State<IO: Pipe, S: Side> {
     /// Idling and waiting for tasks.
@@ -20,10 +20,10 @@ pub struct Poller<IO: Pipe, S: Side> {
     state: State<IO, S>,
 
     /// Messages awaiting to be sent to the peer.
-    queue: flume::Receiver<Packet>,
+    queue: flume::Receiver<Bytes>,
 
     /// Message awaiting to be popped by the local asynchronous tasks.
-    buffer: Option<Packet>,
+    buffer: Option<Bytes>,
 }
 
 impl<IO, S> Poller<IO, S>
@@ -31,7 +31,7 @@ where
     IO: Pipe,
     S: Side,
 {
-    pub fn new(session: Session<IO, S>) -> (Self, flume::Sender<Packet>) {
+    pub fn new(session: Session<IO, S>) -> (Self, flume::Sender<Bytes>) {
         let (tx, rx) = flume::unbounded();
 
         (
@@ -55,7 +55,7 @@ where
     pub fn poll_peek(
         &mut self,
         cx: &mut task::Context,
-    ) -> task::Poll<assh::Result<&mut Option<Packet>>> {
+    ) -> task::Poll<assh::Result<&mut Option<Bytes>>> {
         if self.buffer.is_none() {
             self.buffer = futures::ready!(self.poll_next(cx)).transpose()?;
         }
@@ -63,10 +63,7 @@ where
         task::Poll::Ready(Ok(&mut self.buffer))
     }
 
-    fn poll_next(
-        &mut self,
-        cx: &mut task::Context<'_>,
-    ) -> task::Poll<Option<assh::Result<Packet>>> {
+    fn poll_next(&mut self, cx: &mut task::Context<'_>) -> task::Poll<Option<assh::Result<Bytes>>> {
         if !matches!(self.state, State::Recving(_)) {
             // NOTE: We ignore errors there because while flushing before receiving is often necessary,
             // errors there shouldn't bubble up to the read side; e.g. sometimes messages are still
@@ -136,7 +133,7 @@ where
 
                 if let Ok(item) = self.queue.try_recv() {
                     self.state =
-                        State::Sending(async move { (session.send(item).await, session) }.boxed());
+                        State::Sending(async move { (session.send(&item).await, session) }.boxed());
 
                     cx.waker().wake_by_ref();
                     task::Poll::Pending

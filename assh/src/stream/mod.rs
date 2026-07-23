@@ -3,8 +3,8 @@
 
 use std::io;
 
+use bytes::Bytes;
 use futures::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use ssh_packet::IntoPacket;
 
 use crate::{Pipe, Result, algorithm};
 
@@ -16,9 +16,6 @@ pub(super) use transport::{Transport, TransportPair};
 
 mod keys;
 pub(super) use keys::Keys;
-
-#[doc(no_inline)]
-pub use ssh_packet::Packet;
 
 /// Re-key after 1GiB of exchanged data as recommended per the RFC.
 const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
@@ -40,7 +37,7 @@ pub struct Stream<S> {
     rxseq: u32,
 
     /// A buffer for the `peek` method.
-    buffer: Option<Packet>,
+    buffer: Option<Bytes>,
 }
 
 impl<S> Stream<S>
@@ -82,46 +79,46 @@ where
     }
 
     /// Receive and decrypt a _packet_ from the peer without removing it from the queue.
-    pub async fn peek(&mut self) -> Result<&Packet> {
-        let packet = self.recv().await?;
+    pub async fn peek(&mut self) -> Result<&Bytes> {
+        let bytes = self.recv().await?;
 
-        Ok(self.buffer.insert(packet))
+        Ok(self.buffer.insert(bytes))
     }
 
     /// Receive and decrypt a _packet_ from the peer.
-    pub async fn recv(&mut self) -> Result<Packet> {
+    pub async fn recv(&mut self) -> Result<Bytes> {
         match self.buffer.take() {
-            Some(packet) => Ok(packet),
+            Some(bytes) => Ok(bytes),
             None => {
-                let packet =
+                let bytes =
                     Self::inner_recv(&mut self.inner, &mut self.transport.rx, self.rxseq).await?;
 
                 tracing::trace!(
                     "<~- #{}: ^{:#x} ({} bytes)",
                     self.rxseq,
-                    packet[0],
-                    packet.len(),
+                    bytes[0],
+                    bytes.len(),
                 );
 
                 self.rxseq = self.rxseq.wrapping_add(1);
 
-                Ok(packet)
+                Ok(bytes)
             }
         }
     }
 
     /// Encrypt and send a _packet_ to the peer.
-    pub async fn send(&mut self, packet: impl IntoPacket) -> Result<()> {
-        let packet = packet.into_packet();
+    pub async fn send(&mut self, bytes: impl AsRef<[u8]>) -> Result<()> {
+        let bytes = bytes.as_ref();
 
-        Self::inner_send(&mut self.inner, &mut self.transport.tx, self.txseq, &packet).await?;
+        Self::inner_send(&mut self.inner, &mut self.transport.tx, self.txseq, bytes).await?;
         self.inner.flush().await?;
 
         tracing::trace!(
             "-~> #{}: ^{:#x} ({} bytes)",
             self.txseq,
-            packet[0],
-            packet.len(),
+            bytes[0],
+            bytes.len(),
         );
 
         self.txseq = self.txseq.wrapping_add(1);
@@ -133,7 +130,7 @@ where
         mut reader: impl AsyncRead + Unpin,
         cipher: &mut Transport,
         seq: u32,
-    ) -> Result<Packet> {
+    ) -> Result<Bytes> {
         let mut buf = vec![0; cipher.block_size()];
         reader.read_exact(&mut buf[..]).await?;
 
@@ -147,11 +144,12 @@ where
                 .expect("the buffer of size 4 is not of size 4"),
         );
 
-        if len as usize > Packet::MAX_SIZE {
-            Err(io::Error::new(
+        if len as usize > ssh_packet::MAX_SIZE {
+            return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("payload size too large, {len} > {}", Packet::MAX_SIZE),
-            ))?
+                format!("payload size too large, {len} > {}", ssh_packet::MAX_SIZE),
+            )
+            .into());
         }
 
         // read the rest of the data from the reader
@@ -184,21 +182,22 @@ where
             .into());
         }
 
+        // TODO: (performance): do not reallocate and use copy_within() + .truncate
         let mut payload = vec![0; len as usize - *padlen as usize - std::mem::size_of_val(padlen)];
         io::Read::read_exact(&mut decrypted, &mut payload[..])?;
 
         let payload = cipher.decompress(payload)?;
 
-        Ok(Packet(payload))
+        Ok(payload.into())
     }
 
     async fn inner_send(
         mut writer: impl AsyncWrite + Unpin,
         cipher: &mut Transport,
         seq: u32,
-        packet: &Packet,
+        bytes: &[u8],
     ) -> Result<()> {
-        let compressed = cipher.compress(packet.as_ref())?;
+        let compressed = cipher.compress(bytes)?;
 
         let buf = cipher.pad(compressed)?;
         let mut buf = [(buf.len() as u32).to_be_bytes().to_vec(), buf].concat();
