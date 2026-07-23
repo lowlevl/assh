@@ -1,4 +1,4 @@
-use digest::OutputSizeUser;
+use hmac::digest::{KeyInit, Mac, MacError, OutputSizeUser};
 use md5::Md5;
 use sha1::Sha1;
 use sha2::{Sha256, Sha512};
@@ -75,14 +75,14 @@ impl Hmac {
         buf: &[u8],
         key: &[u8],
         mac: &[u8],
-    ) -> Result<(), digest::MacError> {
-        fn verify<D: digest::Mac + digest::KeyInit>(
+    ) -> Result<(), MacError> {
+        fn verify<D: Mac + KeyInit>(
             seq: u32,
             buf: &[u8],
             key: &[u8],
             mac: &[u8],
-        ) -> Result<(), digest::MacError> {
-            <D as digest::Mac>::new_from_slice(key)
+        ) -> Result<(), MacError> {
+            <D as Mac>::new_from_slice(key)
                 .expect("Key derivation failed horribly")
                 .chain_update(seq.to_be_bytes())
                 .chain_update(buf)
@@ -103,8 +103,8 @@ impl Hmac {
     }
 
     pub(crate) fn sign(&self, seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
-        fn sign<D: digest::Mac + digest::KeyInit>(seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
-            <D as digest::Mac>::new_from_slice(key)
+        fn sign<D: Mac + KeyInit>(seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
+            <D as Mac>::new_from_slice(key)
                 .expect("Key derivation failed horribly")
                 .chain_update(seq.to_be_bytes())
                 .chain_update(buf)

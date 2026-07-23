@@ -1,5 +1,5 @@
-use digest::{Digest, FixedOutputReset};
 use secrecy::{ExposeSecret, SecretBox};
+use signature::digest::{Digest, FixedOutputReset};
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
