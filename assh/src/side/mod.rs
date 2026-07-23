@@ -70,7 +70,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
                 transport.tx,
             );
 
-            stream.with_transport(transport);
+            stream.set_transport(transport);
 
             Ok(())
         }
