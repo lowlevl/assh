@@ -45,8 +45,8 @@ async-compat.workspace = true
 tokio = { version = "1.48.0", features = ["full"] }
 
 tracing-subscriber = { version = "0.3", default-features = false, features = [
-    "env-filter",
-    "fmt",
-    "tracing-log",
-    "ansi",
+  "env-filter",
+  "fmt",
+  "tracing-log",
+  "ansi",
 ] }

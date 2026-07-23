@@ -17,17 +17,17 @@ assh-auth = "^0"
 assh-connect = "^0"
 
 ssh-packet = { version = "0.10.0", features = [
-    "futures",
-    "digest",
-    "signature",
-    "zeroize",
+  "futures",
+  "digest",
+  "signature",
+  "zeroize",
 ] }
 ssh-key = { version = "0.6.7", features = [
-    "dsa",
-    "rsa",
-    "p256",
-    "p384",
-    "ed25519",
+  "dsa",
+  "rsa",
+  "p256",
+  "p384",
+  "ed25519",
 ] }
 
 async-compat = "0.2.5"

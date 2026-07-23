@@ -64,7 +64,7 @@ rstest = "0.26.1"
 async-std = { version = "1.13.2", features = ["attributes", "unstable"] }
 
 tracing-subscriber = { version = "0.3", default-features = false, features = [
-    "env-filter",
-    "fmt",
-    "tracing-log",
+  "env-filter",
+  "fmt",
+  "tracing-log",
 ] }
