@@ -10,7 +10,7 @@ Cargo.lock
 **/*.rs.bk
 
 # direnv environment files
-.envrc
+.direnv
 
 # pre-built charts
 *.tgz
