@@ -29,7 +29,6 @@ ssh-key.workspace = true
 tracing.workspace = true
 futures.workspace = true
 
-hashbrown = "0.16.0"
 enumset = "1.1.10"
 
 [dev-dependencies]

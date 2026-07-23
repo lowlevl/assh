@@ -1,6 +1,6 @@
 //! Authentication _request_ mechanics.
 
-use hashbrown::HashSet;
+use std::collections::HashSet;
 
 use assh::{Error, Pipe, Result, Session, service::Request, side::Side};
 use ssh_packet::{
@@ -141,7 +141,7 @@ impl<R: Request> Auth<R> {
                     .await?;
 
                 let response = session.recv().await?;
-                if let Ok(userauth::PasswdChangereq { prompt: _, .. }) = response.to() {
+                if let Ok(userauth::PasswdChangereq { .. }) = response.to() {
                     todo!() // TODO: (compliance) Handle the change request case
                 } else {
                     Ok(response)

@@ -180,7 +180,8 @@ where
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("padding size too large, {padlen} > {} - 1", len),
-            ))?;
+            )
+            .into());
         }
 
         let mut payload = vec![0; len as usize - *padlen as usize - std::mem::size_of_val(padlen)];
