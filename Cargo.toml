@@ -36,7 +36,7 @@ tracing = "0.1.41"
 
 thiserror = "2.0.17"
 either = "1.15.0"
-rand = "0.8.5"
+rand = "0.8.7" # blocked by `ssh-key`
 
 [patch.crates-io]
 assh = { path = "assh" }
