@@ -136,7 +136,7 @@ async fn main() -> eyre::Result<()> {
         .ok();
 
     let keys = vec![
-        ssh_key::private::PrivateKey::random(&mut rand::thread_rng(), ssh_key::Algorithm::Ed25519)
+        ssh_key::private::PrivateKey::random(&mut rand::rng(), ssh_key::Algorithm::Ed25519)
             .expect("Cannot generate private keys"),
     ];
     let listener = TcpListener::bind(args.address).await?;

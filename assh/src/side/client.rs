@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use rand::RngCore;
+use rand::Rng;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::{Side, server::Server};
@@ -108,7 +108,7 @@ impl Side for Client {
 
     fn kexinit(&self) -> KexInit<'static> {
         let mut cookie = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut cookie);
+        rand::rng().fill_bytes(&mut cookie);
 
         KexInit {
             cookie,

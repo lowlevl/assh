@@ -1,5 +1,5 @@
-use digest::{Digest, FixedOutputReset};
 use secrecy::{ExposeSecret, SecretBox};
+use signature::digest::{Digest, FixedOutputReset};
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
@@ -17,7 +17,7 @@ pub async fn as_client<H: Digest + FixedOutputReset>(
     client: KexMeta<'_>,
     server: KexMeta<'_>,
 ) -> Result<(Transport, Transport)> {
-    let e_c = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+    let e_c = x25519_dalek::EphemeralSecret::random_from_rng(&mut rand::rng());
     let q_c = x25519_dalek::PublicKey::from(&e_c);
 
     stream
@@ -80,7 +80,7 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
 ) -> Result<(Transport, Transport)> {
     let ecdh: KexEcdhInit = stream.recv().await?.to()?;
 
-    let e_s = x25519_dalek::EphemeralSecret::random_from_rng(rand::thread_rng());
+    let e_s = x25519_dalek::EphemeralSecret::random_from_rng(&mut rand::rng());
     let q_s = x25519_dalek::PublicKey::from(&e_s);
 
     let q_c = x25519_dalek::PublicKey::from(

@@ -12,13 +12,29 @@ use assh_connect::{
 };
 
 use async_compat::{Compat, CompatExt};
-use futures::{FutureExt, TryFutureExt, TryStreamExt, future::BoxFuture};
-use rand::{Rng, SeedableRng};
-use sha1::Digest;
+use futures::{AsyncRead, AsyncReadExt, FutureExt, TryFutureExt, TryStreamExt, future::BoxFuture};
+use rand::{RngExt, SeedableRng};
+use sha1::{Digest, Sha1};
 use tokio::io::{BufStream, DuplexStream};
 use tracing::Instrument;
 
 type IO = Compat<BufStream<DuplexStream>>;
+
+async fn sha1(mut rdr: impl AsyncRead + Unpin) -> std::io::Result<Sha1> {
+    let mut digest = Sha1::new();
+    let mut buf = [0u8; 65535];
+
+    loop {
+        let count = rdr.read(&mut buf[..]).await?;
+        if count == 0 {
+            break;
+        }
+
+        digest.update(&buf[..count]);
+    }
+
+    Ok(digest)
+}
 
 async fn io<S, C>(serverside: S, clientside: C) -> Result<(), eyre::Error>
 where
@@ -26,7 +42,7 @@ where
     C: Fn(channel::Channel<'_, IO, Client>) -> BoxFuture<'_, ()>,
 {
     let duplex = tokio::io::duplex(ssh_packet::Packet::MAX_SIZE * 16);
-    let keys = vec![PrivateKey::random(&mut rand::thread_rng(), Key::Ed25519)?];
+    let keys = vec![PrivateKey::random(&mut rand::rng(), Key::Ed25519)?];
 
     tokio::try_join!(
         async {
@@ -97,31 +113,27 @@ async fn small() -> Result<(), eyre::Error> {
         },
         |channel| {
             async move {
-                let mut rng = rand::rngs::SmallRng::from_entropy();
-                let (mut local, mut recvd) = (sha1::Sha1::new(), sha1::Sha1::new());
+                let mut rng = rand::rngs::SmallRng::seed_from_u64(rand::rng().random());
 
-                tokio::join!(
+                let (sent, recvd) = tokio::join!(
                     async {
-                        let buffer = rng.r#gen::<[u8; 8192]>();
-                        local.update(buffer);
+                        let mut sent = sha1::Sha1::new();
+
+                        let buffer = rng.random::<[u8; 8192]>();
+                        sent.update(buffer);
 
                         futures::io::copy(&mut &buffer[..], &mut channel.as_writer())
                             .await
                             .unwrap();
 
                         channel.eof().await.unwrap();
+
+                        sent
                     },
-                    async {
-                        futures::io::copy(
-                            &mut channel.as_reader(),
-                            &mut futures::io::AllowStdIo::new(&mut recvd),
-                        )
-                        .await
-                        .unwrap();
-                    }
+                    async { sha1(&mut channel.as_reader()).await.unwrap() }
                 );
 
-                assert_eq!(local.finalize(), recvd.finalize())
+                assert_eq!(sent.finalize(), recvd.finalize())
             }
             .boxed()
         },
@@ -149,17 +161,18 @@ async fn large() -> Result<(), eyre::Error> {
         },
         |channel| {
             async move {
-                let mut rng = rand::rngs::SmallRng::from_entropy();
-                let (mut local, mut recvd) = (sha1::Sha1::new(), sha1::Sha1::new());
+                let mut rng = rand::rngs::SmallRng::seed_from_u64(rand::rng().random());
 
-                tokio::join!(
+                let (sent, recvd) = tokio::join!(
                     async {
+                        let mut sent = sha1::Sha1::new();
+
                         const BYTES_TO_SEND: u64 = 0xFFFFF * 2;
                         let mut current = 0;
 
                         while current < BYTES_TO_SEND {
-                            let buffer = rng.r#gen::<[u8; 65535]>();
-                            local.update(buffer);
+                            let buffer = rng.random::<[u8; 65535]>();
+                            sent.update(buffer);
 
                             current +=
                                 futures::io::copy(&mut &buffer[..], &mut channel.as_writer())
@@ -168,18 +181,13 @@ async fn large() -> Result<(), eyre::Error> {
                         }
 
                         channel.eof().await.unwrap();
+
+                        sent
                     },
-                    async {
-                        futures::io::copy(
-                            &mut channel.as_reader(),
-                            &mut futures::io::AllowStdIo::new(&mut recvd),
-                        )
-                        .await
-                        .unwrap();
-                    }
+                    async { sha1(&mut channel.as_reader()).await.unwrap() }
                 );
 
-                assert_eq!(local.finalize(), recvd.finalize())
+                assert_eq!(sent.finalize(), recvd.finalize())
             }
             .boxed()
         },

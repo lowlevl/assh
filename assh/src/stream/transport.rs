@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use secrecy::ExposeSecret;
 use ssh_packet::Packet;
 
@@ -87,7 +87,7 @@ impl Transport {
     }
 
     pub fn pad(&mut self, mut buf: Vec<u8>) -> Result<Vec<u8>> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let padding = self.padding(buf.len());
 
@@ -96,7 +96,7 @@ impl Transport {
         padded.append(&mut buf);
 
         // fill with random
-        padded.resize_with(padded.len() + padding as usize, || rng.r#gen());
+        padded.resize_with(padded.len() + padding as usize, || rng.random());
 
         Ok(padded)
     }

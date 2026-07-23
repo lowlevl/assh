@@ -20,7 +20,7 @@ async fn basic_none() -> Result<(), Box<dyn std::error::Error>> {
             let server = Server {
                 keys: vec![
                     ssh_key::private::PrivateKey::random(
-                        &mut rand::thread_rng(),
+                        &mut rand::rng(),
                         ssh_key::Algorithm::Ed25519,
                     )
                     .unwrap(),

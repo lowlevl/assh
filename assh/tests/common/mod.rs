@@ -20,8 +20,7 @@ pub async fn server() -> Result<(SocketAddr, impl futures::Future<Output = Resul
 
         let server = Server {
             keys: vec![
-                ssh_key::PrivateKey::random(&mut rand::thread_rng(), ssh_key::Algorithm::Ed25519)
-                    .unwrap(),
+                ssh_key::PrivateKey::random(&mut rand::rng(), ssh_key::Algorithm::Ed25519).unwrap(),
             ],
             ..Default::default()
         };

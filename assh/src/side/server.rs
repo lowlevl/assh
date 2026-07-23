@@ -1,6 +1,6 @@
 //! Server-[`Side`] implementation of the _session_.
 
-use rand::RngCore;
+use rand::Rng;
 use ssh_key::Algorithm;
 use ssh_packet::{arch::NameList, trans::KexInit};
 
@@ -97,7 +97,7 @@ impl Side for Server {
 
     fn kexinit(&self) -> KexInit<'static> {
         let mut cookie = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut cookie);
+        rand::rng().fill_bytes(&mut cookie);
 
         KexInit {
             cookie,

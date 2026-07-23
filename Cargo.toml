@@ -16,13 +16,13 @@ assh = "^0"
 assh-auth = "^0"
 assh-connect = "^0"
 
-ssh-packet = { version = "0.10.0", features = [
+ssh-packet = { version = "0.12.0", features = [
   "futures",
   "digest",
   "signature",
   "zeroize",
 ] }
-ssh-key = { version = "0.6.7", features = [
+ssh-key = { version = "0.7.0-rc.11", features = [
   "dsa",
   "rsa",
   "p256",
@@ -36,7 +36,7 @@ tracing = "0.1.41"
 
 thiserror = "2.0.17"
 either = "1.15.0"
-rand = "0.8.7" # blocked by `ssh-key`
+rand = "0.10.2"
 
 [patch.crates-io]
 assh = { path = "assh" }

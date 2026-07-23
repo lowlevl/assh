@@ -106,7 +106,7 @@ impl Cipher {
         iv: &[u8],
         buffer: &mut [u8],
     ) -> Result<Option<Tag>> {
-        fn cbc<C: cbc::cipher::BlockEncryptMut>(
+        fn cbc<C: cbc::cipher::BlockModeEncrypt>(
             cipher: &mut C,
             buffer: &mut [u8],
         ) -> Result<Option<Tag>> {
@@ -119,9 +119,9 @@ impl Cipher {
                 .into_padded_blocks::<cbc::cipher::block_padding::NoPadding, C::BlockSize>()
                 .map_err(|_| Error::Cipher)?;
 
-            cipher.encrypt_blocks_inout_mut(buf.get_blocks());
+            cipher.encrypt_blocks_inout(buf.get_blocks());
             if let Some(block) = buf.get_tail_block() {
-                cipher.encrypt_block_inout_mut(block);
+                cipher.encrypt_block_inout(block);
             }
 
             Ok(None)
@@ -167,7 +167,7 @@ impl Cipher {
         iv: &[u8],
         buffer: &mut [u8],
     ) -> Result<Option<Tag>> {
-        fn cbc<C: cbc::cipher::BlockDecryptMut>(
+        fn cbc<C: cbc::cipher::BlockModeDecrypt>(
             cipher: &mut C,
             buffer: &mut [u8],
         ) -> Result<Option<Tag>> {
@@ -180,9 +180,9 @@ impl Cipher {
                 .into_padded_blocks::<cbc::cipher::block_padding::NoPadding, C::BlockSize>()
                 .map_err(|_| Error::Cipher)?;
 
-            cipher.decrypt_blocks_inout_mut(buf.get_blocks());
+            cipher.decrypt_blocks_inout(buf.get_blocks());
             if let Some(block) = buf.get_tail_block() {
-                cipher.decrypt_block_inout_mut(block);
+                cipher.decrypt_block_inout(block);
             }
 
             Ok(None)
