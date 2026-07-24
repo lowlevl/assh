@@ -1,9 +1,7 @@
 use digest::{Digest, FixedOutputReset};
 use secrecy::SecretBox;
 
-use crate::algorithm::Hmac;
-
-use super::algorithm::Cipher;
+use super::algorithm::{Cipher, Hmac};
 
 #[derive(Debug, Default)]
 pub struct Keys {

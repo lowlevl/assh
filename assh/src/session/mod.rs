@@ -11,10 +11,11 @@ use ssh_packet::{
 
 use crate::{
     error::{DisconnectedBy, DisconnectedError, Error, Result},
-    service,
-    side::Side,
     stream::Stream,
 };
+
+pub mod service;
+pub mod side;
 
 // TODO: (feature) Handle extension negotiation described in RFC8308.
 // TODO: (reliability) Fix out-of-band rekeying, it expects the packet right away while we are not sure the peer is that fast.
@@ -24,7 +25,7 @@ pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static {}
 impl<T: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static> Pipe for T {}
 
 /// A session wrapping a `stream` to handle **key-exchange** and **`SSH-TRANS`** layer messages.
-pub struct Session<IO: Pipe, S: Side> {
+pub struct Session<IO: Pipe, S: side::Side> {
     stream: Either<Stream<IO>, DisconnectedError>,
     config: S,
 
@@ -34,7 +35,7 @@ pub struct Session<IO: Pipe, S: Side> {
 impl<IO, S> Session<IO, S>
 where
     IO: Pipe,
-    S: Side,
+    S: side::Side,
 {
     /// Create a new [`Session`] from a [`Pipe`] stream,
     /// and some configuration.
@@ -247,7 +248,7 @@ where
 impl<IO, S> Drop for Session<IO, S>
 where
     IO: Pipe,
-    S: Side,
+    S: side::Side,
 {
     fn drop(&mut self) {
         // TODO: (reliability) Find out:
@@ -265,7 +266,7 @@ where
 mod tests {
     use super::*;
 
-    use crate::side::{client::Client, server::Server};
+    use side::{client::Client, server::Server};
 
     use async_std::net::TcpStream;
     use futures::io::BufReader;

@@ -23,14 +23,16 @@
 )]
 #![forbid(unsafe_code)]
 
-mod stream;
-
-pub mod algorithm;
-pub mod service;
-pub mod side;
-
 pub mod error;
 pub use error::{Error, Result};
 
 mod session;
-pub use session::{Pipe, Session};
+pub use session::{Pipe, Session, service, side};
+
+mod stream;
+
+pub mod algorithm {
+    //! Supported algorithms for **compression**, **encryption**, **integrity**, **key-exchange** & **server key**.
+
+    pub use crate::stream::algorithm::{Cipher, Compress, Hmac, Kex, Key};
+}

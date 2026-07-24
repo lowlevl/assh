@@ -6,10 +6,12 @@ use std::io;
 use futures::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use ssh_packet::IntoPacket;
 
-use crate::{Pipe, Result, algorithm};
+use crate::{Pipe, Result};
 
-mod counter;
-use counter::IoCounter;
+pub(super) mod algorithm;
+
+mod iocounter;
+use iocounter::IoCounter;
 
 mod transport;
 pub(super) use transport::{Transport, TransportPair};

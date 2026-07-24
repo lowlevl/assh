@@ -1,5 +1,3 @@
-//! Supported algorithms for **compression**, **encryption**, **integrity** and **key-exchange**.
-
 // TODO: (feature) Gate insecure algorithms behind an `insecure` feature flag.
 
 use std::str::FromStr;
@@ -8,7 +6,7 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 
 use crate::{Error, Result};
 
-pub(crate) trait Negociate<S = ()>: Sized + FromStr {
+pub trait Negociate<S = ()>: Sized + FromStr {
     const ERR: Error;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f>;
@@ -23,8 +21,7 @@ pub(crate) trait Negociate<S = ()>: Sized + FromStr {
 }
 
 mod cipher;
-pub use cipher::Cipher;
-pub(super) use cipher::CipherState;
+pub use cipher::{Cipher, CipherState};
 
 mod compress;
 pub use compress::Compress;
@@ -33,8 +30,7 @@ mod hmac;
 pub use hmac::Hmac;
 
 mod kex;
-pub use kex::Kex;
-pub(super) use kex::KexMeta;
+pub use kex::{Kex, KexMeta};
 
 mod key;
 pub use key::Key;

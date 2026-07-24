@@ -4,9 +4,11 @@ use ssh_packet::{arch::id::Id, trans::KexInit};
 
 use crate::{
     Result,
-    algorithm::{Cipher, Compress, Hmac, Negociate},
     side::{Side, client::Client, server::Server},
-    stream::{Keys, Transport},
+    stream::{
+        Keys, Transport,
+        algorithm::{Cipher, Compress, Hmac, Negociate},
+    },
 };
 
 pub struct KexMeta<'k> {

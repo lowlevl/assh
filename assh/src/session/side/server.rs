@@ -7,8 +7,10 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 use super::{Side, client::Client};
 use crate::{
     Pipe, Result,
-    algorithm::{Cipher, Compress, Hmac, Kex, KexMeta, Negociate},
-    stream::{Stream, TransportPair},
+    stream::{
+        Stream, TransportPair,
+        algorithm::{Cipher, Compress, Hmac, Kex, KexMeta, Negociate},
+    },
 };
 
 #[doc(no_inline)]
