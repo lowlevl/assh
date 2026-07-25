@@ -1,4 +1,5 @@
-use aes_gcm::Tag;
+use cipher::KeyIvInit;
+use digest::{Digest, FixedOutputReset};
 use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
@@ -7,12 +8,7 @@ use crate::{
     side::{client::Client, server::Server},
 };
 
-use super::Negociate;
-
-// TODO: (optimization) Get rid of this Box<dyn> altogether.
-pub type State = Box<dyn std::any::Any + Send + Sync>;
-
-impl Negociate<Client> for Cipher {
+impl super::Negociate<Client> for Cipher {
     const ERR: Error = Error::NoCommonCipher;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -20,7 +16,7 @@ impl Negociate<Client> for Cipher {
     }
 }
 
-impl Negociate<Server> for Cipher {
+impl super::Negociate<Server> for Cipher {
     const ERR: Error = Error::NoCommonCipher;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -32,7 +28,7 @@ impl Negociate<Server> for Cipher {
 
 /// SSH cipher algorithms.
 #[non_exhaustive]
-#[derive(Debug, Clone, Default, PartialEq, EnumString, AsRefStr)]
+#[derive(Debug, Clone, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Cipher {
     // /// ChaCha20-Poly1305.
@@ -70,150 +66,102 @@ pub enum Cipher {
     TDesCbc,
 
     /// No cipher algorithm.
+    None,
+}
+
+fn ctr<C: ctr::cipher::StreamCipher>(state: &mut C, buffer: &mut [u8]) -> Result<()> {
+    state
+        .try_apply_keystream(buffer)
+        .map_err(|_| Error::Cipher)?;
+
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+pub enum EncState {
+    Aes256Ctr(ctr::Ctr128BE<aes::Aes256>),
+    Aes192Ctr(ctr::Ctr128BE<aes::Aes192>),
+    Aes128Ctr(ctr::Ctr128BE<aes::Aes128>),
+    Aes256Cbc(cbc::Encryptor<aes::Aes256>),
+    Aes192Cbc(cbc::Encryptor<aes::Aes192>),
+    Aes128Cbc(cbc::Encryptor<aes::Aes128>),
+    TDesCbc(cbc::Encryptor<des::TdesEde3>),
     #[default]
     None,
 }
 
-impl Cipher {
-    /// This method is a hack to solve deduplication of the enum
-    /// variants and to store the cipher states inside a dynamically
-    /// typed `Box<dyn std::any::Any>`.
-    fn state<'s, T: cipher::KeyIvInit + Send + Sync + 'static>(
-        state: &'s mut Option<State>,
-        key: &[u8],
-        iv: &[u8],
-    ) -> &'s mut T {
-        state
-            .get_or_insert_with(|| {
-                Box::new(T::new_from_slices(key, iv).expect("key derivation failed horribly"))
-            })
-            .downcast_mut()
-            .expect("failed to downcast CipherState")
+impl EncState {
+    pub fn new<const IV: u8, const K: u8, H: Digest + FixedOutputReset>(
+        cipher: &Cipher,
+        secret: &[u8],
+        hash: &[u8],
+        session_id: &[u8],
+    ) -> Self {
+        match cipher {
+            Cipher::Aes256Ctr => Self::Aes256Ctr(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes192Ctr => Self::Aes192Ctr(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes128Ctr => Self::Aes128Ctr(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes256Cbc => Self::Aes256Cbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes192Cbc => Self::Aes192Cbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes128Cbc => Self::Aes128Cbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::TDesCbc => Self::TDesCbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::None => Self::None,
+        }
     }
 
-    fn ctr<C: ctr::cipher::StreamCipher>(cipher: &mut C, buffer: &mut [u8]) -> Result<Option<Tag>> {
-        cipher
-            .try_apply_keystream(buffer)
+    fn cbc<C: cbc::cipher::BlockModeEncrypt>(state: &mut C, buffer: &mut [u8]) -> Result<()> {
+        use cbc::cipher::inout;
+
+        let data = inout::InOutBufReserved::from_mut_slice(buffer, buffer.len())
             .map_err(|_| Error::Cipher)?;
 
-        Ok(None)
-    }
+        let mut buf = data
+            .into_padded_blocks::<cbc::cipher::block_padding::NoPadding, C::BlockSize>()
+            .map_err(|_| Error::Cipher)?;
 
-    pub(crate) fn encrypt(
-        &mut self,
-        state: &mut Option<State>,
-        key: &[u8],
-        iv: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<Option<Tag>> {
-        fn cbc<C: cbc::cipher::BlockModeEncrypt>(
-            cipher: &mut C,
-            buffer: &mut [u8],
-        ) -> Result<Option<Tag>> {
-            use cbc::cipher::inout;
-
-            let data = inout::InOutBufReserved::from_mut_slice(buffer, buffer.len())
-                .map_err(|_| Error::Cipher)?;
-
-            let mut buf = data
-                .into_padded_blocks::<cbc::cipher::block_padding::NoPadding, C::BlockSize>()
-                .map_err(|_| Error::Cipher)?;
-
-            cipher.encrypt_blocks_inout(buf.get_blocks());
-            if let Some(block) = buf.get_tail_block() {
-                cipher.encrypt_block_inout(block);
-            }
-
-            Ok(None)
+        state.encrypt_blocks_inout(buf.get_blocks());
+        if let Some(block) = buf.get_tail_block() {
+            state.encrypt_block_inout(block);
         }
 
+        Ok(())
+    }
+
+    pub fn encrypt(&mut self, buffer: &mut [u8]) -> Result<()> {
         match self {
-            Self::Aes256Ctr => Self::ctr(
-                Self::state::<ctr::Ctr128BE<aes::Aes256>>(state, key, iv),
-                buffer,
-            ),
-            Self::Aes192Ctr => Self::ctr(
-                Self::state::<ctr::Ctr128BE<aes::Aes192>>(state, key, iv),
-                buffer,
-            ),
-            Self::Aes128Ctr => Self::ctr(
-                Self::state::<ctr::Ctr128BE<aes::Aes128>>(state, key, iv),
-                buffer,
-            ),
-            Self::Aes256Cbc => cbc(
-                Self::state::<cbc::Encryptor<aes::Aes256>>(state, key, iv),
-                buffer,
-            ),
-            Self::Aes192Cbc => cbc(
-                Self::state::<cbc::Encryptor<aes::Aes192>>(state, key, iv),
-                buffer,
-            ),
-            Self::Aes128Cbc => cbc(
-                Self::state::<cbc::Encryptor<aes::Aes128>>(state, key, iv),
-                buffer,
-            ),
-            Self::TDesCbc => cbc(
-                Self::state::<cbc::Encryptor<des::TdesEde3>>(state, key, iv),
-                buffer,
-            ),
-            Self::None => Ok(None),
+            Self::Aes256Ctr(state) => ctr(state, buffer),
+            Self::Aes192Ctr(state) => ctr(state, buffer),
+            Self::Aes128Ctr(state) => ctr(state, buffer),
+            Self::Aes256Cbc(state) => Self::cbc(state, buffer),
+            Self::Aes192Cbc(state) => Self::cbc(state, buffer),
+            Self::Aes128Cbc(state) => Self::cbc(state, buffer),
+            Self::TDesCbc(state) => Self::cbc(state, buffer),
+            Self::None => Ok(()),
         }
     }
 
-    pub(crate) fn decrypt(
-        &mut self,
-        state: &mut Option<State>,
-        key: &[u8],
-        iv: &[u8],
-        buffer: &mut [u8],
-    ) -> Result<Option<Tag>> {
-        fn cbc<C: cbc::cipher::BlockModeDecrypt>(
-            cipher: &mut C,
-            buffer: &mut [u8],
-        ) -> Result<Option<Tag>> {
-            use cbc::cipher::inout;
-
-            let data = inout::InOutBufReserved::from_mut_slice(buffer, buffer.len())
-                .map_err(|_| Error::Cipher)?;
-
-            let mut buf = data
-                .into_padded_blocks::<cbc::cipher::block_padding::NoPadding, C::BlockSize>()
-                .map_err(|_| Error::Cipher)?;
-
-            cipher.decrypt_blocks_inout(buf.get_blocks());
-            if let Some(block) = buf.get_tail_block() {
-                cipher.decrypt_block_inout(block);
-            }
-
-            Ok(None)
-        }
-
-        match self {
-            // In CTR mode, encryption and decrytion are the same
-            Self::Aes256Ctr | Self::Aes192Ctr | Self::Aes128Ctr => {
-                self.encrypt(state, key, iv, buffer)
-            }
-            Self::Aes256Cbc => cbc(
-                Self::state::<cbc::Decryptor<aes::Aes256>>(state, key, iv),
-                buffer,
-            ),
-            Self::Aes192Cbc => cbc(
-                Self::state::<cbc::Decryptor<aes::Aes192>>(state, key, iv),
-                buffer,
-            ),
-            Self::Aes128Cbc => cbc(
-                Self::state::<cbc::Decryptor<aes::Aes128>>(state, key, iv),
-                buffer,
-            ),
-            Self::TDesCbc => cbc(
-                Self::state::<cbc::Decryptor<des::TdesEde3>>(state, key, iv),
-                buffer,
-            ),
-            Self::None => Ok(None),
-        }
-    }
-
-    pub(crate) fn block_size(&self) -> usize {
+    pub fn block_size(&self) -> usize {
         match self {
             Self::None | Self::TDesCbc { .. } => 8,
             Self::Aes128Cbc { .. }
@@ -224,20 +172,95 @@ impl Cipher {
             | Self::Aes256Ctr { .. } => 16,
         }
     }
+}
 
-    pub(crate) fn key_size(&self) -> usize {
-        match self {
-            Self::None => 0,
-            Self::Aes128Cbc { .. } | Self::Aes128Ctr { .. } => 16,
-            Self::TDesCbc { .. } | Self::Aes192Cbc { .. } | Self::Aes192Ctr { .. } => 24,
-            Self::Aes256Cbc { .. } | Self::Aes256Ctr { .. } => 32,
+#[derive(Debug, Default)]
+pub enum DecState {
+    Aes256Ctr(ctr::Ctr128BE<aes::Aes256>),
+    Aes192Ctr(ctr::Ctr128BE<aes::Aes192>),
+    Aes128Ctr(ctr::Ctr128BE<aes::Aes128>),
+    Aes256Cbc(cbc::Decryptor<aes::Aes256>),
+    Aes192Cbc(cbc::Decryptor<aes::Aes192>),
+    Aes128Cbc(cbc::Decryptor<aes::Aes128>),
+    TDesCbc(cbc::Decryptor<des::TdesEde3>),
+    #[default]
+    None,
+}
+
+impl DecState {
+    pub fn new<const IV: u8, const K: u8, H: Digest + FixedOutputReset>(
+        cipher: &Cipher,
+        secret: &[u8],
+        hash: &[u8],
+        session_id: &[u8],
+    ) -> Self {
+        match cipher {
+            Cipher::Aes256Ctr => Self::Aes256Ctr(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes192Ctr => Self::Aes192Ctr(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes128Ctr => Self::Aes128Ctr(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes256Cbc => Self::Aes256Cbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes192Cbc => Self::Aes192Cbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::Aes128Cbc => Self::Aes128Cbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::TDesCbc => Self::TDesCbc(KeyIvInit::new(
+                &super::kdf::<_, H>(K, secret, hash, session_id).into(),
+                &super::kdf::<_, H>(IV, secret, hash, session_id).into(),
+            )),
+            Cipher::None => Self::None,
         }
     }
 
-    pub(crate) fn iv_size(&self) -> usize {
+    fn cbc<C: cbc::cipher::BlockModeDecrypt>(cipher: &mut C, buffer: &mut [u8]) -> Result<()> {
+        use cbc::cipher::inout;
+
+        let data = inout::InOutBufReserved::from_mut_slice(buffer, buffer.len())
+            .map_err(|_| Error::Cipher)?;
+
+        let mut buf = data
+            .into_padded_blocks::<cbc::cipher::block_padding::NoPadding, C::BlockSize>()
+            .map_err(|_| Error::Cipher)?;
+
+        cipher.decrypt_blocks_inout(buf.get_blocks());
+        if let Some(block) = buf.get_tail_block() {
+            cipher.decrypt_block_inout(block);
+        }
+
+        Ok(())
+    }
+
+    pub fn decrypt(&mut self, buffer: &mut [u8]) -> Result<()> {
         match self {
-            Self::None => 0,
-            Self::TDesCbc { .. } => 8,
+            Self::Aes256Ctr(state) => ctr(state, buffer),
+            Self::Aes192Ctr(state) => ctr(state, buffer),
+            Self::Aes128Ctr(state) => ctr(state, buffer),
+            Self::Aes256Cbc(state) => Self::cbc(state, buffer),
+            Self::Aes192Cbc(state) => Self::cbc(state, buffer),
+            Self::Aes128Cbc(state) => Self::cbc(state, buffer),
+            Self::TDesCbc(state) => Self::cbc(state, buffer),
+            Self::None => Ok(()),
+        }
+    }
+
+    pub fn block_size(&self) -> usize {
+        match self {
+            Self::None | Self::TDesCbc { .. } => 8,
             Self::Aes128Cbc { .. }
             | Self::Aes192Cbc { .. }
             | Self::Aes256Cbc { .. }
@@ -246,17 +269,4 @@ impl Cipher {
             | Self::Aes256Ctr { .. } => 16,
         }
     }
-
-    // pub(crate) fn has_tag(&self) -> bool {
-    //     match self {
-    //         Self::None
-    //         | Self::TDesCbc { .. }
-    //         | Self::Aes128Cbc { .. }
-    //         | Self::Aes192Cbc { .. }
-    //         | Self::Aes256Cbc { .. }
-    //         | Self::Aes128Ctr { .. }
-    //         | Self::Aes192Ctr { .. }
-    //         | Self::Aes256Ctr { .. } => false,
-    //     }
-    // }
 }

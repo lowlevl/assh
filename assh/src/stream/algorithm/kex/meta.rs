@@ -5,10 +5,7 @@ use ssh_packet::{arch::id::Id, trans::KexInit};
 use crate::{
     Result,
     side::{Side, client::Client, server::Server},
-    stream::{
-        Keys, Transport,
-        algorithm::{self, Negociate, cipher::Cipher, compress::Compress, hmac::Hmac},
-    },
+    stream::algorithm::{Negociate, cipher::Cipher, compress::Compress, hmac::Hmac},
 };
 
 pub struct KexMeta<'k> {
@@ -45,19 +42,5 @@ impl<'k> KexMeta<'k> {
                 unreachable!("there should not be any other struct implementing `Side`")
             },
         })
-    }
-
-    pub fn into_transport(self, hmac: algorithm::hmac::State, keys: Keys) -> Transport {
-        let Self {
-            compress, cipher, ..
-        } = self;
-
-        Transport {
-            compress,
-            cipher,
-            hmac,
-            state: None,
-            chain: keys,
-        }
     }
 }

@@ -8,7 +8,7 @@ use super::{Side, client::Client};
 use crate::{
     Pipe, Result,
     stream::{
-        Stream, TransportPair,
+        Stream, Transport,
         algorithm::{
             Negociate,
             cipher::Cipher,
@@ -135,7 +135,7 @@ impl Side for Server {
         kexinit: &KexInit<'_>,
         peerkexinit: &KexInit<'_>,
         peer_id: &Id,
-    ) -> Result<TransportPair> {
+    ) -> Result<Transport> {
         let client = KexMeta::new::<Client>(peer_id, peerkexinit, kexinit)?;
         let server = KexMeta::new::<Server>(self.id(), peerkexinit, kexinit)?;
 
@@ -144,7 +144,7 @@ impl Side for Server {
             .keys
             .iter()
             .find(|key| key.algorithm() == alg)
-            .expect("Did our KexInit lie to the client ?");
+            .expect("negociated server-key wasn't found");
 
         Kex::negociate(peerkexinit, kexinit)?
             .as_server(stream, client, server, key)

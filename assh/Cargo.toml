@@ -52,7 +52,7 @@ aead = "0.6.1"
 
 des = "0.9.0"
 aes = "0.9.1"
-aes-gcm = "0.11.0"
+# aes-gcm = "0.11.0"
 
 # MAC algorithms
 digest = "0.11.3"

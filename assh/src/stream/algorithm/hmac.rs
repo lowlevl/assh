@@ -85,25 +85,7 @@ enum Core {
 }
 
 impl State {
-    pub fn as_client<H: Digest + FixedOutputReset>(
-        hmac: &Hmac,
-        secret: &[u8],
-        hash: &[u8],
-        session_id: &[u8],
-    ) -> Self {
-        Self::new::<b'E', H>(hmac, secret, hash, session_id)
-    }
-
-    pub fn as_server<H: Digest + FixedOutputReset>(
-        hmac: &Hmac,
-        secret: &[u8],
-        hash: &[u8],
-        session_id: &[u8],
-    ) -> Self {
-        Self::new::<b'F', H>(hmac, secret, hash, session_id)
-    }
-
-    fn new<const K: u8, H: Digest + FixedOutputReset>(
+    pub fn new<const K: u8, H: Digest + FixedOutputReset>(
         hmac: &Hmac,
         secret: &[u8],
         hash: &[u8],

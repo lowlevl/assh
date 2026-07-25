@@ -9,7 +9,7 @@ use super::{Side, server::Server};
 use crate::{
     Pipe, Result,
     stream::{
-        Stream, TransportPair,
+        Stream, Transport,
         algorithm::{
             Negociate,
             cipher::Cipher,
@@ -145,7 +145,7 @@ impl Side for Client {
         kexinit: &KexInit<'_>,
         peerkexinit: &KexInit<'_>,
         peer_id: &Id,
-    ) -> Result<TransportPair> {
+    ) -> Result<Transport> {
         let client = KexMeta::new::<Client>(self.id(), kexinit, peerkexinit)?;
         let server = KexMeta::new::<Server>(peer_id, kexinit, peerkexinit)?;
 

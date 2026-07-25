@@ -14,10 +14,7 @@ mod iocounter;
 use iocounter::IoCounter;
 
 mod transport;
-pub(super) use transport::{Transport, TransportPair};
-
-mod keys;
-pub(super) use keys::Keys;
+pub(super) use transport::{RxTransport, Transport, TxTransport};
 
 #[doc(no_inline)]
 pub use ssh_packet::Packet;
@@ -30,7 +27,7 @@ pub struct Stream<S> {
     inner: IoCounter<S>,
 
     /// The pair of transport algorithms and keys computed from the key exchange.
-    transport: TransportPair,
+    transport: Transport,
 
     /// The session identifier derived from the first key exchange.
     session: Option<Vec<u8>>,
@@ -64,7 +61,7 @@ where
         self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
 
-    pub fn set_transport(&mut self, transport: TransportPair) {
+    pub fn set_transport(&mut self, transport: Transport) {
         self.transport = transport;
         self.inner.reset();
     }
@@ -112,35 +109,16 @@ where
         }
     }
 
-    /// Encrypt and send a _packet_ to the peer.
-    pub async fn send(&mut self, packet: impl IntoPacket) -> Result<()> {
-        let packet = packet.into_packet();
-
-        Self::inner_send(&mut self.inner, &mut self.transport.tx, self.txseq, &packet).await?;
-        self.inner.flush().await?;
-
-        tracing::trace!(
-            "-~> #{}: ^{:#x} ({} bytes)",
-            self.txseq,
-            packet[0],
-            packet.len(),
-        );
-
-        self.txseq = self.txseq.wrapping_add(1);
-
-        Ok(())
-    }
-
     async fn inner_recv(
         mut reader: impl AsyncRead + Unpin,
-        cipher: &mut Transport,
+        transport: &mut RxTransport,
         seq: u32,
     ) -> Result<Packet> {
-        let mut buf = vec![0; cipher.block_size()];
+        let mut buf = vec![0; transport.cipher.block_size()];
         reader.read_exact(&mut buf[..]).await?;
 
-        if !cipher.hmac.etm() {
-            cipher.decrypt(&mut buf[..])?;
+        if !transport.hmac.etm() {
+            transport.cipher.decrypt(&mut buf[..])?;
         }
 
         let len = u32::from_be_bytes(
@@ -158,17 +136,21 @@ where
 
         // read the rest of the data from the reader
         buf.resize(std::mem::size_of_val(&len) + len as usize, 0);
-        reader.read_exact(&mut buf[cipher.block_size()..]).await?;
+        reader
+            .read_exact(&mut buf[transport.cipher.block_size()..])
+            .await?;
 
-        let mut mac = vec![0; cipher.hmac.size()];
+        let mut mac = vec![0; transport.hmac.size()];
         reader.read_exact(&mut mac[..]).await?;
 
-        if cipher.hmac.etm() {
-            cipher.open(&buf, mac, seq)?;
-            cipher.decrypt(&mut buf[4..])?;
+        if transport.hmac.etm() {
+            transport.hmac.verify(seq, &buf, &mac)?;
+            transport.cipher.decrypt(&mut buf[4..])?;
         } else {
-            cipher.decrypt(&mut buf[cipher.block_size()..])?;
-            cipher.open(&buf, mac, seq)?;
+            transport
+                .cipher
+                .decrypt(&mut buf[transport.cipher.block_size()..])?;
+            transport.hmac.verify(seq, &buf, &mac)?;
         }
 
         let (padlen, mut decrypted) = buf[4..].split_first().ok_or_else(|| {
@@ -189,30 +171,49 @@ where
         let mut payload = vec![0; len as usize - *padlen as usize - std::mem::size_of_val(padlen)];
         io::Read::read_exact(&mut decrypted, &mut payload[..])?;
 
-        let payload = cipher.decompress(payload)?;
+        let payload = transport.compress.decompress(payload)?;
 
         Ok(Packet(payload))
     }
 
+    /// Encrypt and send a _packet_ to the peer.
+    pub async fn send(&mut self, packet: impl IntoPacket) -> Result<()> {
+        let packet = packet.into_packet();
+
+        Self::inner_send(&mut self.inner, &mut self.transport.tx, self.txseq, &packet).await?;
+        self.inner.flush().await?;
+
+        tracing::trace!(
+            "-~> #{}: ^{:#x} ({} bytes)",
+            self.txseq,
+            packet[0],
+            packet.len(),
+        );
+
+        self.txseq = self.txseq.wrapping_add(1);
+
+        Ok(())
+    }
+
     async fn inner_send(
         mut writer: impl AsyncWrite + Unpin,
-        cipher: &mut Transport,
+        transport: &mut TxTransport,
         seq: u32,
         packet: &Packet,
     ) -> Result<()> {
-        let compressed = cipher.compress(packet.as_ref())?;
+        let compressed = transport.compress.compress(packet.as_ref())?;
 
-        let buf = cipher.pad(compressed)?;
+        let buf = transport.pad(compressed)?;
         let mut buf = [(buf.len() as u32).to_be_bytes().to_vec(), buf].concat();
 
-        let (buf, mac) = if cipher.hmac.etm() {
-            cipher.encrypt(&mut buf[4..])?;
-            let mac = cipher.seal(&buf, seq);
+        let (buf, mac) = if transport.hmac.etm() {
+            transport.cipher.encrypt(&mut buf[4..])?;
+            let mac = transport.hmac.compute(seq, &buf);
 
             (buf, mac)
         } else {
-            let mac = cipher.seal(&buf, seq);
-            cipher.encrypt(&mut buf[..])?;
+            let mac = transport.hmac.compute(seq, &buf);
+            transport.cipher.encrypt(&mut buf[..])?;
 
             (buf, mac)
         };

@@ -1,67 +1,97 @@
+use digest::{Digest, FixedOutputReset};
 use rand::RngExt;
-use secrecy::ExposeSecret;
 use ssh_packet::Packet;
 
 use crate::{
     Result,
-    stream::algorithm::{cipher, compress, hmac},
+    stream::algorithm::{cipher, compress, hmac, kex},
 };
-
-use super::Keys;
-
-#[derive(Debug, Default)]
-pub struct TransportPair {
-    pub tx: Transport,
-    pub rx: Transport,
-}
 
 #[derive(Debug, Default)]
 pub struct Transport {
-    pub compress: compress::Compress,
-    pub cipher: cipher::Cipher,
-    pub hmac: hmac::State,
-
-    pub state: Option<cipher::State>,
-    pub chain: Keys,
+    pub tx: TxTransport,
+    pub rx: RxTransport,
 }
 
 impl Transport {
-    pub fn block_size(&self) -> usize {
-        self.cipher.block_size()
+    pub fn as_client<H: Digest + FixedOutputReset>(
+        client: kex::KexMeta<'_>,
+        server: kex::KexMeta<'_>,
+        secret: &[u8],
+        hash: &[u8],
+        session_id: &[u8],
+    ) -> Self {
+        let tx = TxTransport {
+            compress: client.compress,
+            cipher: cipher::EncState::new::<b'A', b'C', H>(
+                &client.cipher,
+                secret,
+                hash,
+                session_id,
+            ),
+            hmac: hmac::State::new::<b'E', H>(&client.hmac, secret, hash, session_id),
+        };
+
+        let rx = RxTransport {
+            compress: server.compress,
+            cipher: cipher::DecState::new::<b'B', b'D', H>(
+                &server.cipher,
+                secret,
+                hash,
+                session_id,
+            ),
+            hmac: hmac::State::new::<b'F', H>(&server.hmac, secret, hash, session_id),
+        };
+
+        Self { tx, rx }
     }
 
-    pub fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<()> {
-        if self.cipher != cipher::Cipher::None {
-            self.cipher.decrypt(
-                &mut self.state,
-                self.chain.key.expose_secret(),
-                self.chain.iv.expose_secret(),
-                buf.as_mut(),
-            )?;
-        }
+    pub fn as_server<H: Digest + FixedOutputReset>(
+        server: kex::KexMeta<'_>,
+        client: kex::KexMeta<'_>,
+        secret: &[u8],
+        hash: &[u8],
+        session_id: &[u8],
+    ) -> Self {
+        let tx = TxTransport {
+            compress: server.compress,
+            cipher: cipher::EncState::new::<b'B', b'D', H>(
+                &server.cipher,
+                secret,
+                hash,
+                session_id,
+            ),
+            hmac: hmac::State::new::<b'F', H>(&server.hmac, secret, hash, session_id),
+        };
 
-        Ok(())
+        let rx = RxTransport {
+            compress: client.compress,
+            cipher: cipher::DecState::new::<b'A', b'C', H>(
+                &client.cipher,
+                secret,
+                hash,
+                session_id,
+            ),
+            hmac: hmac::State::new::<b'E', H>(&client.hmac, secret, hash, session_id),
+        };
+
+        Self { tx, rx }
     }
+}
 
-    pub fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>, seq: u32) -> Result<()> {
-        self.hmac
-            .verify(seq, buf.as_ref(), &mac)
-            .map_err(Into::into)
-    }
+#[derive(Debug, Default)]
+pub struct TxTransport {
+    pub compress: compress::Compress,
+    pub cipher: cipher::EncState,
+    pub hmac: hmac::State,
+}
 
-    pub fn decompress(&mut self, buf: Vec<u8>) -> Result<Vec<u8>> {
-        self.compress.decompress(buf)
-    }
-
-    pub fn compress<B: AsRef<[u8]>>(&mut self, buf: B) -> Result<Vec<u8>> {
-        self.compress.compress(buf.as_ref())
-    }
-
+impl TxTransport {
     fn padding(&self, payload: usize) -> u8 {
         const MIN_PAD_SIZE: usize = 4;
         const MIN_ALIGN: usize = 8;
 
-        let align = self.block_size().max(MIN_ALIGN);
+        let align = self.cipher.block_size().max(MIN_ALIGN);
 
         let size = if self.hmac.etm() {
             std::mem::size_of::<u8>() + payload
@@ -76,7 +106,7 @@ impl Transport {
             padding
         };
 
-        if size + padding < self.block_size().max(Packet::MIN_SIZE) {
+        if size + padding < self.cipher.block_size().max(Packet::MIN_SIZE) {
             (padding + align) as u8
         } else {
             padding as u8
@@ -97,21 +127,11 @@ impl Transport {
 
         Ok(padded)
     }
+}
 
-    pub fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<()> {
-        if self.cipher != cipher::Cipher::None {
-            self.cipher.encrypt(
-                &mut self.state,
-                self.chain.key.expose_secret(),
-                self.chain.iv.expose_secret(),
-                buf.as_mut(),
-            )?;
-        }
-
-        Ok(())
-    }
-
-    pub fn seal<B: AsRef<[u8]>>(&mut self, buf: B, seq: u32) -> hmac::HmacBuf {
-        self.hmac.compute(seq, buf.as_ref())
-    }
+#[derive(Debug, Default)]
+pub struct RxTransport {
+    pub compress: compress::Compress,
+    pub cipher: cipher::DecState,
+    pub hmac: hmac::State,
 }

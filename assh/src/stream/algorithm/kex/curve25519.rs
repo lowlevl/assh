@@ -8,17 +8,17 @@ use ssh_packet::{
     trans::{KexEcdhInit, KexEcdhReply},
 };
 
-use super::{super::hmac, KexMeta};
+use super::KexMeta;
 use crate::{
     Error, Pipe, Result,
-    stream::{Keys, Stream, Transport},
+    stream::{Stream, Transport},
 };
 
 pub async fn as_client<H: Digest + FixedOutputReset>(
     stream: &mut Stream<impl Pipe>,
     client: KexMeta<'_>,
     server: KexMeta<'_>,
-) -> Result<(Transport, Transport)> {
+) -> Result<Transport> {
     let e_c = x25519_dalek::EphemeralSecret::random_from_rng(&mut rand::rng());
     let q_c = x25519_dalek::PublicKey::from(&e_c);
 
@@ -53,27 +53,13 @@ pub async fn as_client<H: Digest + FixedOutputReset>(
 
     let session_id = stream.with_session(&hash);
 
-    let keys = Keys::as_client::<H>(secret.expose_secret(), &hash, session_id, &client.cipher);
-    let hmac = hmac::State::as_client::<H>(
-        &client.hmac,
+    Ok(Transport::as_client::<H>(
+        client,
+        server,
         secret.expose_secret().as_ref(),
         &hash,
         session_id,
-    );
-
-    let client = client.into_transport(hmac, keys);
-
-    let keys = Keys::as_server::<H>(secret.expose_secret(), &hash, session_id, &server.cipher);
-    let hmac = hmac::State::as_server::<H>(
-        &server.hmac,
-        secret.expose_secret().as_ref(),
-        &hash,
-        session_id,
-    );
-
-    let server = server.into_transport(hmac, keys);
-
-    Ok((client, server))
+    ))
 }
 
 pub async fn as_server<H: Digest + FixedOutputReset>(
@@ -81,7 +67,7 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
     client: KexMeta<'_>,
     server: KexMeta<'_>,
     key: &PrivateKey,
-) -> Result<(Transport, Transport)> {
+) -> Result<Transport> {
     let ecdh: KexEcdhInit = stream.recv().await?.to()?;
 
     let e_s = x25519_dalek::EphemeralSecret::random_from_rng(&mut rand::rng());
@@ -120,25 +106,11 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
 
     let session_id = stream.with_session(&hash);
 
-    let keys = Keys::as_client::<H>(secret.expose_secret(), &hash, session_id, &client.cipher);
-    let hmac = hmac::State::as_client::<H>(
-        &client.hmac,
+    Ok(Transport::as_server::<H>(
+        server,
+        client,
         secret.expose_secret().as_ref(),
         &hash,
         session_id,
-    );
-
-    let client = client.into_transport(hmac, keys);
-
-    let keys = Keys::as_server::<H>(secret.expose_secret(), &hash, session_id, &server.cipher);
-    let hmac = hmac::State::as_server::<H>(
-        &server.hmac,
-        secret.expose_secret().as_ref(),
-        &hash,
-        session_id,
-    );
-
-    let server = server.into_transport(hmac, keys);
-
-    Ok((client, server))
+    ))
 }
