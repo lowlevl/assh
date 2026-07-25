@@ -9,7 +9,13 @@ use crate::{
     Pipe, Result,
     stream::{
         Stream, TransportPair,
-        algorithm::{Cipher, Compress, Hmac, Kex, KexMeta, Negociate},
+        algorithm::{
+            Negociate,
+            cipher::Cipher,
+            compress::Compress,
+            hmac::Hmac,
+            kex::{Kex, KexMeta},
+        },
     },
 };
 

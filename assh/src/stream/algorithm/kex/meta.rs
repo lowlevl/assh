@@ -7,7 +7,7 @@ use crate::{
     side::{Side, client::Client, server::Server},
     stream::{
         Keys, Transport,
-        algorithm::{Cipher, Compress, Hmac, Negociate},
+        algorithm::{self, Negociate, cipher::Cipher, compress::Compress, hmac::Hmac},
     },
 };
 
@@ -42,17 +42,14 @@ impl<'k> KexMeta<'k> {
             } else if TypeId::of::<S>() == TypeId::of::<Server>() {
                 serverkex
             } else {
-                unreachable!("There should not be any other struct implementing `Side`")
+                unreachable!("there should not be any other struct implementing `Side`")
             },
         })
     }
 
-    pub fn into_transport(self, keys: Keys) -> Transport {
+    pub fn into_transport(self, hmac: algorithm::hmac::State, keys: Keys) -> Transport {
         let Self {
-            compress,
-            cipher,
-            hmac,
-            ..
+            compress, cipher, ..
         } = self;
 
         Transport {

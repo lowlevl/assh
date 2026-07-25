@@ -1,7 +1,8 @@
-use hmac::digest::{KeyInit, Mac, MacError, OutputSizeUser};
-use md5::Md5;
-use sha1::Sha1;
-use sha2::{Sha256, Sha512};
+use digest::{Digest, FixedOutputReset};
+use hmac::{
+    KeyInit, Mac,
+    digest::{DynDigest, MacError},
+};
 use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
@@ -10,9 +11,7 @@ use crate::{
     side::{client::Client, server::Server},
 };
 
-use super::Negociate;
-
-impl Negociate<Client> for Hmac {
+impl super::Negociate<Client> for Hmac {
     const ERR: Error = Error::NoCommonHmac;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -20,7 +19,7 @@ impl Negociate<Client> for Hmac {
     }
 }
 
-impl Negociate<Server> for Hmac {
+impl super::Negociate<Server> for Hmac {
     const ERR: Error = Error::NoCommonHmac;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -30,7 +29,7 @@ impl Negociate<Server> for Hmac {
 
 /// SSH hmac algorithms.
 #[non_exhaustive]
-#[derive(Debug, Clone, Default, PartialEq, EnumString, AsRefStr)]
+#[derive(Debug, Clone, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Hmac {
     /// HMAC with sha-2-512 digest on encrypted message.
@@ -64,78 +63,143 @@ pub enum Hmac {
     HmacMd5,
 
     /// No HMAC algorithm.
+    None,
+}
+
+pub type HmacBuf = heapless::Vec<u8, 64>;
+
+#[derive(Debug, Default)]
+pub struct State {
+    etm: bool,
+    core: Core,
+}
+
+#[derive(Debug, Default)]
+enum Core {
+    HmacSha512(hmac::HmacReset<sha2::Sha512>),
+    HmacSha256(hmac::HmacReset<sha2::Sha256>),
+    HmacSha1(hmac::HmacReset<sha1::Sha1>),
+    HmacMd5(hmac::HmacReset<md5::Md5>),
     #[default]
     None,
 }
 
-impl Hmac {
-    pub(crate) fn verify(
-        &self,
-        seq: u32,
-        buf: &[u8],
-        key: &[u8],
-        mac: &[u8],
-    ) -> Result<(), MacError> {
-        fn verify<D: Mac + KeyInit>(
+impl State {
+    pub fn as_client<H: Digest + FixedOutputReset>(
+        hmac: &Hmac,
+        secret: &[u8],
+        hash: &[u8],
+        session_id: &[u8],
+    ) -> Self {
+        Self::new::<b'E', H>(hmac, secret, hash, session_id)
+    }
+
+    pub fn as_server<H: Digest + FixedOutputReset>(
+        hmac: &Hmac,
+        secret: &[u8],
+        hash: &[u8],
+        session_id: &[u8],
+    ) -> Self {
+        Self::new::<b'F', H>(hmac, secret, hash, session_id)
+    }
+
+    fn new<const K: u8, H: Digest + FixedOutputReset>(
+        hmac: &Hmac,
+        secret: &[u8],
+        hash: &[u8],
+        session_id: &[u8],
+    ) -> Self {
+        const SHA512_KS: usize = 64;
+        const SHA256_KS: usize = 32;
+        const SHA1_KS: usize = 20;
+        const MD5_KS: usize = 16;
+
+        fn new<const S: usize, H: Digest + FixedOutputReset, M: KeyInit>(
+            kind: u8,
+            secret: &[u8],
+            hash: &[u8],
+            session_id: &[u8],
+        ) -> M {
+            let key = super::kdf::<S, H>(kind, secret, hash, session_id);
+
+            M::new_from_slice(&key).expect("hmac accepts any key size")
+        }
+
+        Self {
+            etm: matches!(
+                hmac,
+                Hmac::HmacSha512ETM | Hmac::HmacSha256ETM | Hmac::HmacSha1ETM | Hmac::HmacMd5ETM
+            ),
+
+            core: match hmac {
+                Hmac::HmacSha512ETM | Hmac::HmacSha512 => {
+                    Core::HmacSha512(new::<SHA512_KS, H, _>(K, secret, hash, session_id))
+                }
+                Hmac::HmacSha256ETM | Hmac::HmacSha256 => {
+                    Core::HmacSha256(new::<SHA256_KS, H, _>(K, secret, hash, session_id))
+                }
+                Hmac::HmacSha1ETM | Hmac::HmacSha1 => {
+                    Core::HmacSha1(new::<SHA1_KS, H, _>(K, secret, hash, session_id))
+                }
+                Hmac::HmacMd5ETM | Hmac::HmacMd5 => {
+                    Core::HmacMd5(new::<MD5_KS, H, _>(K, secret, hash, session_id))
+                }
+                Hmac::None => Core::None,
+            },
+        }
+    }
+
+    pub fn compute(&mut self, seq: u32, buf: &[u8]) -> HmacBuf {
+        fn compute<D: Mac + FixedOutputReset>(state: &mut D, seq: u32, buf: &[u8]) -> HmacBuf {
+            Mac::update(state, &seq.to_be_bytes());
+            Mac::update(state, buf);
+
+            HmacBuf::from_slice(&state.finalize_reset().into_bytes())
+                .expect("HMAC output is bigger than the alloted storage")
+        }
+
+        match &mut self.core {
+            Core::HmacSha512(state) => compute(state, seq, buf),
+            Core::HmacSha256(state) => compute(state, seq, buf),
+            Core::HmacSha1(state) => compute(state, seq, buf),
+            Core::HmacMd5(state) => compute(state, seq, buf),
+            Core::None => Default::default(),
+        }
+    }
+
+    pub fn verify(&mut self, seq: u32, buf: &[u8], mac: &[u8]) -> Result<(), MacError> {
+        fn verify<D: Mac + FixedOutputReset>(
+            state: &mut D,
             seq: u32,
             buf: &[u8],
-            key: &[u8],
             mac: &[u8],
         ) -> Result<(), MacError> {
-            <D as KeyInit>::new_from_slice(key)
-                .expect("Key derivation failed horribly")
-                .chain_update(seq.to_be_bytes())
-                .chain_update(buf)
-                .verify_slice(mac)
+            Mac::update(state, &seq.to_be_bytes());
+            Mac::update(state, buf);
+
+            state.verify_slice_reset(mac)
         }
 
-        match self {
-            Self::HmacSha512ETM | Self::HmacSha512 => {
-                verify::<hmac::Hmac<Sha512>>(seq, buf, key, mac)
-            }
-            Self::HmacSha256ETM | Self::HmacSha256 => {
-                verify::<hmac::Hmac<Sha256>>(seq, buf, key, mac)
-            }
-            Self::HmacSha1ETM | Self::HmacSha1 => verify::<hmac::Hmac<Sha1>>(seq, buf, key, mac),
-            Self::HmacMd5ETM | Self::HmacMd5 => verify::<hmac::Hmac<Md5>>(seq, buf, key, mac),
-            Self::None => Ok(()),
+        match &mut self.core {
+            Core::HmacSha512(state) => verify(state, seq, buf, mac),
+            Core::HmacSha256(state) => verify(state, seq, buf, mac),
+            Core::HmacSha1(state) => verify(state, seq, buf, mac),
+            Core::HmacMd5(state) => verify(state, seq, buf, mac),
+            Core::None => Ok(()),
         }
     }
 
-    pub(crate) fn sign(&self, seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
-        fn sign<D: Mac + KeyInit>(seq: u32, buf: &[u8], key: &[u8]) -> Vec<u8> {
-            <D as KeyInit>::new_from_slice(key)
-                .expect("Key derivation failed horribly")
-                .chain_update(seq.to_be_bytes())
-                .chain_update(buf)
-                .finalize()
-                .into_bytes()
-                .to_vec()
-        }
-
-        match self {
-            Self::HmacSha512ETM | Self::HmacSha512 => sign::<hmac::Hmac<Sha512>>(seq, buf, key),
-            Self::HmacSha256ETM | Self::HmacSha256 => sign::<hmac::Hmac<Sha256>>(seq, buf, key),
-            Self::HmacSha1ETM | Self::HmacSha1 => sign::<hmac::Hmac<Sha1>>(seq, buf, key),
-            Self::HmacMd5ETM | Self::HmacMd5 => sign::<hmac::Hmac<Md5>>(seq, buf, key),
-            Self::None => Default::default(),
+    pub fn size(&self) -> usize {
+        match &self.core {
+            Core::HmacSha512(state) => state.output_size(),
+            Core::HmacSha256(state) => state.output_size(),
+            Core::HmacSha1(state) => state.output_size(),
+            Core::HmacMd5(state) => state.output_size(),
+            Core::None => 0,
         }
     }
 
-    pub(crate) fn size(&self) -> usize {
-        match self {
-            Self::HmacSha512ETM | Self::HmacSha512 => Sha512::output_size(),
-            Self::HmacSha256ETM | Self::HmacSha256 => Sha256::output_size(),
-            Self::HmacSha1ETM | Self::HmacSha1 => Sha1::output_size(),
-            Self::HmacMd5ETM | Self::HmacMd5 => Md5::output_size(),
-            Self::None => 0,
-        }
-    }
-
-    pub(crate) fn etm(&self) -> bool {
-        matches!(
-            self,
-            Self::HmacSha512ETM | Self::HmacSha256ETM | Self::HmacSha1ETM | Self::HmacMd5ETM
-        )
+    pub fn etm(&self) -> bool {
+        self.etm
     }
 }

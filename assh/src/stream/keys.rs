@@ -1,7 +1,7 @@
 use digest::{Digest, FixedOutputReset};
 use secrecy::SecretBox;
 
-use super::algorithm::{Cipher, Hmac};
+use super::algorithm::cipher::Cipher;
 
 #[derive(Debug, Default)]
 pub struct Keys {
@@ -10,9 +10,6 @@ pub struct Keys {
 
     /// Cipher _key_.
     pub key: SecretBox<Vec<u8>>,
-
-    /// Hmac _key_.
-    pub hmac: SecretBox<Vec<u8>>,
 }
 
 impl Keys {
@@ -21,16 +18,13 @@ impl Keys {
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
-        hmac: &Hmac,
     ) -> Self {
         let ivsize = cipher.iv_size();
         let keysize = cipher.key_size();
-        let hmacsize = hmac.size();
 
         Self {
             iv: Self::derive::<D>(secret, hash, b'A', session_id, ivsize),
             key: Self::derive::<D>(secret, hash, b'C', session_id, keysize),
-            hmac: Self::derive::<D>(secret, hash, b'E', session_id, hmacsize),
         }
     }
 
@@ -39,16 +33,13 @@ impl Keys {
         hash: &[u8],
         session_id: &[u8],
         cipher: &Cipher,
-        hmac: &Hmac,
     ) -> Self {
         let ivsize = cipher.iv_size();
         let keysize = cipher.key_size();
-        let hmacsize = hmac.size();
 
         Self {
             iv: Self::derive::<D>(secret, hash, b'B', session_id, ivsize),
             key: Self::derive::<D>(secret, hash, b'D', session_id, keysize),
-            hmac: Self::derive::<D>(secret, hash, b'F', session_id, hmacsize),
         }
     }
 

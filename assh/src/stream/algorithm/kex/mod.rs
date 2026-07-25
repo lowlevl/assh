@@ -2,12 +2,11 @@ use ssh_key::PrivateKey;
 use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
+use super::Negociate;
 use crate::{
     Error, Pipe, Result,
-    stream::{Keys, Stream, Transport, TransportPair},
+    stream::{Stream, TransportPair},
 };
-
-use super::Negociate;
 
 // TODO: (reliability) Investigate the randomly-occuring `invalid signature` occuring against OpenSSH.
 

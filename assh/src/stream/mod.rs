@@ -207,11 +207,11 @@ where
 
         let (buf, mac) = if cipher.hmac.etm() {
             cipher.encrypt(&mut buf[4..])?;
-            let mac = cipher.seal(&buf, seq)?;
+            let mac = cipher.seal(&buf, seq);
 
             (buf, mac)
         } else {
-            let mac = cipher.seal(&buf, seq)?;
+            let mac = cipher.seal(&buf, seq);
             cipher.encrypt(&mut buf[..])?;
 
             (buf, mac)

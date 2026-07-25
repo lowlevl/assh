@@ -34,5 +34,7 @@ mod stream;
 pub mod algorithm {
     //! Supported algorithms for **compression**, **encryption**, **integrity**, **key-exchange** & **server key**.
 
-    pub use crate::stream::algorithm::{Cipher, Compress, Hmac, Kex, Key};
+    pub use crate::stream::algorithm::{
+        cipher::Cipher, compress::Compress, hmac::Hmac, kex::Kex, key::Key,
+    };
 }

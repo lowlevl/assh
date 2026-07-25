@@ -4,7 +4,7 @@ use ssh_packet::Packet;
 
 use crate::{
     Result,
-    stream::algorithm::{self, Cipher, CipherState},
+    stream::algorithm::{cipher, compress, hmac},
 };
 
 use super::Keys;
@@ -17,11 +17,11 @@ pub struct TransportPair {
 
 #[derive(Debug, Default)]
 pub struct Transport {
-    pub compress: algorithm::Compress,
-    pub cipher: algorithm::Cipher,
-    pub hmac: algorithm::Hmac,
+    pub compress: compress::Compress,
+    pub cipher: cipher::Cipher,
+    pub hmac: hmac::State,
 
-    pub state: Option<CipherState>,
+    pub state: Option<cipher::State>,
     pub chain: Keys,
 }
 
@@ -31,7 +31,7 @@ impl Transport {
     }
 
     pub fn decrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<()> {
-        if self.cipher != Cipher::None {
+        if self.cipher != cipher::Cipher::None {
             self.cipher.decrypt(
                 &mut self.state,
                 self.chain.key.expose_secret(),
@@ -44,12 +44,9 @@ impl Transport {
     }
 
     pub fn open<B: AsRef<[u8]>>(&mut self, buf: B, mac: Vec<u8>, seq: u32) -> Result<()> {
-        if self.hmac.size() > 0 {
-            self.hmac
-                .verify(seq, buf.as_ref(), self.chain.hmac.expose_secret(), &mac)?;
-        }
-
-        Ok(())
+        self.hmac
+            .verify(seq, buf.as_ref(), &mac)
+            .map_err(Into::into)
     }
 
     pub fn decompress(&mut self, buf: Vec<u8>) -> Result<Vec<u8>> {
@@ -102,7 +99,7 @@ impl Transport {
     }
 
     pub fn encrypt<B: AsMut<[u8]>>(&mut self, mut buf: B) -> Result<()> {
-        if self.cipher != Cipher::None {
+        if self.cipher != cipher::Cipher::None {
             self.cipher.encrypt(
                 &mut self.state,
                 self.chain.key.expose_secret(),
@@ -114,9 +111,7 @@ impl Transport {
         Ok(())
     }
 
-    pub fn seal<B: AsRef<[u8]>>(&mut self, buf: B, seq: u32) -> Result<Vec<u8>> {
-        Ok(self
-            .hmac
-            .sign(seq, buf.as_ref(), self.chain.hmac.expose_secret()))
+    pub fn seal<B: AsRef<[u8]>>(&mut self, buf: B, seq: u32) -> hmac::HmacBuf {
+        self.hmac.compute(seq, buf.as_ref())
     }
 }

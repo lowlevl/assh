@@ -10,7 +10,7 @@ use crate::{
 use super::Negociate;
 
 // TODO: (optimization) Get rid of this Box<dyn> altogether.
-pub type CipherState = Box<dyn std::any::Any + Send + Sync>;
+pub type State = Box<dyn std::any::Any + Send + Sync>;
 
 impl Negociate<Client> for Cipher {
     const ERR: Error = Error::NoCommonCipher;
@@ -79,7 +79,7 @@ impl Cipher {
     /// variants and to store the cipher states inside a dynamically
     /// typed `Box<dyn std::any::Any>`.
     fn state<'s, T: cipher::KeyIvInit + Send + Sync + 'static>(
-        state: &'s mut Option<CipherState>,
+        state: &'s mut Option<State>,
         key: &[u8],
         iv: &[u8],
     ) -> &'s mut T {
@@ -101,7 +101,7 @@ impl Cipher {
 
     pub(crate) fn encrypt(
         &mut self,
-        state: &mut Option<CipherState>,
+        state: &mut Option<State>,
         key: &[u8],
         iv: &[u8],
         buffer: &mut [u8],
@@ -162,7 +162,7 @@ impl Cipher {
 
     pub(crate) fn decrypt(
         &mut self,
-        state: &mut Option<CipherState>,
+        state: &mut Option<State>,
         key: &[u8],
         iv: &[u8],
         buffer: &mut [u8],

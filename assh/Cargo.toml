@@ -29,6 +29,7 @@ thiserror.workspace = true
 
 strum = { version = "0.28.0", features = ["derive"] }
 secrecy = "0.10.3"
+heapless = "0.9.3"
 
 ssh-key.workspace = true
 ssh-packet.workspace = true
