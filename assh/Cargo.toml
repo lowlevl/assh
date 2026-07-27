@@ -42,6 +42,7 @@ signature = "3.0.0"
 x25519-dalek = { version = "3.0.0", features = ["zeroize"] }
 
 # Compression algorithms
+zlib-rs = "0.6.7"
 
 # Cipher algorithms
 cipher = "0.5.2"

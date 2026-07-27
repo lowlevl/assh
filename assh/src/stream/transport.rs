@@ -6,7 +6,7 @@ use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use ssh_packet::Packet;
 
 use crate::{
-    Result,
+    Error, Result,
     stream::algorithm::{cipher, compress, hmac, kex},
 };
 
@@ -48,7 +48,7 @@ impl Transport {
         session_id: &[u8],
     ) -> Self {
         let tx = TxTransport {
-            compress: client.compress,
+            compress: compress::State::<compress::Compression>::new(&client.compress),
             cipher: cipher::EncState::new::<b'A', b'C', H>(
                 &client.cipher,
                 secret,
@@ -59,7 +59,7 @@ impl Transport {
         };
 
         let rx = RxTransport {
-            compress: server.compress,
+            compress: compress::State::<compress::Decompression>::new(&server.compress),
             cipher: cipher::DecState::new::<b'B', b'D', H>(
                 &server.cipher,
                 secret,
@@ -80,7 +80,7 @@ impl Transport {
         session_id: &[u8],
     ) -> Self {
         let tx = TxTransport {
-            compress: server.compress,
+            compress: compress::State::<compress::Compression>::new(&server.compress),
             cipher: cipher::EncState::new::<b'B', b'D', H>(
                 &server.cipher,
                 secret,
@@ -91,7 +91,7 @@ impl Transport {
         };
 
         let rx = RxTransport {
-            compress: client.compress,
+            compress: compress::State::<compress::Decompression>::new(&client.compress),
             cipher: cipher::DecState::new::<b'A', b'C', H>(
                 &client.cipher,
                 secret,
@@ -107,7 +107,7 @@ impl Transport {
 
 #[derive(Debug, Default)]
 pub struct TxTransport {
-    compress: compress::Compress,
+    compress: compress::State<compress::Compression>,
     cipher: cipher::EncState,
     hmac: hmac::State,
 }
@@ -153,7 +153,9 @@ impl TxTransport {
         let mut padded = buf.split_off(LEN_FIELD_SIZE); // reserve 4 bytes for `length`.
         let mut unpadded = padded.split_off(PADLEN_FIELD_SIZE); // reserve 1 byte for `padding`.
 
-        self.compress.compress(payload, &mut unpadded)?;
+        self.compress
+            .compress(payload, &mut unpadded)
+            .map_err(|err| Error::Zlib(format!("{err:?}")))?;
 
         let padlen = self.padding(unpadded.len());
         unpadded.extend(rand::random_iter::<u8>().take(padlen));
@@ -188,7 +190,7 @@ impl TxTransport {
 
 #[derive(Debug, Default)]
 pub struct RxTransport {
-    compress: compress::Compress,
+    compress: compress::State<compress::Decompression>,
     cipher: cipher::DecState,
     hmac: hmac::State,
 }
@@ -265,6 +267,21 @@ impl RxTransport {
         // truncate padding
         buf.truncate(buf.len() - padlen);
 
-        self.compress.decompress(buf, PAYLOAD_MAX_LEN)
+        // FIXME: this might be required
+        // if buf.len() > PAYLOAD_MAX_LEN {
+        //     return Err(io::Error::new(
+        //         io::ErrorKind::InvalidData,
+        //         format!(
+        //             "payload size too large: {} > {}",
+        //             buf.len(),
+        //             PAYLOAD_MAX_LEN
+        //         ),
+        //     )
+        //     .into());
+        // }
+
+        self.compress
+            .decompress(buf, PAYLOAD_MAX_LEN)
+            .map_err(|err| Error::Zlib(format!("{err:?}")))
     }
 }

@@ -56,6 +56,10 @@ pub enum Error {
     #[error(transparent)]
     Signature(#[from] signature::Error),
 
+    /// (De-)compression error during the transfer.
+    #[error("zlib (de)compression error: {0}")]
+    Zlib(String),
+
     /// No common kex algorithm found between both sides.
     #[error("Unable to negociate a common kex algorithm")]
     NoCommonKex,

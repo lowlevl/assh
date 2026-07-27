@@ -62,13 +62,12 @@ where
                     .accept()
                     .await?;
 
-                serverside(channel)
-                    .instrument(tracing::span!(tracing::Level::INFO, "server"))
-                    .await;
+                serverside(channel).await;
             }
 
             Ok(())
         }
+        .instrument(tracing::span!(tracing::Level::INFO, "server"))
         .inspect_err(|err: &eyre::Error| tracing::error!("An error occured server-side: {err}")),
         async {
             let client = Client::default();
@@ -81,12 +80,11 @@ where
                 panic!("Channel opening rejected server-side")
             };
 
-            clientside(channel)
-                .instrument(tracing::span!(tracing::Level::INFO, "client"))
-                .await;
+            clientside(channel).await;
 
             Ok(())
         }
+        .instrument(tracing::span!(tracing::Level::INFO, "client"))
         .inspect_err(|err: &eyre::Error| tracing::error!("An error occured client-side: {err}")),
     )?;
 
@@ -172,6 +170,58 @@ async fn large() -> Result<(), eyre::Error> {
 
                         while current < BYTES_TO_SEND {
                             let buffer = rng.random::<[u8; 65535]>();
+                            sent.update(buffer);
+
+                            current +=
+                                futures::io::copy(&mut &buffer[..], &mut channel.as_writer())
+                                    .await
+                                    .unwrap();
+                        }
+
+                        channel.eof().await.unwrap();
+
+                        sent
+                    },
+                    async { sha1(&mut channel.as_reader()).await.unwrap() }
+                );
+
+                assert_eq!(sent.finalize(), recvd.finalize())
+            }
+            .boxed()
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn large_zero() -> Result<(), eyre::Error> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init()
+        .ok();
+
+    io(
+        |channel| {
+            async move {
+                futures::io::copy(&mut channel.as_reader(), &mut channel.as_writer())
+                    .await
+                    .unwrap();
+
+                channel.eof().await.unwrap();
+            }
+            .boxed()
+        },
+        |channel| {
+            async move {
+                let (sent, recvd) = tokio::join!(
+                    async {
+                        let mut sent = sha1::Sha1::new();
+
+                        const BYTES_TO_SEND: u64 = 0xFFFFF * 2;
+                        let mut current = 0;
+
+                        while current < BYTES_TO_SEND {
+                            let buffer = [0; 65535];
                             sent.update(buffer);
 
                             current +=
