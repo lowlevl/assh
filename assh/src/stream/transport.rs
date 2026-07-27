@@ -1,4 +1,7 @@
+use std::io;
+
 use digest::{Digest, FixedOutputReset};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use rand::RngExt;
 use ssh_packet::Packet;
 
@@ -81,9 +84,9 @@ impl Transport {
 
 #[derive(Debug, Default)]
 pub struct TxTransport {
-    pub compress: compress::Compress,
-    pub cipher: cipher::EncState,
-    pub hmac: hmac::State,
+    compress: compress::Compress,
+    cipher: cipher::EncState,
+    hmac: hmac::State,
 }
 
 impl TxTransport {
@@ -113,7 +116,7 @@ impl TxTransport {
         }
     }
 
-    pub fn pad(&mut self, mut buf: Vec<u8>) -> Result<Vec<u8>> {
+    fn pad(&mut self, mut buf: Vec<u8>) -> Result<Vec<u8>> {
         let mut rng = rand::rng();
 
         let padding = self.padding(buf.len());
@@ -127,11 +130,104 @@ impl TxTransport {
 
         Ok(padded)
     }
+
+    pub async fn tx(
+        &mut self,
+        seq: u32,
+        data: &[u8],
+        mut writer: impl AsyncWrite + Unpin,
+    ) -> Result<()> {
+        let compressed = self.compress.compress(data)?;
+
+        let buf = self.pad(compressed)?;
+        let mut buf = [(buf.len() as u32).to_be_bytes().to_vec(), buf].concat();
+
+        let mac;
+        if self.hmac.etm() {
+            // Encrypt-Then-MAC
+
+            self.cipher.encrypt(&mut buf[4..])?;
+            mac = self.hmac.compute(seq, &buf);
+        } else {
+            // MAC-Then-Encrypt
+
+            mac = self.hmac.compute(seq, &buf);
+            self.cipher.encrypt(&mut buf[..])?;
+        }
+
+        writer.write_all(&buf).await?;
+        writer.write_all(&mac).await?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct RxTransport {
-    pub compress: compress::Compress,
-    pub cipher: cipher::DecState,
-    pub hmac: hmac::State,
+    compress: compress::Compress,
+    cipher: cipher::DecState,
+    hmac: hmac::State,
+}
+
+impl RxTransport {
+    pub async fn rx(&mut self, seq: u32, mut reader: impl AsyncRead + Unpin) -> Result<Vec<u8>> {
+        let mut buf = vec![0; self.cipher.block_size()];
+        reader.read_exact(&mut buf[..]).await?;
+
+        if !self.hmac.etm() {
+            self.cipher.decrypt(&mut buf[..])?;
+        }
+
+        let len = u32::from_be_bytes(
+            buf[..4]
+                .try_into()
+                .expect("the buffer of size 4 is not of size 4"),
+        );
+
+        if len as usize > Packet::MAX_SIZE {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("payload size too large, {len} > {}", Packet::MAX_SIZE),
+            ))?
+        }
+
+        // read the rest of the data from the reader
+        buf.resize(std::mem::size_of_val(&len) + len as usize, 0);
+        reader
+            .read_exact(&mut buf[self.cipher.block_size()..])
+            .await?;
+
+        let mut mac = vec![0; self.hmac.size()];
+        reader.read_exact(&mut mac[..]).await?;
+
+        if self.hmac.etm() {
+            self.hmac.verify(seq, &buf, &mac)?;
+            self.cipher.decrypt(&mut buf[4..])?;
+        } else {
+            self.cipher.decrypt(&mut buf[self.cipher.block_size()..])?;
+            self.hmac.verify(seq, &buf, &mac)?;
+        }
+
+        let (padlen, mut decrypted) = buf[4..].split_first().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "unable to read padding length",
+            )
+        })?;
+
+        if *padlen as usize > len as usize - 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("padding size too large, {padlen} > {} - 1", len),
+            )
+            .into());
+        }
+
+        let mut payload = vec![0; len as usize - *padlen as usize - std::mem::size_of_val(padlen)];
+        io::Read::read_exact(&mut decrypted, &mut payload[..])?;
+
+        let payload = self.compress.decompress(payload)?;
+
+        Ok(payload)
+    }
 }
