@@ -56,6 +56,14 @@ pub enum Error {
     #[error(transparent)]
     Signature(#[from] signature::Error),
 
+    /// Compression error during the transfer.
+    #[error(transparent)]
+    Compress(#[from] flate2::CompressError),
+
+    /// De-compression error during the transfer.
+    #[error(transparent)]
+    Decompress(#[from] flate2::DecompressError),
+
     /// No common kex algorithm found between both sides.
     #[error("Unable to negociate a common kex algorithm")]
     NoCommonKex,

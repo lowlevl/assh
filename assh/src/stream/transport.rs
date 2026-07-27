@@ -1,14 +1,37 @@
 use std::io;
 
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use digest::{Digest, FixedOutputReset};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use rand::RngExt;
 use ssh_packet::Packet;
 
 use crate::{
     Result,
     stream::algorithm::{cipher, compress, hmac, kex},
 };
+
+// TODO (performance): handle & produce larger payload sizes if peer is known to support them ?
+
+const LEN_FIELD_SIZE: usize = std::mem::size_of::<u32>();
+const PADLEN_FIELD_SIZE: usize = std::mem::size_of::<u8>();
+
+/// Per RFC4253, all implementations MUST be able to process packets
+/// with an uncompressed payload length of 32768 bytes or less.
+const PAYLOAD_MAX_LEN: usize = 32768;
+
+/// Per RFC4253, all implementations MUST be able to process [...]
+/// a total packet size of 35000 bytes or less.
+const PACKET_MAX_SIZE: usize = 35000;
+
+/// Per RFC4253, the minimum size of a packet is 16
+/// (or the cipher block size, whichever is larger).
+///
+/// NOTE: OpenSSH produces 12 bytes packets with `3des-cbc`, so this is the value.
+const PACKET_MIN_SIZE: usize = 12;
+
+/// Per RFC4253, implementations SHOULD decrypt the length after receiving
+/// the first 8 (or cipher block size, whichever is larger) bytes of a packet.
+const PACKET_MIN_READ: usize = 8;
 
 #[derive(Debug, Default)]
 pub struct Transport {
@@ -25,7 +48,7 @@ impl Transport {
         session_id: &[u8],
     ) -> Self {
         let tx = TxTransport {
-            compress: client.compress,
+            compress: compress::State::<compress::Compression>::new(&client.compress),
             cipher: cipher::EncState::new::<b'A', b'C', H>(
                 &client.cipher,
                 secret,
@@ -36,7 +59,7 @@ impl Transport {
         };
 
         let rx = RxTransport {
-            compress: server.compress,
+            compress: compress::State::<compress::Decompression>::new(&server.compress),
             cipher: cipher::DecState::new::<b'B', b'D', H>(
                 &server.cipher,
                 secret,
@@ -50,14 +73,14 @@ impl Transport {
     }
 
     pub fn as_server<H: Digest + FixedOutputReset>(
-        server: kex::KexMeta<'_>,
         client: kex::KexMeta<'_>,
+        server: kex::KexMeta<'_>,
         secret: &[u8],
         hash: &[u8],
         session_id: &[u8],
     ) -> Self {
         let tx = TxTransport {
-            compress: server.compress,
+            compress: compress::State::<compress::Compression>::new(&server.compress),
             cipher: cipher::EncState::new::<b'B', b'D', H>(
                 &server.cipher,
                 secret,
@@ -68,7 +91,7 @@ impl Transport {
         };
 
         let rx = RxTransport {
-            compress: client.compress,
+            compress: compress::State::<compress::Decompression>::new(&client.compress),
             cipher: cipher::DecState::new::<b'A', b'C', H>(
                 &client.cipher,
                 secret,
@@ -84,23 +107,24 @@ impl Transport {
 
 #[derive(Debug, Default)]
 pub struct TxTransport {
-    compress: compress::Compress,
+    compress: compress::State<compress::Compression>,
     cipher: cipher::EncState,
     hmac: hmac::State,
 }
 
 impl TxTransport {
-    fn padding(&self, payload: usize) -> u8 {
+    // TODO (security): implement variable length padding
+    fn padding(&self, psize: usize) -> usize {
         const MIN_PAD_SIZE: usize = 4;
         const MIN_ALIGN: usize = 8;
 
-        let align = self.cipher.block_size().max(MIN_ALIGN);
-
         let size = if self.hmac.etm() {
-            std::mem::size_of::<u8>() + payload
+            PADLEN_FIELD_SIZE + psize
         } else {
-            std::mem::size_of::<u32>() + std::mem::size_of::<u8>() + payload
+            LEN_FIELD_SIZE + PADLEN_FIELD_SIZE + psize
         };
+
+        let align = self.cipher.block_size().max(MIN_ALIGN);
         let padding = align - size % align;
 
         let padding = if padding < MIN_PAD_SIZE {
@@ -110,43 +134,49 @@ impl TxTransport {
         };
 
         if size + padding < self.cipher.block_size().max(Packet::MIN_SIZE) {
-            (padding + align) as u8
+            padding + align
         } else {
-            padding as u8
+            padding
         }
     }
 
-    fn pad(&mut self, mut buf: Vec<u8>) -> Result<Vec<u8>> {
-        let mut rng = rand::rng();
-
-        let padding = self.padding(buf.len());
-
-        // prefix with the size
-        let mut padded = vec![padding];
-        padded.append(&mut buf);
-
-        // fill with random
-        padded.resize_with(padded.len() + padding as usize, || rng.random());
-
-        Ok(padded)
-    }
-
-    pub async fn tx(
+    pub async fn write(
         &mut self,
         seq: u32,
-        data: &[u8],
+        payload: &[u8],
         mut writer: impl AsyncWrite + Unpin,
     ) -> Result<()> {
-        let compressed = self.compress.compress(data)?;
+        let capacity =
+            LEN_FIELD_SIZE + PADLEN_FIELD_SIZE + payload.len() + self.padding(payload.len());
+        let mut buf = bytes::BytesMut::with_capacity(capacity);
 
-        let buf = self.pad(compressed)?;
-        let mut buf = [(buf.len() as u32).to_be_bytes().to_vec(), buf].concat();
+        let mut padded = buf.split_off(LEN_FIELD_SIZE); // reserve 4 bytes for `length`.
+        let mut unpadded = padded.split_off(PADLEN_FIELD_SIZE); // reserve 1 byte for `padding`.
+
+        self.compress.compress(payload, &mut unpadded)?;
+
+        let padlen = self.padding(unpadded.len());
+        unpadded.extend(rand::random_iter::<u8>().take(padlen));
+
+        // preprend `padlen`
+        padded.put_u8(padlen as u8);
+        padded.unsplit(unpadded);
+
+        // preprend `length`
+        buf.put_u32(padded.len() as u32);
+        buf.unsplit(padded);
+
+        debug_assert_eq!(
+            buf.capacity(),
+            capacity,
+            "the `buf` was reallocated while writing"
+        );
 
         let mac;
         if self.hmac.etm() {
             // Encrypt-Then-MAC
 
-            self.cipher.encrypt(&mut buf[4..])?;
+            self.cipher.encrypt(&mut buf[LEN_FIELD_SIZE..])?;
             mac = self.hmac.compute(seq, &buf);
         } else {
             // MAC-Then-Encrypt
@@ -164,70 +194,96 @@ impl TxTransport {
 
 #[derive(Debug, Default)]
 pub struct RxTransport {
-    compress: compress::Compress,
+    compress: compress::State<compress::Decompression>,
     cipher: cipher::DecState,
     hmac: hmac::State,
 }
 
 impl RxTransport {
-    pub async fn rx(&mut self, seq: u32, mut reader: impl AsyncRead + Unpin) -> Result<Vec<u8>> {
-        let mut buf = vec![0; self.cipher.block_size()];
+    pub async fn read(&mut self, seq: u32, mut reader: impl AsyncRead + Unpin) -> Result<Bytes> {
+        let initial = PACKET_MIN_READ.max(self.cipher.block_size());
+        let mut buf = BytesMut::zeroed(initial);
+
+        // receive the initial block
         reader.read_exact(&mut buf[..]).await?;
 
         if !self.hmac.etm() {
             self.cipher.decrypt(&mut buf[..])?;
         }
 
-        let len = u32::from_be_bytes(
-            buf[..4]
-                .try_into()
-                .expect("the buffer of size 4 is not of size 4"),
-        );
+        let len = {
+            let mut bytes = [0; LEN_FIELD_SIZE];
+            bytes.copy_from_slice(&buf[..LEN_FIELD_SIZE]);
 
-        if len as usize > Packet::MAX_SIZE {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("payload size too large, {len} > {}", Packet::MAX_SIZE),
-            ))?
-        }
+            u32::from_be_bytes(bytes) as usize
+        };
 
-        // read the rest of the data from the reader
-        buf.resize(std::mem::size_of_val(&len) + len as usize, 0);
-        reader
-            .read_exact(&mut buf[self.cipher.block_size()..])
-            .await?;
-
-        let mut mac = vec![0; self.hmac.size()];
-        reader.read_exact(&mut mac[..]).await?;
-
-        if self.hmac.etm() {
-            self.hmac.verify(seq, &buf, &mac)?;
-            self.cipher.decrypt(&mut buf[4..])?;
-        } else {
-            self.cipher.decrypt(&mut buf[self.cipher.block_size()..])?;
-            self.hmac.verify(seq, &buf, &mac)?;
-        }
-
-        let (padlen, mut decrypted) = buf[4..].split_first().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "unable to read padding length",
-            )
-        })?;
-
-        if *padlen as usize > len as usize - 1 {
+        if LEN_FIELD_SIZE + len < PACKET_MIN_SIZE.max(self.cipher.block_size()) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("padding size too large, {padlen} > {} - 1", len),
+                format!(
+                    "packet size too small: {} < {}",
+                    LEN_FIELD_SIZE + len,
+                    PACKET_MIN_SIZE
+                ),
             )
             .into());
         }
 
-        let mut payload = vec![0; len as usize - *padlen as usize - std::mem::size_of_val(padlen)];
-        io::Read::read_exact(&mut decrypted, &mut payload[..])?;
+        let size = LEN_FIELD_SIZE + len + self.hmac.size();
+        if size > PACKET_MAX_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("packet size too large: {size} > {}", PACKET_MAX_SIZE),
+            )
+            .into());
+        }
 
-        let payload = self.compress.decompress(payload)?;
+        // read the remaining data
+        buf.resize(size, 0);
+        reader.read_exact(&mut buf[initial..]).await?;
 
-        Ok(payload)
+        let mac = buf.split_off(buf.len() - self.hmac.size());
+        if self.hmac.etm() {
+            // Encrypt-Then-MAC
+
+            self.hmac.verify(seq, &buf, &mac)?;
+            self.cipher.decrypt(&mut buf[LEN_FIELD_SIZE..])?;
+        } else {
+            // MAC-Then-Encrypt
+
+            self.cipher.decrypt(&mut buf[initial..])?;
+            self.hmac.verify(seq, &buf, &mac)?;
+        }
+
+        // skip the length field
+        buf.advance(LEN_FIELD_SIZE);
+
+        let padlen = buf.get_u8() as usize;
+        if padlen >= buf.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("padding too large: {padlen} >= {}", buf.len()),
+            )
+            .into());
+        }
+
+        // truncate padding
+        buf.truncate(buf.len() - padlen);
+
+        if buf.len() > PAYLOAD_MAX_LEN {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "payload size too large: {} > {}",
+                    buf.len(),
+                    PAYLOAD_MAX_LEN
+                ),
+            )
+            .into());
+        }
+
+        // FIXME: check PAYLOAD_MAX_LEN in decompress
+        Ok(self.compress.decompress(buf)?)
     }
 }

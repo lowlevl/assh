@@ -30,6 +30,7 @@ thiserror.workspace = true
 strum = { version = "0.28.0", features = ["derive"] }
 secrecy = "0.10.3"
 heapless = "0.9.3"
+bytes = "1.12.1"
 
 ssh-key.workspace = true
 ssh-packet.workspace = true
@@ -41,7 +42,7 @@ signature = "3.0.0"
 x25519-dalek = { version = "3.0.0", features = ["zeroize"] }
 
 # Compression algorithms
-libflate = "2.2.0"
+flate2 = "1.1.9"
 
 # Cipher algorithms
 cipher = "0.5.2"

@@ -30,6 +30,8 @@ pub struct Channel<'s, IO: Pipe, S: Side> {
 
     local_window: LocalWindow,
     remote_window: RemoteWindow,
+    // TODO (compliance): ensure we don't overshoot this value with the magic & fields
+    // TODO (securtiy): bound this field
     remote_maxpack: u32,
 
     streams: DashMap<Option<NonZeroU32>, flume::Sender<Vec<u8>>>,

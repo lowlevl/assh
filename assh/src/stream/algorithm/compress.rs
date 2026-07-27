@@ -1,16 +1,13 @@
-use std::io::{Read, Write};
-
+use bytes::{Bytes, BytesMut};
 use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
 use crate::{
-    Error, Result,
+    Error,
     side::{client::Client, server::Server},
 };
 
-use super::Negociate;
-
-impl Negociate<Client> for Compress {
+impl super::Negociate<Client> for Compress {
     const ERR: Error = Error::NoCommonCompression;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -18,7 +15,7 @@ impl Negociate<Client> for Compress {
     }
 }
 
-impl Negociate<Server> for Compress {
+impl super::Negociate<Server> for Compress {
     const ERR: Error = Error::NoCommonCompression;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -30,7 +27,7 @@ impl Negociate<Server> for Compress {
 
 /// SSH compression algorithms.
 #[non_exhaustive]
-#[derive(Debug, Clone, Default, PartialEq, EnumString, AsRefStr)]
+#[derive(Debug, Clone, EnumString, AsRefStr)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Compress {
     /// zlib compression (OpenSSH mode).
@@ -41,37 +38,74 @@ pub enum Compress {
     Zlib,
 
     /// No compression algorithm.
+    None,
+}
+
+#[derive(Debug, Default)]
+pub struct State<T> {
+    delayed: bool,
+    core: T,
+}
+
+#[derive(Debug, Default)]
+pub enum Compression {
+    Zlib(flate2::Compress),
     #[default]
     None,
 }
 
-impl Compress {
-    pub(crate) fn decompress(&self, buf: Vec<u8>) -> Result<Vec<u8>> {
-        match self {
-            Self::ZlibOpenssh | Self::Zlib => {
-                let mut buffer = Vec::with_capacity(buf.len());
-                let decoder = libflate::zlib::Decoder::new(std::io::Cursor::new(buf))?;
+#[derive(Debug, Default)]
+pub enum Decompression {
+    Zlib(flate2::Decompress),
+    #[default]
+    None,
+}
 
-                decoder
-                    .take(ssh_packet::Packet::MAX_SIZE as u64)
-                    .read_to_end(&mut buffer)?;
+impl State<Compression> {
+    pub fn new(compress: &Compress) -> Self {
+        let delayed = matches!(compress, Compress::ZlibOpenssh);
 
-                Ok(buffer)
-            }
-            Self::None => Ok(buf),
+        Self {
+            delayed,
+            core: match compress {
+                Compress::ZlibOpenssh | Compress::Zlib => {
+                    Compression::Zlib(flate2::Compress::new(flate2::Compression::fast(), true))
+                }
+
+                Compress::None => Compression::None,
+            },
         }
     }
 
-    pub(crate) fn compress(&self, buf: &[u8]) -> Result<Vec<u8>> {
-        match self {
-            Self::ZlibOpenssh | Self::Zlib => {
-                let mut encoder = libflate::zlib::Encoder::new(Vec::with_capacity(buf.len()))?;
+    pub fn compress(
+        &mut self,
+        input: &[u8],
+        output: &mut BytesMut,
+    ) -> Result<(), flate2::CompressError> {
+        output.resize(input.len(), 0); // reserve `input`'s size
+        output[..].copy_from_slice(input);
 
-                encoder.write_all(buf)?;
+        Ok(())
+    }
+}
 
-                Ok(encoder.finish().into_result()?)
-            }
-            Self::None => Ok(buf.into()),
+impl State<Decompression> {
+    pub fn new(compress: &Compress) -> Self {
+        let delayed = matches!(compress, Compress::ZlibOpenssh);
+
+        Self {
+            delayed,
+            core: match compress {
+                Compress::ZlibOpenssh | Compress::Zlib => {
+                    Decompression::Zlib(flate2::Decompress::new(true))
+                }
+
+                Compress::None => Decompression::None,
+            },
         }
+    }
+
+    pub fn decompress(&mut self, buf: BytesMut) -> Result<Bytes, flate2::DecompressError> {
+        Ok(buf.freeze())
     }
 }

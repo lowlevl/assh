@@ -107,8 +107,8 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
     let session_id = stream.with_session(&hash);
 
     Ok(Transport::as_server::<H>(
-        server,
         client,
+        server,
         secret.expose_secret().as_ref(),
         &hash,
         session_id,
