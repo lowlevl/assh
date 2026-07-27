@@ -206,17 +206,18 @@ where
         let buf = transport.pad(compressed)?;
         let mut buf = [(buf.len() as u32).to_be_bytes().to_vec(), buf].concat();
 
-        let (buf, mac) = if transport.hmac.etm() {
+        let mac;
+        if transport.hmac.etm() {
+            // Encrypt-Then-MAC
+
             transport.cipher.encrypt(&mut buf[4..])?;
-            let mac = transport.hmac.compute(seq, &buf);
-
-            (buf, mac)
+            mac = transport.hmac.compute(seq, &buf);
         } else {
-            let mac = transport.hmac.compute(seq, &buf);
-            transport.cipher.encrypt(&mut buf[..])?;
+            // MAC-Then-Encrypt
 
-            (buf, mac)
-        };
+            mac = transport.hmac.compute(seq, &buf);
+            transport.cipher.encrypt(&mut buf[..])?;
+        }
 
         writer.write_all(&buf).await?;
         writer.write_all(&mac).await?;
