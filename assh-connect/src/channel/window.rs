@@ -10,7 +10,10 @@ pub struct LocalWindow {
 }
 
 impl LocalWindow {
-    pub const MAXIMUM_PACKET_SIZE: u32 = 32768; // 32KiB
+    // TODO (correctness): use the same constant for the transport layer
+    // and the connect layer.
+
+    pub const MAXIMUM_PACKET_SIZE: u32 = 32768 - 9; // 32KiB - packet overhead
     pub const INITIAL_WINDOW_SIZE: u32 = 64 * Self::MAXIMUM_PACKET_SIZE;
 
     const ADJUST_THRESHOLD: u32 = Self::INITIAL_WINDOW_SIZE - Self::MAXIMUM_PACKET_SIZE * 5;

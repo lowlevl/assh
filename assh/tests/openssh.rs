@@ -42,6 +42,7 @@ async fn against_openssh_client(
         .arg("-oStrictHostKeyChecking=no")
         .arg("-oUserKnownHostsFile=/dev/null")
         .arg("-oRekeyLimit=1K")
+        // .arg("-oCompression=yes") FIXME: add compression tests
         .arg(format!("-oKexAlgorithms={kex}"))
         .arg(format!("-c{cipher}"))
         .arg(format!("-m{mac}"))

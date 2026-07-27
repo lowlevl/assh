@@ -90,7 +90,7 @@ where
         match self.buffer.take() {
             Some(packet) => Ok(packet),
             None => {
-                let data = self.transport.rx.rx(self.rxseq, &mut self.inner).await?;
+                let data = self.transport.rx.read(self.rxseq, &mut self.inner).await?;
 
                 tracing::trace!(
                     "<~- #{}: ^{:#x} ({} bytes)",
@@ -101,7 +101,7 @@ where
 
                 self.rxseq = self.rxseq.wrapping_add(1);
 
-                Ok(Packet(data))
+                Ok(Packet(data.to_vec()))
             }
         }
     }
@@ -112,7 +112,7 @@ where
 
         self.transport
             .tx
-            .tx(self.txseq, &data, &mut self.inner)
+            .write(self.txseq, &data, &mut self.inner)
             .await?;
         self.inner.flush().await?;
 
