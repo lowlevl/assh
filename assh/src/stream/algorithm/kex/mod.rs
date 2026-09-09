@@ -2,7 +2,6 @@ use ssh_key::PrivateKey;
 use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
-use super::Negociate;
 use crate::{
     Error, Pipe, Result,
     stream::{Stream, Transport},
@@ -15,7 +14,7 @@ pub use meta::KexMeta;
 
 mod curve25519;
 
-impl Negociate for Kex {
+impl super::Negociate for Kex {
     const ERR: Error = Error::NoCommonKex;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {

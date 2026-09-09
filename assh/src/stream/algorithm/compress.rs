@@ -1,5 +1,4 @@
-use std::io::{Read, Write};
-
+use bytes::{Bytes, BytesMut};
 use ssh_packet::{arch::NameList, trans::KexInit};
 use strum::{AsRefStr, EnumString};
 
@@ -8,9 +7,7 @@ use crate::{
     side::{client::Client, server::Server},
 };
 
-use super::Negociate;
-
-impl Negociate<Client> for Compress {
+impl super::Negociate<Client> for Compress {
     const ERR: Error = Error::NoCommonCompression;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -18,7 +15,7 @@ impl Negociate<Client> for Compress {
     }
 }
 
-impl Negociate<Server> for Compress {
+impl super::Negociate<Server> for Compress {
     const ERR: Error = Error::NoCommonCompression;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
@@ -46,32 +43,13 @@ pub enum Compress {
 }
 
 impl Compress {
-    pub(crate) fn decompress(&self, buf: Vec<u8>) -> Result<Vec<u8>> {
-        match self {
-            Self::ZlibOpenssh | Self::Zlib => {
-                let mut buffer = Vec::with_capacity(buf.len());
-                let decoder = libflate::zlib::Decoder::new(std::io::Cursor::new(buf))?;
+    pub(crate) fn compress(&mut self, buf: &[u8], output: &mut BytesMut) -> Result<()> {
+        output.extend_from_slice(buf);
 
-                decoder
-                    .take(ssh_packet::Packet::MAX_SIZE as u64)
-                    .read_to_end(&mut buffer)?;
-
-                Ok(buffer)
-            }
-            Self::None => Ok(buf),
-        }
+        Ok(())
     }
 
-    pub(crate) fn compress(&self, buf: &[u8]) -> Result<Vec<u8>> {
-        match self {
-            Self::ZlibOpenssh | Self::Zlib => {
-                let mut encoder = libflate::zlib::Encoder::new(Vec::with_capacity(buf.len()))?;
-
-                encoder.write_all(buf)?;
-
-                Ok(encoder.finish().into_result()?)
-            }
-            Self::None => Ok(buf.into()),
-        }
+    pub(crate) fn decompress(&mut self, buf: BytesMut, _maxlen: usize) -> Result<Bytes> {
+        Ok(buf.freeze())
     }
 }

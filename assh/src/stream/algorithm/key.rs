@@ -3,9 +3,7 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 
 use crate::Error;
 
-use super::Negociate;
-
-impl Negociate for Key {
+impl super::Negociate for Key {
     const ERR: Error = Error::NoCommonKey;
 
     fn field<'f>(kex: &'f KexInit) -> &'f NameList<'f> {
