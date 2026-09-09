@@ -111,12 +111,6 @@ impl State<Compression> {
                         DeflateFlush::PartialFlush,
                     )?;
 
-                    tracing::info!(
-                        "comp :: in: {}, out: {}, {status:?}",
-                        state.total_in() - ins,
-                        state.total_out() - outs
-                    );
-
                     if let Status::Ok = status {
                         break;
                     }
@@ -169,21 +163,21 @@ impl State<Decompression> {
                         InflateFlush::NoFlush,
                     )?;
 
-                    tracing::info!(
-                        "decomp :: in: {}/{}, out: {}/{}, {status:?}",
-                        state.total_in() - ins,
-                        buf.len(),
-                        state.total_out() - outs,
-                        output.len()
-                    );
-
                     match status {
                         Status::Ok
                             if (state.total_in() - ins) != buf.len() as u64
                                 || (state.total_out() - outs) == output.len() as u64 =>
                         {
-                            output.resize(output.len() * GROWTH_FACTOR, 0);
-                            tracing::info!("resized: {}", output.len());
+                            let grown = maxlen.min(output.len() * GROWTH_FACTOR);
+
+                            output.resize(grown, 0);
+                        }
+
+                        Status::BufError
+                            if (state.total_in() - ins) != buf.len() as u64
+                                && output.len() == maxlen =>
+                        {
+                            return Err(InflateError::MemError);
                         }
 
                         _ => break,
@@ -191,8 +185,6 @@ impl State<Decompression> {
                 }
 
                 output.truncate((state.total_out() - outs) as usize);
-
-                tracing::info!("final decomp: {}", output.len());
 
                 Ok(output.freeze())
             }
