@@ -163,20 +163,17 @@ impl State<Decompression> {
                         InflateFlush::NoFlush,
                     )?;
 
+                    let finished = (state.total_in() - ins) == buf.len() as u64;
+                    let full = (state.total_out() - outs) == output.len() as u64;
+
                     match status {
-                        Status::Ok
-                            if (state.total_in() - ins) != buf.len() as u64
-                                || (state.total_out() - outs) == output.len() as u64 =>
-                        {
+                        Status::Ok if !finished && full => {
                             let grown = maxlen.min(output.len() * GROWTH_FACTOR);
 
                             output.resize(grown, 0);
                         }
 
-                        Status::BufError
-                            if (state.total_in() - ins) != buf.len() as u64
-                                && output.len() == maxlen =>
-                        {
+                        Status::BufError if !finished && output.len() == maxlen => {
                             return Err(InflateError::MemError);
                         }
 
