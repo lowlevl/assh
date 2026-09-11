@@ -23,6 +23,7 @@ impl super::Negociate for Kex {
 }
 
 // TODO: (feature) Implement the following legacy key-exchange methods (`diffie-hellman-group14-sha256`, `diffie-hellman-group14-sha1`, `diffie-hellman-group1-sha1`).
+// TODO: (feature) Implement the post-quantum key-exchange methods (`sntrup761x25519-sha512`, `mlkem768x25519-sha256`, and more ?).
 
 /// SSH key-exchange algorithms.
 #[non_exhaustive]
