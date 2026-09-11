@@ -2,7 +2,7 @@
 //! messages from/to a [`Pipe`] stream.
 
 use futures::{AsyncBufReadExt, AsyncWriteExt};
-use ssh_packet::IntoPacket;
+use ssh_packet::{IntoPacket, Packet};
 
 use crate::{Pipe, Result};
 
@@ -13,12 +13,6 @@ use iocounter::IoCounter;
 
 mod transport;
 pub use transport::Transport;
-
-#[doc(no_inline)]
-pub use ssh_packet::Packet;
-
-/// Re-key after 1GiB of exchanged data as recommended per the RFC.
-const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
 /// A wrapper around a [`Pipe`] to interface with to the SSH binary protocol.
 pub struct Stream<S> {
@@ -56,6 +50,12 @@ where
     }
 
     pub fn should_rekey(&self) -> bool {
+        // TODO (security): re-key after an hour without rekeying.
+
+        /// Per RFC 4253, it is RECOMMENDED that the keys be changed after each gigabyte of
+        /// transmitted data or after each hour of connection time, whichever comes sooner.
+        const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
+
         self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
     }
 
