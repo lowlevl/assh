@@ -96,9 +96,14 @@ impl State<Compression> {
         }
     }
 
-    pub fn compress(&mut self, buf: &[u8], output: &mut BytesMut) -> Result<(), DeflateError> {
+    pub fn compress(
+        &mut self,
+        buf: &[u8],
+        output: &mut BytesMut,
+        authenticated: bool,
+    ) -> Result<(), DeflateError> {
         match &mut self.core {
-            Compression::Zlib(state) => {
+            Compression::Zlib(state) if !self.delayed || (self.delayed && authenticated) => {
                 output.resize(zlib_rs::compress_bound(buf.len()), 0);
 
                 let ins = state.total_in();
@@ -121,7 +126,7 @@ impl State<Compression> {
                 Ok(())
             }
 
-            Compression::None => {
+            _ => {
                 output.extend_from_slice(buf);
 
                 Ok(())
@@ -146,11 +151,16 @@ impl State<Decompression> {
         }
     }
 
-    pub fn decompress(&mut self, buf: BytesMut, maxlen: usize) -> Result<Bytes, InflateError> {
+    pub fn decompress(
+        &mut self,
+        buf: BytesMut,
+        maxlen: usize,
+        authenticated: bool,
+    ) -> Result<Bytes, InflateError> {
         const GROWTH_FACTOR: usize = 2;
 
         match &mut self.core {
-            Decompression::Zlib(state) => {
+            Decompression::Zlib(state) if !self.delayed || (self.delayed && authenticated) => {
                 let mut output = BytesMut::zeroed(buf.len());
 
                 let ins = state.total_in();
@@ -186,7 +196,7 @@ impl State<Decompression> {
                 Ok(output.freeze())
             }
 
-            Decompression::None => Ok(buf.freeze()),
+            _ => Ok(buf.freeze()),
         }
     }
 }

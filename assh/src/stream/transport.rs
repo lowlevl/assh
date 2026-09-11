@@ -145,6 +145,7 @@ impl TxTransport {
         seq: u32,
         payload: &[u8],
         mut writer: impl AsyncWrite + Unpin,
+        authenticated: bool,
     ) -> Result<()> {
         let capacity =
             LEN_FIELD_SIZE + PADLEN_FIELD_SIZE + payload.len() + self.padding(payload.len());
@@ -154,7 +155,7 @@ impl TxTransport {
         let mut unpadded = padded.split_off(PADLEN_FIELD_SIZE); // reserve 1 byte for `padding`.
 
         self.compress
-            .compress(payload, &mut unpadded)
+            .compress(payload, &mut unpadded, authenticated)
             .map_err(|err| Error::Zlib(format!("{err:?}")))?;
 
         let padlen = self.padding(unpadded.len());
@@ -196,7 +197,12 @@ pub struct RxTransport {
 }
 
 impl RxTransport {
-    pub async fn read(&mut self, seq: u32, mut reader: impl AsyncRead + Unpin) -> Result<Bytes> {
+    pub async fn read(
+        &mut self,
+        seq: u32,
+        mut reader: impl AsyncRead + Unpin,
+        authenticated: bool,
+    ) -> Result<Bytes> {
         let initial = PACKET_MIN_READ.max(self.cipher.block_size());
         let mut buf = BytesMut::zeroed(initial);
 
@@ -281,7 +287,7 @@ impl RxTransport {
         // }
 
         self.compress
-            .decompress(buf, PAYLOAD_MAX_LEN)
+            .decompress(buf, PAYLOAD_MAX_LEN, authenticated)
             .map_err(|err| Error::Zlib(format!("{err:?}")))
     }
 }

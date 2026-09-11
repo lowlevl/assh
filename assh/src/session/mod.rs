@@ -1,3 +1,5 @@
+use std::any::TypeId;
+
 use either::Either;
 use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
 use ssh_packet::{
@@ -44,7 +46,10 @@ where
         stream.flush().await?;
 
         let peer_id = Id::from_reader(&mut stream).await?;
-        let stream = Stream::new(stream);
+        let stream = Stream::new(
+            stream,
+            TypeId::of::<S>() == TypeId::of::<side::server::Server>(),
+        );
 
         tracing::debug!("Session started with peer `{peer_id}`");
 

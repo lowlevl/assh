@@ -2,7 +2,7 @@
 //! messages from/to a [`Pipe`] stream.
 
 use futures::{AsyncBufReadExt, AsyncWriteExt};
-use ssh_packet::{IntoPacket, Packet};
+use ssh_packet::{IntoPacket, Packet, binrw::meta::WriteMagic};
 
 use crate::{Pipe, Result};
 
@@ -24,6 +24,12 @@ pub struct Stream<S> {
     /// The session identifier derived from the first key exchange.
     session: Option<Vec<u8>>,
 
+    /// Whether we are the server-side of this session.
+    serverside: bool,
+
+    /// Whether the server-side has sent `SSH_MSG_USERAUTH_SUCCESS`.
+    authenticated: bool,
+
     /// Sequence number for the `tx` side.
     txseq: u32,
 
@@ -38,11 +44,13 @@ impl<S> Stream<S>
 where
     S: Pipe,
 {
-    pub fn new(stream: S) -> Self {
+    pub fn new(stream: S, serverside: bool) -> Self {
         Self {
             inner: IoCounter::new(stream),
             transport: Default::default(),
             session: None,
+            serverside,
+            authenticated: false,
             txseq: 0,
             rxseq: 0,
             buffer: None,
@@ -90,7 +98,17 @@ where
         match self.buffer.take() {
             Some(packet) => Ok(packet),
             None => {
-                let data = self.transport.rx.read(self.rxseq, &mut self.inner).await?;
+                let data = self
+                    .transport
+                    .rx
+                    .read(self.rxseq, &mut self.inner, self.authenticated)
+                    .await?;
+
+                // We are the client, and just received a `SSH_MSG_USERAUTH_SUCCESS` message,
+                // which means we can start delayed compression from the next message.
+                if !self.serverside && data[0] == ssh_packet::userauth::Success::MAGIC {
+                    self.authenticated = true;
+                }
 
                 tracing::trace!(
                     "<~- #{}: ^{:#x} ({} bytes)",
@@ -112,9 +130,15 @@ where
 
         self.transport
             .tx
-            .write(self.txseq, &data, &mut self.inner)
+            .write(self.txseq, &data, &mut self.inner, self.authenticated)
             .await?;
         self.inner.flush().await?;
+
+        // We are the server, and just sent a `SSH_MSG_USERAUTH_SUCCESS` message,
+        // which means we can start delayed compression from the next message.
+        if self.serverside && data[0] == ssh_packet::userauth::Success::MAGIC {
+            self.authenticated = true;
+        }
 
         tracing::trace!(
             "-~> #{}: ^{:#x} ({} bytes)",
