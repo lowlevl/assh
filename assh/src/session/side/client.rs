@@ -1,7 +1,5 @@
 //! Client-[`Side`] implementation of the _session_.
 
-use std::time::Duration;
-
 use ssh_packet::{arch::NameList, trans::KexInit};
 
 use super::{Side, server::Server};
@@ -31,9 +29,6 @@ pub struct Client {
     /// [`Id`] for this _client_ session.
     pub id: Id,
 
-    /// Timeout for sending and receiving packets.
-    pub timeout: Duration,
-
     /// The algorithms enabled for this _client_ session.
     pub algorithms: Algorithms,
 }
@@ -49,7 +44,6 @@ impl Default for Client {
                 ),
                 None::<&str>,
             ),
-            timeout: Duration::from_secs(120),
             algorithms: Default::default(),
         }
     }
