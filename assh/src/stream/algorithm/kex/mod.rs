@@ -8,6 +8,8 @@ use crate::{
 };
 
 // TODO: (reliability) Investigate the randomly-occuring `invalid signature` occuring against OpenSSH.
+// TODO: (security) Ensure we're not susceptible to Terrapin (cf. https://datatracker.ietf.org/doc/draft-ietf-sshm-strict-kex/)
+// and ensure we drop out debug/ignore messages in kex.
 
 mod meta;
 pub use meta::KexMeta;
