@@ -103,7 +103,7 @@ impl State<Compression> {
         authenticated: bool,
     ) -> Result<(), DeflateError> {
         match &mut self.core {
-            Compression::Zlib(state) if !self.delayed || (self.delayed && authenticated) => {
+            Compression::Zlib(state) if !self.delayed || authenticated => {
                 output.resize(zlib_rs::compress_bound(buf.len()), 0);
 
                 let ins = state.total_in();
@@ -160,7 +160,7 @@ impl State<Decompression> {
         const GROWTH_FACTOR: usize = 2;
 
         match &mut self.core {
-            Decompression::Zlib(state) if !self.delayed || (self.delayed && authenticated) => {
+            Decompression::Zlib(state) if !self.delayed || authenticated => {
                 let mut output = BytesMut::zeroed(buf.len());
 
                 let ins = state.total_in();
