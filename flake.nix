@@ -48,8 +48,9 @@
                 "rust-src"
                 "rust-std"
                 "rust-analyzer"
+                "llvm-tools-preview"
               ];
-            in [toolchain];
+            in [toolchain pkgs.cargo-nextest pkgs.cargo-llvm-cov];
           };
       };
 
