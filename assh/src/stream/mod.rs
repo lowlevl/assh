@@ -1,6 +1,8 @@
 //! Primitives to manipulate binary data to extract and encode
 //! messages from/to a [`Pipe`] stream.
 
+use std::time::{Duration, Instant};
+
 use futures::{AsyncBufReadExt, AsyncWriteExt};
 use ssh_packet::{IntoPacket, Packet, binrw::meta::WriteMagic};
 
@@ -18,17 +20,14 @@ pub use transport::Transport;
 pub struct Stream<S> {
     inner: IoCounter<S>,
 
-    /// The pair of transport algorithms and keys computed from the key exchange.
+    /// The transport states from the key-exchange (keys, algorithms).
     transport: Transport,
+
+    /// The last time encryption states & keys were rotated.
+    rekeyed_at: Instant,
 
     /// The session identifier derived from the first key exchange.
     session: Option<Vec<u8>>,
-
-    /// Whether we are the server-side of this session.
-    serverside: bool,
-
-    /// Whether the server-side has sent `SSH_MSG_USERAUTH_SUCCESS`.
-    authenticated: bool,
 
     /// Sequence number for the `tx` side.
     txseq: u32,
@@ -38,6 +37,12 @@ pub struct Stream<S> {
 
     /// A buffer for the `peek` method.
     buffer: Option<Packet>,
+
+    /// Whether we are the server-side of this session.
+    serverside: bool,
+
+    /// Whether the server-side has sent `SSH_MSG_USERAUTH_SUCCESS`.
+    authenticated: bool,
 }
 
 impl<S> Stream<S>
@@ -48,28 +53,33 @@ where
         Self {
             inner: IoCounter::new(stream),
             transport: Default::default(),
+            rekeyed_at: Instant::now(),
             session: None,
-            serverside,
-            authenticated: false,
             txseq: 0,
             rxseq: 0,
             buffer: None,
+            serverside,
+            authenticated: false,
         }
     }
 
-    pub fn should_rekey(&self) -> bool {
-        // TODO (security): re-key after an hour without rekeying.
+    pub fn rekeyable(&self) -> bool {
+        //! Per RFC 4253, it is RECOMMENDED that the keys be changed after each gigabyte of
+        //! transmitted data or after each hour of connection time, whichever comes sooner.
 
-        /// Per RFC 4253, it is RECOMMENDED that the keys be changed after each gigabyte of
-        /// transmitted data or after each hour of connection time, whichever comes sooner.
         const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
-        self.session.is_none() || self.inner.count() > REKEY_BYTES_THRESHOLD
+        self.session.is_none()
+            || self.inner.count() >= REKEY_BYTES_THRESHOLD
+            || self.rekeyed_at.elapsed() >= Duration::from_hours(1)
     }
 
     pub fn set_transport(&mut self, transport: Transport) {
         self.transport = transport;
+
+        // Reset I/O counter and set last rekey to this instant.
         self.inner.reset();
+        self.rekeyed_at = Instant::now();
     }
 
     pub fn with_session(&mut self, session: &[u8]) -> &[u8] {
