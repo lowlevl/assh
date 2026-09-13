@@ -23,6 +23,8 @@
 )]
 #![forbid(unsafe_code)]
 
+// TODO: (debug) review logging strategy and improve spans and logs.
+
 pub mod error;
 pub use error::{Error, Result};
 
