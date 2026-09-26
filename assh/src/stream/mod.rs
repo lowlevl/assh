@@ -69,8 +69,7 @@ where
 
         const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
-        self.session.is_none()
-            || self.inner.count() >= REKEY_BYTES_THRESHOLD
+        self.inner.count() >= REKEY_BYTES_THRESHOLD
             || self.rekeyed_at.elapsed() >= Duration::from_hours(1)
     }
 

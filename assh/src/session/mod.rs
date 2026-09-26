@@ -20,7 +20,8 @@ pub mod service;
 pub mod side;
 
 // TODO: (feature) Handle extension negotiation described in RFC8308.
-// TODO: (reliability) Fix out-of-band rekeying, it expects the packet right away while we are not sure the peer is that fast.
+
+// FIXME: do a state machine for the SSH session, it's time /shrug
 
 /// A trait alias for something _pipe-alike_, implementing [`AsyncBufRead`] and [`AsyncWrite`].
 pub trait Pipe: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static {}
@@ -32,6 +33,7 @@ pub struct Session<IO: Pipe, S: side::Side> {
     config: S,
 
     peer_id: Id,
+    kexinit: Option<KexInit<'static>>,
 }
 
 impl<IO, S> Session<IO, S>
@@ -57,6 +59,7 @@ where
             stream: Either::Left(stream),
             config,
             peer_id,
+            kexinit: None,
         })
     }
 
@@ -70,16 +73,41 @@ where
         self.stream.as_ref().left().and_then(Stream::session_id)
     }
 
+    async fn housekeeping(&mut self) -> Result<()> {
+        let stream = self.stream.as_mut().either(Ok, |err| Err(err.clone()))?;
+
+        if stream.session_id().is_none() {
+            //> The initial key-exchange must be performed before anything else
+
+            tracing::debug!("Initial key-exchange started");
+
+            if let Err(err) = self.config.kex(stream, &self.peer_id, None).await {
+                return Err(self
+                    .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
+                    .await
+                    .into());
+            }
+        } else if stream.rekeyable() && self.kexinit.is_none() {
+            //> When we should rekey and didn't send a `KexInit`, send one.
+
+            let kexinit = self.config.kexinit();
+            stream.send(&kexinit).await?;
+
+            self.kexinit = Some(kexinit);
+        }
+
+        Ok(())
+    }
+
     /// Waits until the [`Session`] becomes readable,
     /// mainly to be used with [`Session::recv`] in [`futures::select`],
     /// since the `recv` method is **not cancel-safe**.
     pub async fn readable(&mut self) -> Result<()> {
-        let stream = match &mut self.stream {
-            Either::Left(stream) => stream,
-            Either::Right(err) => return Err(err.clone().into()),
-        };
-
-        stream.fill_buf().await
+        self.stream
+            .as_mut()
+            .either(Ok, |err| Err(err.clone()))?
+            .fill_buf()
+            .await
     }
 
     /// Receive a _packet_ from the connected peer.
@@ -89,29 +117,30 @@ where
     /// some data may be partially received.
     pub async fn recv(&mut self) -> Result<Packet> {
         loop {
-            let stream = match &mut self.stream {
-                Either::Left(stream) => stream,
-                Either::Right(err) => return Err(err.clone().into()),
-            };
+            self.housekeeping().await?;
 
-            if stream.rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
-                if let Err(err) = self.config.kex(stream, &self.peer_id).await {
-                    return Err(self
-                        .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
-                        .await
-                        .into());
-                }
+            let stream = self.stream.as_mut().either(Ok, |err| Err(err.clone()))?;
 
-                continue;
+            // Complete key-exchange when receiving a kexinit
+            if stream.peek().await?.to::<KexInit>().is_ok()
+                && let Err(err) = self
+                    .config
+                    .kex(stream, &self.peer_id, self.kexinit.take())
+                    .await
+            {
+                return Err(self
+                    .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
+                    .await
+                    .into());
             }
 
-            let packet = stream.recv().await?;
+            let recvd = stream.recv().await?;
 
             if let Ok(Disconnect {
                 reason,
                 description,
                 ..
-            }) = packet.to()
+            }) = recvd.to()
             {
                 tracing::info!("Peer disconnected with `{reason:?}`: {description}");
 
@@ -120,34 +149,23 @@ where
                     reason,
                     description,
                 });
-            } else if let Ok(Ignore { data }) = packet.to() {
+            } else if let Ok(Ignore { data }) = recvd.to() {
                 tracing::debug!("Received an 'ignore' message with length {}", data.len());
-            } else if let Ok(Unimplemented { seq }) = packet.to() {
+            } else if let Ok(Unimplemented { seq }) = recvd.to() {
                 tracing::debug!("Received an 'unimplemented' message about packet #{seq}",);
-            } else if let Ok(Debug { message, .. }) = packet.to() {
+            } else if let Ok(Debug { message, .. }) = recvd.to() {
                 tracing::debug!("Received a 'debug' message: {message}");
             } else {
-                break Ok(packet);
+                break Ok(recvd);
             }
         }
     }
 
     /// Send a _packet_ to the connected peer.
     pub async fn send(&mut self, message: impl IntoPacket) -> Result<()> {
-        let stream = match &mut self.stream {
-            Either::Left(stream) => stream,
-            Either::Right(err) => return Err(err.clone().into()),
-        };
+        self.housekeeping().await?;
 
-        if stream.rekeyable()
-            && let Err(err) = self.config.kex(stream, &self.peer_id).await
-        {
-            return Err(self
-                .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
-                .await
-                .into());
-        }
-
+        let stream = self.stream.as_mut().either(Ok, |err| Err(err.clone()))?;
         stream.send(message).await
     }
 
@@ -168,6 +186,7 @@ where
             language: Default::default(),
         };
         stream.send(&message).await.ok();
+        // FIXME: maybe shutdown ?
 
         let err = DisconnectedError {
             by: DisconnectedBy::Us,
@@ -178,7 +197,13 @@ where
 
         err
     }
+}
 
+impl<IO, S> Session<IO, S>
+where
+    IO: Pipe,
+    S: side::Side,
+{
     /// Handle a _service_ for the peer.
     pub async fn handle<H>(mut self, mut service: H) -> Result<H::Ok<IO, S>, H::Err>
     where

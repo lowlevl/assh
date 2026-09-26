@@ -46,16 +46,20 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
         &self,
         stream: &mut Stream<impl Pipe>,
         peer_id: &Id,
+        kexinit: Option<KexInit>,
     ) -> impl Future<Output = Result<()>> + Send + Sync {
         async move {
-            tracing::debug!("Starting key-exchange procedure");
+            let kexinit = if let Some(kexinit) = kexinit {
+                kexinit
+            } else {
+                let kexinit = self.kexinit();
+                stream.send(&kexinit).await?;
 
-            let kexinit = self.kexinit();
-            stream.send(&kexinit).await?;
+                kexinit
+            };
+            let peerkexinit = stream.recv().await?.to::<KexInit>()?;
 
             // TODO: (compliance) Take care of `KexInit::first_kex_packet_follows` being true.
-
-            let peerkexinit = stream.recv().await?.to::<KexInit>()?;
 
             let transport = self
                 .exchange(stream, &kexinit, &peerkexinit, peer_id)
