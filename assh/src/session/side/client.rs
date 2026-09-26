@@ -5,8 +5,8 @@ use ssh_packet::{arch::NameList, trans::KexInit};
 use super::{Side, server::Server};
 use crate::{
     Pipe, Result,
-    stream::{
-        Stream, Transport,
+    core::{
+        Core, Transport,
         algorithm::{
             Negociate,
             cipher::Cipher,
@@ -131,7 +131,7 @@ impl Side for Client {
 
     async fn exchange(
         &self,
-        stream: &mut Stream<impl Pipe>,
+        stream: &mut Core<impl Pipe>,
         kexinit: &KexInit<'_>,
         peerkexinit: &KexInit<'_>,
         peer_id: &Id,

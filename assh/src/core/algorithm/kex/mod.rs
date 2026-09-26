@@ -4,7 +4,7 @@ use strum::{AsRefStr, EnumString};
 
 use crate::{
     Error, Pipe, Result,
-    stream::{Stream, Transport},
+    core::{Core, Transport},
 };
 
 // TODO: (reliability) Investigate the randomly-occuring `invalid signature` occuring against OpenSSH.
@@ -49,7 +49,7 @@ pub enum Kex {
 impl Kex {
     pub(crate) async fn as_client(
         &self,
-        stream: &mut Stream<impl Pipe>,
+        stream: &mut Core<impl Pipe>,
         client: KexMeta<'_>,
         server: KexMeta<'_>,
     ) -> Result<Transport> {
@@ -62,7 +62,7 @@ impl Kex {
 
     pub(crate) async fn as_server(
         &self,
-        stream: &mut Stream<impl Pipe>,
+        stream: &mut Core<impl Pipe>,
         client: KexMeta<'_>,
         server: KexMeta<'_>,
         key: &PrivateKey,

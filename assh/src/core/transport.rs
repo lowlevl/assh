@@ -7,7 +7,7 @@ use ssh_packet::Packet;
 
 use crate::{
     Error, Result,
-    stream::algorithm::{cipher, compress, hmac, kex},
+    core::algorithm::{cipher, compress, hmac, kex},
 };
 
 // TODO (performance): handle & produce larger payload sizes if peer is known to support them ?

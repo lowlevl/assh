@@ -12,8 +12,8 @@ use ssh_packet::{
 };
 
 use crate::{
+    core::Core,
     error::{DisconnectedBy, DisconnectedError, Error, Result},
-    stream::Stream,
 };
 
 pub mod service;
@@ -28,7 +28,7 @@ impl<T: AsyncBufRead + AsyncWrite + Unpin + Send + Sync + 'static> Pipe for T {}
 
 /// A session wrapping a `stream` to handle **key-exchange** and **`SSH-TRANS`** layer messages.
 pub struct Session<IO: Pipe, S: side::Side> {
-    stream: Either<Stream<IO>, DisconnectedError>,
+    core: Either<Core<IO>, DisconnectedError>,
     config: S,
 
     peer_id: Id,
@@ -41,20 +41,20 @@ where
 {
     /// Create a new [`Session`] from a [`Pipe`] stream,
     /// and some configuration.
-    pub async fn new(mut stream: IO, config: S) -> Result<Self> {
-        config.id().to_writer(&mut stream).await?;
-        stream.flush().await?;
+    pub async fn new(mut pipe: IO, config: S) -> Result<Self> {
+        config.id().to_writer(&mut pipe).await?;
+        pipe.flush().await?;
 
-        let peer_id = Id::from_reader(&mut stream).await?;
-        let stream = Stream::new(
-            stream,
+        let peer_id = Id::from_reader(&mut pipe).await?;
+        let core = Core::new(
+            pipe,
             TypeId::of::<S>() == TypeId::of::<side::server::Server>(),
         );
 
         tracing::debug!("Session started with peer `{peer_id}`");
 
         Ok(Self {
-            stream: Either::Left(stream),
+            core: Either::Left(core),
             config,
             peer_id,
         })
@@ -67,14 +67,14 @@ where
 
     /// Access initial exchange hash.
     pub fn session_id(&self) -> Option<&[u8]> {
-        self.stream.as_ref().left().and_then(Stream::session_id)
+        self.core.as_ref().left().and_then(Core::session_id)
     }
 
     /// Waits until the [`Session`] becomes readable,
     /// mainly to be used with [`Session::recv`] in [`futures::select`],
     /// since the `recv` method is **not cancel-safe**.
     pub async fn readable(&mut self) -> Result<()> {
-        let stream = match &mut self.stream {
+        let stream = match &mut self.core {
             Either::Left(stream) => stream,
             Either::Right(err) => return Err(err.clone().into()),
         };
@@ -89,7 +89,7 @@ where
     /// some data may be partially received.
     pub async fn recv(&mut self) -> Result<Packet> {
         loop {
-            let stream = match &mut self.stream {
+            let stream = match &mut self.core {
                 Either::Left(stream) => stream,
                 Either::Right(err) => return Err(err.clone().into()),
             };
@@ -115,7 +115,7 @@ where
             {
                 tracing::info!("Peer disconnected with `{reason:?}`: {description}");
 
-                self.stream = Either::Right(DisconnectedError {
+                self.core = Either::Right(DisconnectedError {
                     by: DisconnectedBy::Them,
                     reason,
                     description,
@@ -134,7 +134,7 @@ where
 
     /// Send a _packet_ to the connected peer.
     pub async fn send(&mut self, message: impl IntoPacket) -> Result<()> {
-        let stream = match &mut self.stream {
+        let stream = match &mut self.core {
             Either::Left(stream) => stream,
             Either::Right(err) => return Err(err.clone().into()),
         };
@@ -157,7 +157,7 @@ where
         reason: DisconnectReason,
         description: impl Into<Utf8<'static>>,
     ) -> DisconnectedError {
-        let stream = match &mut self.stream {
+        let stream = match &mut self.core {
             Either::Left(stream) => stream,
             Either::Right(err) => return err.clone(),
         };
@@ -174,7 +174,7 @@ where
             reason: message.reason,
             description: message.description,
         };
-        self.stream = Either::Right(err.clone());
+        self.core = Either::Right(err.clone());
 
         err
     }

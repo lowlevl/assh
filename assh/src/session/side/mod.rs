@@ -8,7 +8,7 @@ use ssh_packet::{
 
 use crate::{
     Pipe, Result,
-    stream::{Stream, Transport},
+    core::{Core, Transport},
 };
 
 pub mod client;
@@ -35,7 +35,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
     /// Exchange the keys from the config.
     fn exchange(
         &self,
-        stream: &mut Stream<impl Pipe>,
+        stream: &mut Core<impl Pipe>,
         kexinit: &KexInit,
         peerkexinit: &KexInit,
         peer_id: &Id,
@@ -44,7 +44,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
     /// Perform the key-exchange from this side.
     fn kex(
         &self,
-        stream: &mut Stream<impl Pipe>,
+        stream: &mut Core<impl Pipe>,
         peer_id: &Id,
     ) -> impl Future<Output = Result<()>> + Send + Sync {
         async move {

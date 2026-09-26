@@ -28,15 +28,15 @@
 pub mod error;
 pub use error::{Error, Result};
 
+mod core;
+
 mod session;
 pub use session::{Pipe, Session, service, side};
-
-mod stream;
 
 pub mod algorithm {
     //! Supported algorithms for **compression**, **encryption**, **integrity**, **key-exchange** & **server key**.
 
-    pub use crate::stream::algorithm::{
+    pub use crate::core::algorithm::{
         cipher::Cipher, compress::Compress, hmac::Hmac, kex::Kex, key::Key,
     };
 }

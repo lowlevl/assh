@@ -11,11 +11,11 @@ use ssh_packet::{
 use super::KexMeta;
 use crate::{
     Error, Pipe, Result,
-    stream::{Stream, Transport},
+    core::{Core, Transport},
 };
 
 pub async fn as_client<H: Digest + FixedOutputReset>(
-    stream: &mut Stream<impl Pipe>,
+    stream: &mut Core<impl Pipe>,
     client: KexMeta<'_>,
     server: KexMeta<'_>,
 ) -> Result<Transport> {
@@ -63,7 +63,7 @@ pub async fn as_client<H: Digest + FixedOutputReset>(
 }
 
 pub async fn as_server<H: Digest + FixedOutputReset>(
-    stream: &mut Stream<impl Pipe>,
+    stream: &mut Core<impl Pipe>,
     client: KexMeta<'_>,
     server: KexMeta<'_>,
     key: &PrivateKey,

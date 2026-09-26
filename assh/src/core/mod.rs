@@ -17,8 +17,8 @@ mod transport;
 pub use transport::Transport;
 
 /// A wrapper around a [`Pipe`] to interface with to the SSH binary protocol.
-pub struct Stream<S> {
-    inner: IoCounter<S>,
+pub struct Core<IO> {
+    io: IoCounter<IO>,
 
     /// The transport states from the key-exchange (keys, algorithms).
     transport: Transport,
@@ -45,13 +45,13 @@ pub struct Stream<S> {
     authenticated: bool,
 }
 
-impl<S> Stream<S>
+impl<IO> Core<IO>
 where
-    S: Pipe,
+    IO: Pipe,
 {
-    pub fn new(stream: S, serverside: bool) -> Self {
+    pub fn new(pipe: IO, serverside: bool) -> Self {
         Self {
-            inner: IoCounter::new(stream),
+            io: IoCounter::new(pipe),
             transport: Default::default(),
             rekeyed_at: Instant::now(),
             session: None,
@@ -70,7 +70,7 @@ where
         const REKEY_BYTES_THRESHOLD: usize = 0x40000000;
 
         self.session.is_none()
-            || self.inner.count() >= REKEY_BYTES_THRESHOLD
+            || self.io.count() >= REKEY_BYTES_THRESHOLD
             || self.rekeyed_at.elapsed() >= Duration::from_hours(1)
     }
 
@@ -78,7 +78,7 @@ where
         self.transport = transport;
 
         // Reset I/O counter and set last rekey to this instant.
-        self.inner.reset();
+        self.io.reset();
         self.rekeyed_at = Instant::now();
     }
 
@@ -91,7 +91,7 @@ where
     }
 
     pub async fn fill_buf(&mut self) -> Result<()> {
-        self.inner.fill_buf().await?;
+        self.io.fill_buf().await?;
 
         Ok(())
     }
@@ -111,7 +111,7 @@ where
                 let data = self
                     .transport
                     .rx
-                    .read(self.rxseq, &mut self.inner, self.authenticated)
+                    .read(self.rxseq, &mut self.io, self.authenticated)
                     .await?;
 
                 // We are the client, and just received a `SSH_MSG_USERAUTH_SUCCESS` message,
@@ -140,9 +140,9 @@ where
 
         self.transport
             .tx
-            .write(self.txseq, &data, &mut self.inner, self.authenticated)
+            .write(self.txseq, &data, &mut self.io, self.authenticated)
             .await?;
-        self.inner.flush().await?;
+        self.io.flush().await?;
 
         // We are the server, and just sent a `SSH_MSG_USERAUTH_SUCCESS` message,
         // which means we can start delayed compression from the next message.
@@ -160,5 +160,48 @@ where
         self.txseq = self.txseq.wrapping_add(1);
 
         Ok(())
+    }
+}
+
+impl<IO: Pipe> futures::Stream for Core<IO> {
+    type Item = ();
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        todo!()
+    }
+}
+
+impl<IO: Pipe> futures::Sink<()> for Core<IO> {
+    type Error = crate::Error;
+
+    fn poll_ready(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::prelude::v1::Result<(), Self::Error>> {
+        todo!()
+    }
+
+    fn start_send(
+        self: std::pin::Pin<&mut Self>,
+        item: (),
+    ) -> std::prelude::v1::Result<(), Self::Error> {
+        todo!()
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::prelude::v1::Result<(), Self::Error>> {
+        todo!()
+    }
+
+    fn poll_close(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::prelude::v1::Result<(), Self::Error>> {
+        todo!()
     }
 }
