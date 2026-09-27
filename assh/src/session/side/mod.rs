@@ -1,7 +1,8 @@
 //! Session's [`Side`]s, either [`Client`] or [`Server`].
 
-use futures::Future;
+use futures::{Future, SinkExt};
 use ssh_packet::{
+    IntoPacket,
     arch::id::Id,
     trans::{KexInit, NewKeys},
 };
@@ -51,7 +52,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
             tracing::debug!("Starting key-exchange procedure");
 
             let kexinit = self.kexinit();
-            stream.send(&kexinit).await?;
+            stream.send(&kexinit.into_packet()).await?;
 
             // TODO: (compliance) Take care of `KexInit::first_kex_packet_follows` being true.
 
@@ -61,7 +62,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
                 .exchange(stream, &kexinit, &peerkexinit, peer_id)
                 .await?;
 
-            stream.send(&NewKeys).await?;
+            stream.send(&NewKeys.into_packet()).await?;
             stream.recv().await?.to::<NewKeys>()?;
 
             tracing::debug!(

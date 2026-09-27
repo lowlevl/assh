@@ -2,7 +2,7 @@ use std::io;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use digest::{Digest, FixedOutputReset};
-use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures::{AsyncRead, AsyncReadExt};
 use ssh_packet::Packet;
 
 use crate::{
@@ -140,15 +140,14 @@ impl TxTransport {
         }
     }
 
-    pub async fn write(
-        &mut self,
-        seq: u32,
-        payload: &[u8],
-        mut writer: impl AsyncWrite + Unpin,
-        authenticated: bool,
-    ) -> Result<()> {
-        let capacity =
-            LEN_FIELD_SIZE + PADLEN_FIELD_SIZE + payload.len() + self.padding(payload.len());
+    pub fn write(&mut self, seq: u32, payload: &[u8], authenticated: bool) -> Result<Bytes> {
+        // NOTE: this is a capacity to avoid reallocating while assembling the payload,
+        // this however goes down the drain with compression and reallocates at least once.
+        let capacity = LEN_FIELD_SIZE
+            + PADLEN_FIELD_SIZE
+            + payload.len()
+            + self.padding(payload.len())
+            + self.hmac.size();
         let mut buf = bytes::BytesMut::with_capacity(capacity);
 
         let mut padded = buf.split_off(LEN_FIELD_SIZE); // reserve 4 bytes for `length`.
@@ -182,10 +181,9 @@ impl TxTransport {
             self.cipher.encrypt(&mut buf[..])?;
         }
 
-        writer.write_all(&buf).await?;
-        writer.write_all(&mac).await?;
+        buf.extend_from_slice(&mac);
 
-        Ok(())
+        Ok(buf.freeze())
     }
 }
 

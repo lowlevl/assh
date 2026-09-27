@@ -1,7 +1,7 @@
 use std::any::TypeId;
 
 use either::Either;
-use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt};
+use futures::{AsyncBufRead, AsyncWrite, AsyncWriteExt, SinkExt};
 use ssh_packet::{
     IntoPacket, Packet,
     arch::{Utf8, id::Id},
@@ -148,7 +148,7 @@ where
                 .into());
         }
 
-        stream.send(message).await
+        stream.send(&message.into_packet()).await
     }
 
     /// Send a _disconnect message_ to the peer and shutdown the session.
@@ -167,7 +167,7 @@ where
             description: description.into(),
             language: Default::default(),
         };
-        stream.send(&message).await.ok();
+        stream.send(&message.into_packet()).await.ok();
 
         let err = DisconnectedError {
             by: DisconnectedBy::Us,
