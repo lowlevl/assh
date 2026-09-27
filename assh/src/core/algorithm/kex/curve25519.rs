@@ -1,8 +1,10 @@
+use futures::SinkExt;
 use secrecy::{ExposeSecret, SecretBox};
 use signature::digest::{Digest, FixedOutputReset};
 use signature::{SignatureEncoding, Signer, Verifier};
 use ssh_key::{PrivateKey, Signature};
 use ssh_packet::{
+    IntoPacket,
     arch::MpInt,
     crypto::exchange,
     trans::{KexEcdhInit, KexEcdhReply},
@@ -23,9 +25,12 @@ pub async fn as_client<H: Digest + FixedOutputReset>(
     let q_c = x25519_dalek::PublicKey::from(&e_c);
 
     stream
-        .send(&KexEcdhInit {
-            q_c: q_c.as_ref().into(),
-        })
+        .send(
+            &KexEcdhInit {
+                q_c: q_c.as_ref().into(),
+            }
+            .into_packet(),
+        )
         .await?;
 
     let ecdh: KexEcdhReply = stream.recv().await?.to()?;
@@ -97,11 +102,14 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
     let signature = Signer::sign(key, &hash);
 
     stream
-        .send(&KexEcdhReply {
-            k_s: k_s.into(),
-            q_s: q_s.as_ref().into(),
-            signature: signature.to_vec().into(),
-        })
+        .send(
+            &KexEcdhReply {
+                k_s: k_s.into(),
+                q_s: q_s.as_ref().into(),
+                signature: signature.to_bytes().into(),
+            }
+            .into_packet(),
+        )
         .await?;
 
     let session_id = stream.with_session(&hash);
