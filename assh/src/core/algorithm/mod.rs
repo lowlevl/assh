@@ -27,9 +27,10 @@ pub trait Negociate<S = ()>: Sized + FromStr {
 }
 
 /// The SSH key-derivation function,
-/// defined in https://datatracker.ietf.org/doc/html/rfc4253#section-7.2.
+/// defined in <https://datatracker.ietf.org/doc/html/rfc4253#section-7.2>.
 ///
-/// This function uses <Cursor as Write>::write_all and ignore it's errors,
+/// # Note:
+/// This function uses `<Cursor as Write>::write_all` and ignore it's errors,
 /// this is fine because it never fails unless the buffer is full, which is the desired behavior.
 fn kdf<const S: usize, H: digest::Digest + digest::FixedOutputReset>(
     kind: u8,
