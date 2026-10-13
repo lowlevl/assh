@@ -13,8 +13,8 @@ use ssh_packet::{Packet, binrw::meta::WriteMagic};
 
 use crate::{Pipe, Result};
 
-mod iocounter;
-use iocounter::IoCounter;
+mod counter;
+use counter::Counter;
 
 mod transport;
 pub use transport::Transport;
@@ -23,7 +23,7 @@ pub mod algorithm;
 
 /// A wrapper around a [`Pipe`] to interface with to the SSH binary protocol.
 pub struct Core<IO> {
-    inner: IoCounter<IO>,
+    inner: Counter<IO>,
 
     /// The transport states from the key-exchange (keys, algorithms).
     transport: Transport,
@@ -53,7 +53,7 @@ where
 {
     pub fn new(inner: IO, serverside: bool) -> Self {
         Self {
-            inner: IoCounter::new(inner),
+            inner: Counter::new(inner),
             transport: Default::default(),
             rxbuf: Default::default(),
             rxseq: 0,
