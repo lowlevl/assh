@@ -16,21 +16,41 @@ use crate::{Pipe, Result};
 mod counter;
 use counter::Counter;
 
-mod transport;
-pub use transport::Transport;
-
 pub mod algorithm;
+
+pub mod rx;
+pub mod tx;
+
+const LEN_FIELD_SIZE: usize = std::mem::size_of::<u32>();
+const PADLEN_FIELD_SIZE: usize = std::mem::size_of::<u8>();
+
+/// Per RFC4253, all implementations MUST be able to process packets
+/// with an uncompressed payload length of 32768 bytes or less.
+const PAYLOAD_MAX_LEN: usize = 32768;
+
+/// Per RFC4253, all implementations MUST be able to process [...]
+/// a total packet size of 35000 bytes or less.
+const PACKET_MAX_SIZE: usize = 35000;
+
+/// Per RFC4253, the minimum size of a packet is 16
+/// (or the cipher block size, whichever is larger).
+///
+/// NOTE: OpenSSH produces 12 bytes packets with `3des-cbc`, so this is the value.
+const PACKET_MIN_SIZE: usize = 12;
+
+/// Per RFC4253, implementations SHOULD decrypt the length after receiving
+/// the first 8 (or cipher block size, whichever is larger) bytes of a packet.
+const PACKET_MIN_READ: usize = 8;
 
 /// A wrapper around a [`Pipe`] to interface with to the SSH binary protocol.
 pub struct Core<IO> {
     inner: Counter<IO>,
 
-    /// The transport states from the key-exchange (keys, algorithms).
-    transport: Transport,
-
+    rxtransport: rx::Transport,
     rxbuf: Option<Packet>,
     rxseq: u32,
 
+    txtransport: tx::Transport,
     txstate: Bytes,
     txseq: u32,
 
@@ -54,9 +74,10 @@ where
     pub fn new(inner: IO, serverside: bool) -> Self {
         Self {
             inner: Counter::new(inner),
-            transport: Default::default(),
+            rxtransport: Default::default(),
             rxbuf: Default::default(),
             rxseq: 0,
+            txtransport: Default::default(),
             txstate: Default::default(),
             txseq: 0,
             session: Default::default(),
@@ -77,8 +98,9 @@ where
             || self.rekeyed_at.elapsed() >= Duration::from_hours(1)
     }
 
-    pub fn set_transport(&mut self, transport: Transport) {
-        self.transport = transport;
+    pub fn set_transport(&mut self, rx: rx::Transport, tx: tx::Transport) {
+        self.rxtransport = rx;
+        self.txtransport = tx;
 
         // Reset I/O counter and set last rekey to this instant.
         self.inner.reset();
@@ -112,8 +134,7 @@ where
             Some(packet) => Ok(packet),
             None => {
                 let data = self
-                    .transport
-                    .rx
+                    .rxtransport
                     .read(self.rxseq, &mut self.inner, self.authenticated)
                     .await?;
 
@@ -175,8 +196,7 @@ impl<IO: Pipe> futures::Sink<&[u8]> for Core<IO> {
         );
 
         let encrypted = this
-            .transport
-            .tx
+            .txtransport
             .encrypt(this.txseq, data, this.authenticated)?;
 
         this.txstate = encrypted;

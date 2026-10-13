@@ -6,7 +6,7 @@ use super::{Side, server::Server};
 use crate::{
     Pipe, Result,
     core::{
-        Core, Transport,
+        Core,
         algorithm::{
             Negociate,
             cipher::Cipher,
@@ -15,6 +15,7 @@ use crate::{
             kex::{Kex, KexMeta},
             key::Key,
         },
+        rx, tx,
     },
 };
 
@@ -135,7 +136,7 @@ impl Side for Client {
         kexinit: &KexInit<'_>,
         peerkexinit: &KexInit<'_>,
         peer_id: &Id,
-    ) -> Result<Transport> {
+    ) -> Result<(rx::Transport, tx::Transport)> {
         let client = KexMeta::new::<Client>(self.id(), kexinit, peerkexinit)?;
         let server = KexMeta::new::<Server>(peer_id, kexinit, peerkexinit)?;
 

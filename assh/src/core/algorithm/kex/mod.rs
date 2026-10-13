@@ -4,7 +4,7 @@ use strum::{AsRefStr, EnumString};
 
 use crate::{
     Error, Pipe, Result,
-    core::{Core, Transport},
+    core::{Core, rx, tx},
 };
 
 // TODO: (reliability) Investigate the randomly-occuring `invalid signature` occuring against OpenSSH.
@@ -52,7 +52,7 @@ impl Kex {
         stream: &mut Core<impl Pipe>,
         client: KexMeta<'_>,
         server: KexMeta<'_>,
-    ) -> Result<Transport> {
+    ) -> Result<(rx::Transport, tx::Transport)> {
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
                 curve25519::as_client::<sha2::Sha256>(stream, client, server).await
@@ -66,7 +66,7 @@ impl Kex {
         client: KexMeta<'_>,
         server: KexMeta<'_>,
         key: &PrivateKey,
-    ) -> Result<Transport> {
+    ) -> Result<(rx::Transport, tx::Transport)> {
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
                 curve25519::as_server::<sha2::Sha256>(stream, client, server, key).await

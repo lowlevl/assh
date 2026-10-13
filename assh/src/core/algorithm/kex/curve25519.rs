@@ -13,14 +13,14 @@ use ssh_packet::{
 use super::KexMeta;
 use crate::{
     Error, Pipe, Result,
-    core::{Core, Transport},
+    core::{Core, rx, tx},
 };
 
 pub async fn as_client<H: Digest + FixedOutputReset>(
     stream: &mut Core<impl Pipe>,
     client: KexMeta<'_>,
     server: KexMeta<'_>,
-) -> Result<Transport> {
+) -> Result<(rx::Transport, tx::Transport)> {
     let e_c = x25519_dalek::EphemeralSecret::random_from_rng(&mut rand::rng());
     let q_c = x25519_dalek::PublicKey::from(&e_c);
 
@@ -58,12 +58,9 @@ pub async fn as_client<H: Digest + FixedOutputReset>(
 
     let session_id = stream.with_session(&hash);
 
-    Ok(Transport::as_client::<H>(
-        client,
-        server,
-        secret.expose_secret().as_ref(),
-        &hash,
-        session_id,
+    Ok((
+        rx::Transport::as_client::<H>(server, secret.expose_secret().as_ref(), &hash, session_id),
+        tx::Transport::as_client::<H>(client, secret.expose_secret().as_ref(), &hash, session_id),
     ))
 }
 
@@ -72,7 +69,7 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
     client: KexMeta<'_>,
     server: KexMeta<'_>,
     key: &PrivateKey,
-) -> Result<Transport> {
+) -> Result<(rx::Transport, tx::Transport)> {
     let ecdh: KexEcdhInit = stream.recv().await?.to()?;
 
     let e_s = x25519_dalek::EphemeralSecret::random_from_rng(&mut rand::rng());
@@ -114,11 +111,8 @@ pub async fn as_server<H: Digest + FixedOutputReset>(
 
     let session_id = stream.with_session(&hash);
 
-    Ok(Transport::as_server::<H>(
-        client,
-        server,
-        secret.expose_secret().as_ref(),
-        &hash,
-        session_id,
+    Ok((
+        rx::Transport::as_server::<H>(client, secret.expose_secret().as_ref(), &hash, session_id),
+        tx::Transport::as_server::<H>(server, secret.expose_secret().as_ref(), &hash, session_id),
     ))
 }

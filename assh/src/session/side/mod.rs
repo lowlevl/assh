@@ -9,7 +9,7 @@ use ssh_packet::{
 
 use crate::{
     Pipe, Result,
-    core::{Core, Transport},
+    core::{Core, rx, tx},
 };
 
 pub mod client;
@@ -40,7 +40,7 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
         kexinit: &KexInit,
         peerkexinit: &KexInit,
         peer_id: &Id,
-    ) -> impl Future<Output = Result<Transport>> + Send + Sync;
+    ) -> impl Future<Output = Result<(rx::Transport, tx::Transport)>> + Send + Sync;
 
     /// Perform the key-exchange from this side.
     fn kex(
@@ -57,21 +57,16 @@ pub trait Side: private::Sealed + Send + Sync + Unpin + 'static {
             // TODO: (compliance) Take care of `KexInit::first_kex_packet_follows` being true.
 
             let peerkexinit = stream.recv().await?.to::<KexInit>()?;
-
-            let transport = self
+            let (rx, tx) = self
                 .exchange(stream, &kexinit, &peerkexinit, peer_id)
                 .await?;
 
             stream.send(&NewKeys.into_packet()).await?;
             stream.recv().await?.to::<NewKeys>()?;
 
-            tracing::debug!(
-                "Key exchange success, negociated algorithms:\nrx: {:?}\ntx: {:?}",
-                transport.rx,
-                transport.tx,
-            );
+            tracing::debug!("Key exchange success, negociated algorithms:\nrx: {rx:?}\ntx: {tx:?}",);
 
-            stream.set_transport(transport);
+            stream.set_transport(rx, tx);
 
             Ok(())
         }
