@@ -8,10 +8,10 @@ use std::{
 };
 
 use bytes::{Buf, Bytes};
-use futures::{AsyncBufReadExt, AsyncWrite};
+use futures::{AsyncBufReadExt, AsyncWrite, StreamExt};
 use ssh_packet::{Packet, binrw::meta::WriteMagic};
 
-use crate::{Pipe, Result};
+use crate::{Error, Pipe, Result};
 
 mod counter;
 use counter::Counter;
@@ -47,7 +47,9 @@ pub struct Core<IO> {
     inner: Counter<IO>,
 
     rxtransport: rx::Transport,
+    /// FIXME: remove
     rxbuf: Option<Packet>,
+    rxstate: rx::Reader,
     rxseq: u32,
 
     txtransport: tx::Transport,
@@ -76,6 +78,7 @@ where
             inner: Counter::new(inner),
             rxtransport: Default::default(),
             rxbuf: Default::default(),
+            rxstate: Default::default(),
             rxseq: 0,
             txtransport: Default::default(),
             txstate: Default::default(),
@@ -123,6 +126,8 @@ where
 
     /// Receive and decrypt a _packet_ from the peer without removing it from the queue.
     pub async fn peek(&mut self) -> Result<&Packet> {
+        //! FIXME: remove
+
         let packet = self.recv().await?;
 
         Ok(self.rxbuf.insert(packet))
@@ -130,28 +135,15 @@ where
 
     /// Receive and decrypt a _packet_ from the peer.
     pub async fn recv(&mut self) -> Result<Packet> {
+        //! FIXME: remove
+
         match self.rxbuf.take() {
             Some(packet) => Ok(packet),
             None => {
                 let data = self
-                    .rxtransport
-                    .read(self.rxseq, &mut self.inner, self.authenticated)
-                    .await?;
-
-                // We are the client, and just received a `SSH_MSG_USERAUTH_SUCCESS` message,
-                // which means we can start delayed compression from the next message.
-                if !self.serverside && data[0] == ssh_packet::userauth::Success::MAGIC {
-                    self.authenticated = true;
-                }
-
-                tracing::trace!(
-                    "<~- #{}: ^{:#x} ({} bytes)",
-                    self.rxseq,
-                    data[0],
-                    data.len(),
-                );
-
-                self.rxseq = self.rxseq.wrapping_add(1);
+                    .next()
+                    .await
+                    .ok_or(crate::Error::Io(std::io::ErrorKind::UnexpectedEof.into()))??;
 
                 Ok(Packet(data.to_vec()))
             }
@@ -160,13 +152,58 @@ where
 }
 
 impl<IO: Pipe> futures::Stream for Core<IO> {
-    type Item = ();
+    type Item = Result<Bytes>;
 
     fn poll_next(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<Option<Self::Item>> {
-        todo!()
+        let this = &mut *self;
+
+        if this.rxstate.len() == 0 {
+            this.rxstate.grow(this.rxtransport.initial_block());
+        }
+
+        let data = loop {
+            let eof = futures::ready!(this.rxstate.poll_fill(cx, &mut this.inner))?;
+            if eof {
+                return task::Poll::Ready(None);
+            }
+
+            // If we've just read the first block, we need to decrypt the length
+            if this.rxstate.len() == this.rxtransport.initial_block() {
+                let len = this.rxtransport.decrypt_length(this.rxstate.get_mut())?;
+
+                // If the length differs from the current length, we need more data
+                if this.rxstate.len() != len {
+                    this.rxstate.grow(len);
+
+                    continue;
+                }
+            }
+
+            let buf = std::mem::take(&mut this.rxstate).into_inner();
+            break this
+                .rxtransport
+                .decrypt(this.rxseq, buf, this.authenticated)?;
+        };
+
+        tracing::trace!(
+            "<~- #{}: ^{:#x} ({} bytes)",
+            this.rxseq,
+            data[0],
+            data.len(),
+        );
+
+        this.rxseq = this.rxseq.wrapping_add(1);
+
+        // We are the client, and just received a `SSH_MSG_USERAUTH_SUCCESS` message,
+        // which means we can start delayed compression from the next message.
+        if !this.serverside && data[0] == ssh_packet::userauth::Success::MAGIC {
+            this.authenticated = true;
+        }
+
+        task::Poll::Ready(Some(Ok(data)))
     }
 }
 
@@ -195,11 +232,10 @@ impl<IO: Pipe> futures::Sink<&[u8]> for Core<IO> {
             data.len(),
         );
 
-        let encrypted = this
+        this.txstate = this
             .txtransport
             .encrypt(this.txseq, data, this.authenticated)?;
 
-        this.txstate = encrypted;
         this.txseq = this.txseq.wrapping_add(1);
 
         // We are the server, and just sent a `SSH_MSG_USERAUTH_SUCCESS` message,
@@ -219,6 +255,9 @@ impl<IO: Pipe> futures::Sink<&[u8]> for Core<IO> {
 
         while !this.txstate.is_empty() {
             let n = futures::ready!(Pin::new(&mut this.inner).poll_write(cx, &this.txstate))?;
+            if n == 0 {
+                return task::Poll::Ready(Err(Error::Io(std::io::ErrorKind::WriteZero.into())));
+            }
 
             this.txstate.advance(n);
         }

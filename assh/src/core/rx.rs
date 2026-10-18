@@ -1,8 +1,8 @@
-use std::io;
+use std::{io, pin::Pin, task};
 
 use bytes::{Buf, Bytes, BytesMut};
 use digest::{Digest, FixedOutputReset};
-use futures::{AsyncRead, AsyncReadExt};
+use futures::AsyncRead;
 
 use super::{
     LEN_FIELD_SIZE, PACKET_MAX_SIZE, PACKET_MIN_READ, PACKET_MIN_SIZE, PAYLOAD_MAX_LEN,
@@ -11,6 +11,47 @@ use super::{
 use crate::{Error, Result};
 
 // TODO (performance): handle larger payload sizes if peer is known to support them ?
+
+#[derive(Debug, Default)]
+pub struct Reader {
+    bytes: BytesMut,
+    amt: usize,
+}
+
+impl Reader {
+    pub fn grow(&mut self, new_len: usize) {
+        self.bytes.resize(new_len, 0);
+    }
+
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    pub fn poll_fill(
+        &mut self,
+        cx: &mut task::Context<'_>,
+        mut rdr: impl AsyncRead + Unpin,
+    ) -> task::Poll<io::Result<bool>> {
+        while self.amt < self.bytes.len() {
+            let n = futures::ready!(Pin::new(&mut rdr).poll_read(cx, &mut self.bytes[self.amt..]))?;
+            if n == 0 {
+                return task::Poll::Ready(Ok(true));
+            }
+
+            self.amt += n;
+        }
+
+        task::Poll::Ready(Ok(false))
+    }
+
+    pub fn get_mut(&mut self) -> &mut BytesMut {
+        &mut self.bytes
+    }
+
+    pub fn into_inner(self) -> BytesMut {
+        self.bytes
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Transport {
@@ -56,18 +97,11 @@ impl Transport {
         }
     }
 
-    pub async fn read(
-        &mut self,
-        seq: u32,
-        mut reader: impl AsyncRead + Unpin,
-        authenticated: bool,
-    ) -> Result<Bytes> {
-        let initial = PACKET_MIN_READ.max(self.cipher.block_size());
-        let mut buf = BytesMut::zeroed(initial);
+    pub fn initial_block(&self) -> usize {
+        PACKET_MIN_READ.max(self.cipher.block_size())
+    }
 
-        // receive the initial block
-        reader.read_exact(&mut buf[..]).await?;
-
+    pub fn decrypt_length(&mut self, buf: &mut [u8]) -> Result<usize> {
         if !self.hmac.etm() {
             self.cipher.decrypt(&mut buf[..])?;
         }
@@ -100,11 +134,12 @@ impl Transport {
             .into());
         }
 
-        // read the remaining data
-        buf.resize(size, 0);
-        reader.read_exact(&mut buf[initial..]).await?;
+        Ok(size)
+    }
 
+    pub fn decrypt(&mut self, seq: u32, mut buf: BytesMut, authenticated: bool) -> Result<Bytes> {
         let mac = buf.split_off(buf.len() - self.hmac.size());
+
         if self.hmac.etm() {
             // Encrypt-Then-MAC
 
@@ -113,7 +148,7 @@ impl Transport {
         } else {
             // MAC-Then-Encrypt
 
-            self.cipher.decrypt(&mut buf[initial..])?;
+            self.cipher.decrypt(&mut buf[self.initial_block()..])?;
             self.hmac.verify(seq, &buf, &mac)?;
         }
 
