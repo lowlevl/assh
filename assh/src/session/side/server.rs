@@ -1,28 +1,25 @@
 //! Server-[`Side`] implementation of the _session_.
 
-use ssh_key::Algorithm;
-use ssh_packet::{arch::NameList, trans::KexInit};
+use ssh_packet::{
+    arch::{NameList, id::Id},
+    trans::KexInit,
+};
 
-use super::{Side, client::Client};
+use super::Side;
 use crate::{
-    Pipe, Result,
-    core::{
-        Core,
-        algorithm::{
-            Negociate,
-            cipher::Cipher,
-            compress::Compress,
-            hmac::Hmac,
-            kex::{Kex, KexMeta},
-        },
-        rx, tx,
+    Result,
+    core::algorithm::{
+        Negociate,
+        cipher::Cipher,
+        compress::Compress,
+        hmac::Hmac,
+        kex::{self, Kex},
+        key,
     },
 };
 
 #[doc(no_inline)]
 pub use ssh_key::PrivateKey;
-#[doc(no_inline)]
-pub use ssh_packet::arch::id::Id;
 
 /// A _server_-side session configuration.
 #[derive(Debug, Clone)]
@@ -43,8 +40,9 @@ impl Default for Server {
             id: Id::v2(
                 concat!(
                     env!("CARGO_PKG_NAME"),
-                    "@server:",
-                    env!("CARGO_PKG_VERSION")
+                    "@",
+                    env!("CARGO_PKG_VERSION"),
+                    "+server"
                 ),
                 None::<&str>,
             ),
@@ -126,25 +124,25 @@ impl Side for Server {
         }
     }
 
-    async fn exchange(
+    type Kex = kex::Server;
+    fn kex(
         &self,
-        stream: &mut Core<impl Pipe>,
-        kexinit: &KexInit<'_>,
-        peerkexinit: &KexInit<'_>,
-        peer_id: &Id,
-    ) -> Result<(rx::Transport, tx::Transport)> {
-        let client = KexMeta::new::<Client>(peer_id, peerkexinit, kexinit)?;
-        let server = KexMeta::new::<Server>(self.id(), peerkexinit, kexinit)?;
+        kexinit: kex::KexInit<'static>,
+        peerkexinit: kex::KexInit<'static>,
+        peer_id: Id,
+    ) -> Result<Self::Kex> {
+        let kex = Kex::negociate(&peerkexinit, &kexinit)?;
 
-        let alg = Algorithm::negociate(peerkexinit, kexinit)?;
+        let alg = key::Key::negociate(&peerkexinit, &kexinit)?;
         let key = self
             .keys
             .iter()
             .find(|key| key.algorithm() == alg)
-            .expect("negociated server-key wasn't found");
+            .expect("no suitable private key for server key algorithm");
 
-        Kex::negociate(peerkexinit, kexinit)?
-            .as_server(stream, client, server, key)
-            .await
+        let (client, server) =
+            kex::Meta::new((peer_id, peerkexinit), (self.id().clone(), kexinit))?;
+
+        Ok(kex.as_server(client, server, key.clone()))
     }
 }

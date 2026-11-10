@@ -95,7 +95,7 @@ where
             };
 
             if stream.rekeyable() || stream.peek().await?.to::<KexInit>().is_ok() {
-                if let Err(err) = self.config.kex(stream, &self.peer_id).await {
+                if let Err(err) = self.config.exchange(stream, &self.peer_id).await {
                     return Err(self
                         .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())
                         .await
@@ -140,7 +140,7 @@ where
         };
 
         if stream.rekeyable()
-            && let Err(err) = self.config.kex(stream, &self.peer_id).await
+            && let Err(err) = self.config.exchange(stream, &self.peer_id).await
         {
             return Err(self
                 .disconnect(DisconnectReason::KeyExchangeFailed, err.to_string())

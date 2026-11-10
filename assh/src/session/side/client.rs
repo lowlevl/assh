@@ -1,26 +1,22 @@
 //! Client-[`Side`] implementation of the _session_.
 
-use ssh_packet::{arch::NameList, trans::KexInit};
-
-use super::{Side, server::Server};
-use crate::{
-    Pipe, Result,
-    core::{
-        Core,
-        algorithm::{
-            Negociate,
-            cipher::Cipher,
-            compress::Compress,
-            hmac::Hmac,
-            kex::{Kex, KexMeta},
-            key::Key,
-        },
-        rx, tx,
-    },
+use ssh_packet::{
+    arch::{NameList, id::Id},
+    trans::KexInit,
 };
 
-#[doc(no_inline)]
-pub use ssh_packet::arch::id::Id;
+use super::Side;
+use crate::{
+    Result,
+    core::algorithm::{
+        Negociate,
+        cipher::Cipher,
+        compress::Compress,
+        hmac::Hmac,
+        kex::{self, Kex},
+        key::Key,
+    },
+};
 
 // TODO: (compliance) Hostkey verification in client key-exchange.
 
@@ -40,8 +36,9 @@ impl Default for Client {
             id: Id::v2(
                 concat!(
                     env!("CARGO_PKG_NAME"),
-                    "@client:",
-                    env!("CARGO_PKG_VERSION")
+                    "@",
+                    env!("CARGO_PKG_VERSION"),
+                    "+client"
                 ),
                 None::<&str>,
             ),
@@ -130,18 +127,17 @@ impl Side for Client {
         }
     }
 
-    async fn exchange(
+    type Kex = kex::Client;
+    fn kex(
         &self,
-        stream: &mut Core<impl Pipe>,
-        kexinit: &KexInit<'_>,
-        peerkexinit: &KexInit<'_>,
-        peer_id: &Id,
-    ) -> Result<(rx::Transport, tx::Transport)> {
-        let client = KexMeta::new::<Client>(self.id(), kexinit, peerkexinit)?;
-        let server = KexMeta::new::<Server>(peer_id, kexinit, peerkexinit)?;
+        kexinit: KexInit<'static>,
+        peerkexinit: KexInit<'static>,
+        peer_id: Id,
+    ) -> Result<Self::Kex> {
+        let kex = Kex::negociate(&kexinit, &peerkexinit)?;
+        let (client, server) =
+            kex::Meta::new((self.id().clone(), kexinit), (peer_id, peerkexinit))?;
 
-        Kex::negociate(kexinit, peerkexinit)?
-            .as_client(stream, client, server)
-            .await
+        Ok(kex.as_client(client, server))
     }
 }

@@ -1,5 +1,7 @@
+use std::task;
+
 use ssh_key::PrivateKey;
-use ssh_packet::{arch::NameList, trans::KexInit};
+use ssh_packet::arch::NameList;
 use strum::{AsRefStr, EnumString};
 
 use crate::{
@@ -11,8 +13,10 @@ use crate::{
 // TODO: (security) Ensure we're not susceptible to Terrapin (cf. https://datatracker.ietf.org/doc/draft-ietf-sshm-strict-kex/)
 // and ensure we drop out debug/ignore messages in kex.
 
+pub use ssh_packet::trans::KexInit;
+
 mod meta;
-pub use meta::KexMeta;
+pub use meta::Meta;
 
 mod curve25519;
 
@@ -47,30 +51,83 @@ pub enum Kex {
 }
 
 impl Kex {
-    pub(crate) async fn as_client(
-        &self,
-        stream: &mut Core<impl Pipe>,
-        client: KexMeta<'_>,
-        server: KexMeta<'_>,
-    ) -> Result<(rx::Transport, tx::Transport)> {
+    pub(crate) fn as_client(&self, client: Meta, server: Meta) -> Client {
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
-                curve25519::as_client::<sha2::Sha256>(stream, client, server).await
+                Client::Curve25519Sha256(Clientside {
+                    client,
+                    server,
+                    kex: Default::default(),
+                })
             }
         }
     }
 
-    pub(crate) async fn as_server(
-        &self,
-        stream: &mut Core<impl Pipe>,
-        client: KexMeta<'_>,
-        server: KexMeta<'_>,
-        key: &PrivateKey,
-    ) -> Result<(rx::Transport, tx::Transport)> {
+    pub(crate) fn as_server(&self, client: Meta, server: Meta, key: PrivateKey) -> Server {
         match self {
             Self::Curve25519Sha256 | Self::Curve25519Sha256Libssh => {
-                curve25519::as_server::<sha2::Sha256>(stream, client, server, key).await
+                Server::Curve25519Sha256(Serverside {
+                    client,
+                    server,
+                    key,
+                    kex: Default::default(),
+                })
             }
+        }
+    }
+}
+
+pub trait Exchange: Send + Sync {
+    /// Proceed through the key-exchange state machine,
+    /// yielding a [`rx::Transport`] + [`tx::Transport`] tuple.
+    fn poll(
+        &mut self,
+        cx: &mut task::Context<'_>,
+        core: &mut Core<impl Pipe>,
+    ) -> task::Poll<Result<(rx::Transport, tx::Transport)>>;
+}
+
+pub struct Clientside<K> {
+    client: Meta,
+    server: Meta,
+    kex: K,
+}
+
+pub enum Client {
+    Curve25519Sha256(Clientside<curve25519::Client>),
+}
+
+impl Exchange for Client {
+    fn poll(
+        &mut self,
+        cx: &mut task::Context<'_>,
+        core: &mut Core<impl Pipe>,
+    ) -> task::Poll<Result<(rx::Transport, tx::Transport)>> {
+        match self {
+            Self::Curve25519Sha256(kex) => kex.poll(cx, core),
+        }
+    }
+}
+
+pub struct Serverside<K> {
+    client: Meta,
+    server: Meta,
+    key: PrivateKey,
+    kex: K,
+}
+
+pub enum Server {
+    Curve25519Sha256(Serverside<curve25519::Server>),
+}
+
+impl Exchange for Server {
+    fn poll(
+        &mut self,
+        cx: &mut task::Context<'_>,
+        core: &mut Core<impl Pipe>,
+    ) -> task::Poll<Result<(rx::Transport, tx::Transport)>> {
+        match self {
+            Self::Curve25519Sha256(kex) => kex.poll(cx, core),
         }
     }
 }

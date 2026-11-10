@@ -62,7 +62,7 @@ pub struct Transport {
 
 impl Transport {
     pub fn as_server<H: Digest + FixedOutputReset>(
-        client: kex::KexMeta<'_>,
+        client: &kex::Meta,
         secret: &[u8],
         hash: &[u8],
         session_id: &[u8],
@@ -80,7 +80,7 @@ impl Transport {
     }
 
     pub fn as_client<H: Digest + FixedOutputReset>(
-        server: kex::KexMeta<'_>,
+        server: &kex::Meta,
         secret: &[u8],
         hash: &[u8],
         session_id: &[u8],
